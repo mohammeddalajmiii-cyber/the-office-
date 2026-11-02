@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>The Office Pitch Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+:root{color-scheme:light}
+body{margin:0}
+[hidden]{display:none!important}
+
+/* Layout: one column, sticky tab bar; ideas are a vote queue, projects are cards with a step track */
+:root{
+  --bg:#EDF0F3; --surface:#FFFFFF; --ink:#141C24; --muted:#5A6573; --line:#D3DAE1;
+  --accent:#3447D6; --accent-soft:#E3E7FF; --keep:#1D7F52; --keep-soft:#DDF2E7; --drop:#B83A26; --drop-soft:#F8E1DC;
+  --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --body:"Instrument Sans",ui-sans-serif,system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E1318; --surface:#161D25; --ink:#E5EAF0; --muted:#8E9AA8; --line:#26313D;
+  --accent:#8A9AFF; --accent-soft:#232A55; --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1318; --surface:#161D25; --ink:#E5EAF0; --muted:#8E9AA8; --line:#26313D;
+  --accent:#8A9AFF; --accent-soft:#232A55; --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; color-scheme:dark}
+
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--body)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:880px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.1}
+h1{font-size:clamp(28px,6vw,42px);font-weight:800;letter-spacing:-.02em}
+h2{font-size:22px;font-weight:800}
+h3{font-size:18px;font-weight:600}
+.lede{color:var(--muted);margin:6px 0 0;max-width:60ch}
+.label{font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* flow strip */
+.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:18px;font:500 12px/1 var(--mono);color:var(--muted)}
+.flow span{padding:6px 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.flow i{font-style:normal;opacity:.6}
+
+.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;gap:4px;margin:22px 0 18px;padding-block:8px;border-bottom:1px solid var(--line)}
+.tab{background:none;border:0;padding:8px 14px;border-radius:8px;font-weight:600;color:var(--muted);display:flex;gap:8px;align-items:center}
+.tab[aria-selected="true"]{background:var(--ink);color:var(--bg)}
+.count{font:500 11px/1 var(--mono);padding:3px 6px;border-radius:6px;background:var(--line);color:var(--ink)}
+.tab[aria-selected="true"] .count{background:var(--accent);color:#fff}
+
+.status{font-size:13px;color:var(--muted);min-height:1em}
+.status.warn{color:var(--drop)}
+
+/* compose */
+.compose{display:grid;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.compose input,.compose textarea,.addstep input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:10px 12px}
+.compose textarea{min-height:70px;resize:vertical}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 14px;font-weight:600}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.quiet{border-color:transparent;background:none;color:var(--muted);padding-inline:8px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+.list{display:grid;gap:12px;margin-top:18px}
+.idea{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:10px;min-width:0}
+.idea p{margin:0;color:var(--muted);overflow-wrap:anywhere}
+.by{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
+.av{width:22px;height:22px;border-radius:50%;flex:none;object-fit:cover;border:2px solid var(--surface)}
+.stack{display:flex}.stack .av{margin-left:-7px}.stack .av:first-child{margin-left:0}
+
+.vote{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.v{display:flex;gap:8px;align-items:center;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px 5px 10px;font-weight:600;font-size:14px}
+.v b{font:500 13px/1 var(--mono)}
+.v.keep[aria-pressed="true"]{background:var(--keep-soft);border-color:var(--keep);color:var(--keep)}
+.v.drop[aria-pressed="true"]{background:var(--drop-soft);border-color:var(--drop);color:var(--drop)}
+.verdict{font-size:13px;font-weight:600}
+.verdict.keep{color:var(--keep)}.verdict.drop{color:var(--drop)}
+
+details.removed{margin-top:22px;color:var(--muted)}
+details.removed summary{cursor:pointer;font-weight:600}
+details.removed .idea{opacity:.75}
+
+.empty{border:1px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted)}
+
+/* progress line */
+.track{position:relative;height:10px;border-radius:999px;background:var(--line);overflow:hidden}
+.track .fill{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:999px;transition:width .4s ease}
+.track .tick{position:absolute;top:0;bottom:0;width:2px;background:var(--surface)}
+.pmeta{display:flex;justify-content:space-between;font:500 12px/1 var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* focus */
+.focus{background:var(--ink);color:var(--bg);border-radius:14px;padding:20px;display:grid;gap:12px;margin-bottom:18px}
+.focus .label{color:inherit;opacity:.7}
+.focus h2{font-size:clamp(24px,5vw,32px)}
+.focus .track{height:14px;background:color-mix(in srgb,var(--bg) 22%,transparent)}
+.focus .track .tick{background:var(--ink)}
+.focus .pmeta{color:inherit;opacity:.8}
+
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.steps li{display:flex;gap:10px;align-items:flex-start;padding:5px 0;min-width:0}
+.steps input[type=checkbox]{width:18px;height:18px;margin-top:2px;accent-color:var(--accent);flex:none}
+.steps label{flex:1;min-width:0;overflow-wrap:anywhere;cursor:pointer}
+.steps li.done label{color:var(--muted);text-decoration:line-through}
+.steps .x{opacity:0;border:0;background:none;color:var(--muted);padding:0 4px}
+.steps li:hover .x,.steps .x:focus-visible{opacity:1}
+.addstep{display:flex;gap:8px}
+.addstep input{flex:1;min-width:0}
+.members{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));align-items:start}
+.member.me{border-color:var(--accent)}
+.empty h3{color:var(--ink)}
+.gate{max-width:420px;margin:12vh auto 0;display:grid;gap:14px;text-align:center;justify-items:center}
+.gate p{color:var(--muted);margin:0}
+.me-chip{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
+.pill{font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
+@media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap gate" id="gate">
+  <div class="label">The Office</div>
+  <h1>Pitch Room</h1>
+  <p id="gate-msg">Sign in with your Google account to see the board.</p>
+  <button class="btn primary" id="signin">Sign in with Google</button>
+</div>
+<div class="wrap" id="app" hidden>
+  <header>
+    <div class="label">The Office · shared board</div>
+    <h1>Pitch Room</h1>
+    <p class="lede">Drop your idea, vote to keep or drop the others, plan the ones that survive, then pick the one we all build.</p>
+    <div class="flow" aria-label="How it works"><span>1 · Pitch</span><i>→</i><span>2 · Keep or drop</span><i>→</i><span>3 · Plan the steps</span><i>→</i><span>4 · Pick one together</span></div>
+  </header>
+  <div class="row" id="account" hidden style="margin-top:14px"><span class="me-chip" id="me-chip"></span><span class="spacer"></span><button class="btn quiet" id="signout">Sign out</button></div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-current" data-view="current">Current project</button>
+    <button class="tab" role="tab" id="tab-ideas" data-view="ideas">Ideas <span class="count" id="c-ideas">0</span></button>
+    <button class="tab" role="tab" id="tab-projects" data-view="projects">Projects <span class="count" id="c-projects">0</span></button>
+  </nav>
+  <div class="status" id="status">Loading the board…</div>
+
+  <section id="view-current"><div id="current"></div></section>
+
+  <section id="view-ideas" hidden>
+    <form class="compose" id="compose">
+      <h3>Pitch an idea</h3>
+      <input id="f-title" maxlength="80" placeholder="Name it — e.g. Shared expense tracker for trips" required>
+      <textarea id="f-pitch" maxlength="600" placeholder="What is it, who's it for, why would it be fun to build?"></textarea>
+      <div class="row"><span class="spacer"></span><button class="btn primary" id="f-submit">Add to the vote</button></div>
+    </form>
+    <div class="list" id="ideas"></div>
+    <div id="removed"></div>
+  </section>
+
+  <section id="view-projects" hidden>
+    <div class="list" id="projects"></div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
