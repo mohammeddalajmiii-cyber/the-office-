@@ -1,11 +1,13 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const fb = initializeApp(firebaseConfig);
 const auth = getAuth(fb);
-const db = getFirestore(fb);
+// Keep a copy of the board on this device so reloads show it instantly.
+const db = initializeFirestore(fb, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+const remember = v => { try { v ? localStorage.setItem("signedIn", "1") : localStorage.removeItem("signedIn") } catch { } };
 
 /* ---------- content ---------- */
 
@@ -142,7 +144,9 @@ let quiz = null;                 // {i, answers:[], grow:[]} while taking the qu
 
 onAuthStateChanged(auth, u => {
   unsubs.forEach(f => f()); unsubs = [];
-  if (!u) { me = null; $("#gate").hidden = false; $("#app").hidden = true; $("#account").hidden = true; return }
+  $("#boot").hidden = true;
+  if (!u) { me = null; remember(false); $("#gate").hidden = false; $("#app").hidden = true; $("#account").hidden = true; return }
+  remember(true);
   me = u.uid;
   isAdmin = ADMINS.includes((u.email || "").toLowerCase());
   $("#gate").hidden = true; $("#app").hidden = false; $("#account").hidden = false;
@@ -152,7 +156,9 @@ onAuthStateChanged(auth, u => {
   const denied = e => {
     if (e.code === "permission-denied") {
       signOut(auth);
-      $("#gate-msg").textContent = `${u.email} isn't on the team list yet. Ask whoever runs the site to add your email, then sign in again.`;
+      $("#gate-msg").textContent = u.emailVerified === false
+        ? `You signed in as ${u.email}, but Google says that email isn't verified yet. Verify it in your Google account, then sign in again.`
+        : `You signed in as ${u.email}, which isn't on the team list. Ask Mohammed to add exactly this email, or sign in with the account he added.`;
     } else status("The board stopped updating. Reload the page to reconnect.", true);
   };
   unsubs.push(onSnapshot(collection(db, "ideas"), s => { ideas = s.docs.map(d => ({ id: d.id, ...d.data() })); status(""); render() }, denied));

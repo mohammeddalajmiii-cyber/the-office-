@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>The Office Pitch Room</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://firestore.googleapis.com">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
+<link rel="modulepreload" href="app.js">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
 <style>
 :root{color-scheme:light}
@@ -202,7 +207,12 @@ details.removed .idea{opacity:.75}
 </style>
 </head>
 <body>
-<div class="wrap gate" id="gate">
+<div class="wrap gate" id="boot">
+  <div class="label">The Office</div>
+  <h1>Pitch Room</h1>
+  <p>Loading…</p>
+</div>
+<div class="wrap gate" id="gate" hidden>
   <div class="label">The Office</div>
   <h1>Pitch Room</h1>
   <p id="gate-msg">Sign in with your Google account to see the board.</p>
@@ -263,6 +273,10 @@ details.removed .idea{opacity:.75}
   </section>
 </div>
 <div class="toast" id="toast" hidden></div>
+<script>
+  // Returning visitors skip the loading screen and see the board right away.
+  try { if (localStorage.getItem("signedIn")) { document.getElementById("boot").hidden = true; document.getElementById("app").hidden = false } } catch (e) {}
+</script>
 <script type="module" src="app.js"></script>
 </body>
 </html>
