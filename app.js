@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const fb = initializeApp(firebaseConfig);
@@ -112,7 +112,7 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 
 /* ---------- routing ---------- */
 
-const VIEWS = ["current", "ideas", "projects", "skills", "plan"];
+const VIEWS = ["current", "ideas", "projects", "skills", "chat", "plan"];
 function route() {
   const h = location.hash.slice(1);
   if (h.startsWith("plan-")) return { view: "plan", id: h.slice(5) };
@@ -157,6 +157,13 @@ onAuthStateChanged(auth, u => {
   };
   unsubs.push(onSnapshot(collection(db, "ideas"), s => { ideas = s.docs.map(d => ({ id: d.id, ...d.data() })); status(""); render() }, denied));
   unsubs.push(onSnapshot(doc(db, "meta", "focus"), s => { focusId = s.exists() ? s.data().projectId : null; render() }, () => {}));
+  unsubs.push(onSnapshot(query(collection(db, "chat"), orderBy("at"), limitToLast(300)), s => {
+    const before = chat.length ? chat[chat.length - 1].at : 0;
+    chat = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    const newest = chat.length ? chat[chat.length - 1] : null;
+    if (before && newest && newest.at > before && newest.by !== me && route().view !== "chat") toast(`${firstName(newest.by)}: ${newest.text.slice(0, 60)}`);
+    render();
+  }, () => {}));
   unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); render() }, () => {}));
   show();
 });
@@ -242,6 +249,7 @@ function renderAll() {
   if (r.view === "projects") renderProjects(projects);
   if (r.view === "plan") renderPlanPage(projects.find(p => p.id === r.id));
   if (r.view === "skills") renderSkills();
+  renderChat();
 }
 
 /* ----- current project (home) ----- */
@@ -299,8 +307,10 @@ function renderCurrent(projects) {
       line(pr, "tasks"),
       mine.length ? el("ul", { class: "steps" }, mine.map(t => {
         const cid = "m-" + t.id; return el("li", { class: t.done ? "done" : "" },
-          el("input", { type: "checkbox", id: cid, checked: t.done, onchange: e => write(() => upd(fp.id, { [t.path + ".done"]: e.target.checked })) }),
-          el("label", { for: cid }, t.text, t.due ? el("span", { class: "label", style: "display:block;margin-top:4px" }, "Due " + fmtDate(t.due)) : null))
+          el("input", { type: "checkbox", id: cid, checked: t.done, onchange: e => toggleDone(fp, t, e.target.checked) }),
+          el("div", { style: "flex:1;min-width:0;display:grid;gap:6px" },
+            el("label", { for: cid }, t.text, t.due ? el("span", { class: "label", style: "display:block;margin-top:4px" }, "Due " + fmtDate(t.due)) : null),
+            notesBlock(fp, t, "m")))
       })) : el("p", {}, "No tasks yet. Assign some in the plan below.")));
   }
   if (unassigned.length) grid.append(el("article", { class: "idea" },
@@ -505,10 +515,11 @@ function taskRow(p, t) {
   ownerSel.value = t.owner || ""; skillSel.value = t.skill || "";
   const due = el("input", { type: "date", class: "mini", "aria-label": "Due date", value: t.due || "", onchange: e => write(() => upd(p.id, { [t.path + ".due"]: e.target.value || null })) });
   return el("div", { class: "task" + (t.done ? " done" : "") },
-    el("input", { type: "checkbox", id: cid, checked: t.done, onchange: e => write(() => upd(p.id, { [t.path + ".done"]: e.target.checked })) }),
+    el("input", { type: "checkbox", id: cid, checked: t.done, onchange: e => toggleDone(p, t, e.target.checked) }),
     el("label", { for: cid, class: "ttext" }, t.text),
     el("button", { class: "x", title: "Delete task", "aria-label": "Delete task " + t.text, onclick: () => write(() => upd(p.id, { [t.path]: DEL() })) }, "✕"),
-    el("div", { class: "meta" }, t.owner ? av(t.owner) : null, ownerSel, skillSel, due));
+    el("div", { class: "meta" }, t.owner ? av(t.owner) : null, ownerSel, skillSel, due),
+    notesBlock(p, t, "p"));
 }
 
 function addTemplate(p) {
@@ -625,6 +636,91 @@ function bars(skills, limit) {
     return el("div", { class: "bar" + (n < 2 ? " top" : "") }, el("span", {}, SKILLS[s].name),
       el("div", { class: "track" }, el("div", { class: "fill", style: `width:${v}%` })), el("span", { class: "pct" }, v + "%"));
   }));
+}
+
+/* ----- task notes ----- */
+
+let openNote = null;   // "<where>:<taskId>" of the note box that's open
+function toggleDone(p, t, done) {
+  openNote = done ? "any:" + t.id : (openNote && openNote.endsWith(":" + t.id) ? null : openNote);
+  const data = { [t.path + ".done"]: done };
+  if (done) { data[t.path + ".doneBy"] = me; data[t.path + ".doneAt"] = Date.now() }
+  write(() => upd(p.id, data), done ? "Nice! Add a note about what you did" : null);
+}
+function notesBlock(p, t, where) {
+  const key = where + ":" + t.id;
+  const isOpen = openNote === key || (openNote === "any:" + t.id && where === (route().view === "current" ? "m" : "p"));
+  const notes = Object.entries(t.notes || {}).filter(([, n]) => n && n.text).map(([id, n]) => ({ id, ...n })).sort((a, b) => (a.at || 0) - (b.at || 0));
+  const box = el("div", { class: "notes" });
+  if (t.done && t.doneBy) box.append(el("div", { class: "note-meta" }, `Done by ${name(t.doneBy)}${t.doneAt ? " \u00b7 " + ago(t.doneAt) : ""}`));
+  for (const n of notes) box.append(el("div", { class: "note" }, av(n.by),
+    el("div", { class: "note-body" }, el("div", { class: "note-meta" }, `${name(n.by)} \u00b7 ${ago(n.at)}`), el("div", {}, n.text)),
+    n.by === me ? el("button", { class: "x", title: "Delete note", "aria-label": "Delete note", onclick: () => write(() => upd(p.id, { [`${t.path}.notes.${n.id}`]: DEL() })) }, "\u2715") : null));
+  if (isOpen) {
+    const ta = el("textarea", { id: `note-${where}-${t.id}`, class: "noteinput", maxlength: "1000", rows: "2",
+      placeholder: t.done ? "What did you do? A link, what's finished, what's left\u2026" : "Add a note for the team" });
+    const save = () => {
+      const text = ta.value.trim(); if (!text) return;
+      ta.value = ""; openNote = null;
+      write(() => upd(p.id, { [`${t.path}.notes.${uid()}`]: { by: me, text, at: Date.now() } }), "Note added");
+    };
+    ta.addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save() } });
+    setTimeout(() => { if (document.activeElement !== ta && openNote) ta.focus() }, 0);
+    box.append(el("div", { class: "noteedit" }, ta, el("div", { class: "row", style: "gap:6px" }, el("span", { class: "spacer" }),
+      el("button", { class: "btn quiet", onclick: () => { openNote = null; render() } }, t.done ? "Skip" : "Cancel"),
+      el("button", { class: "btn primary", onclick: save }, "Save note"))));
+  } else box.append(el("button", { class: "linkbtn", onclick: () => { openNote = key; render() } }, notes.length ? "Add another note" : "Add a note"));
+  return box;
+}
+function ago(at) {
+  const s = Math.max(0, (Date.now() - at) / 1000);
+  if (s < 60) return "just now"; if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago"; if (s < 604800) return Math.floor(s / 86400) + "d ago";
+  return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/* ----- chat ----- */
+
+let chat = [];
+const seenKey = () => "chatSeen:" + me;
+const getSeen = () => { try { return +localStorage.getItem(seenKey()) || 0 } catch { return 0 } };
+const setSeen = v => { try { localStorage.setItem(seenKey(), String(v)) } catch { } };
+
+$("#chatform").addEventListener("submit", e => { e.preventDefault(); sendChat() });
+$("#chat-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat() } });
+function sendChat() {
+  const inp = $("#chat-input"); const text = inp.value.trim(); if (!text) return;
+  inp.value = "";
+  write(() => setDoc(doc(db, "chat", uid()), { by: me, text, at: Date.now() }));
+}
+
+function renderChat() {
+  const latest = chat.length ? chat[chat.length - 1].at : 0;
+  const onChat = route().view === "chat";
+  if (onChat && latest > getSeen()) setSeen(latest);
+  const unread = chat.filter(m => m.at > getSeen() && m.by !== me).length;
+  const badge = $("#c-chat"); badge.hidden = !unread; badge.textContent = unread;
+  if (!onChat) return;
+
+  const log = $("#chatlog");
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+  const prevTop = log.scrollTop;
+  log.replaceChildren();
+  if (!chat.length) log.append(el("div", { class: "empty", style: "margin:auto" }, "No messages yet. Say hi to the team."));
+  let lastDay = "", lastBy = "", lastAt = 0;
+  for (const m of chat) {
+    const day = new Date(m.at).toDateString();
+    if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
+    const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60 * 1000;
+    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, name(m.by)));
+    const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    log.append(el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") },
+      mine ? null : (grouped ? el("span", { class: "av-space" }) : av(m.by)),
+      el("div", { class: "bubble", title: time }, m.text, el("span", { class: "msg-time" }, time)),
+      mine ? el("button", { class: "x", title: "Delete message", "aria-label": "Delete message", onclick: () => write(() => deleteDoc(doc(db, "chat", m.id))) }, "\u2715") : null));
+    lastDay = day; lastBy = m.by; lastAt = m.at;
+  }
+  log.scrollTop = atBottom || !prevTop ? log.scrollHeight : prevTop;
 }
 
 /* ----- shared bits ----- */

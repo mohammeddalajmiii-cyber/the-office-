@@ -156,6 +156,29 @@ details.removed .idea{opacity:.75}
 .cat{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600;color:var(--muted)}
 .cat[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
 .catchip{font:500 11px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;padding:5px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.notes{grid-column:2/4;display:grid;gap:6px;justify-items:start}
+.note{display:flex;gap:8px;align-items:flex-start;font-size:14px;background:var(--bg);border-radius:8px;padding:8px 10px;width:100%;box-sizing:border-box}
+.note-body{flex:1;min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.note-meta{font-size:12px;color:var(--muted)}
+.noteedit{display:grid;gap:6px;width:100%}
+.noteinput,#chat-input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:9px 12px;resize:vertical;font:inherit;color:inherit}
+.linkbtn{background:none;border:0;color:var(--accent);font-weight:600;font-size:13px;padding:0}
+.steps .notes .x,.note .x{opacity:1}
+.chatbox{display:grid;gap:10px}
+.chatlog{height:min(62vh,620px);overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:3px}
+.day{align-self:center;font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px}
+.msg-name{font-size:12px;color:var(--muted);margin:8px 0 2px 32px}
+.msg{display:flex;gap:8px;align-items:flex-end;max-width:85%}
+.msg.mine{align-self:flex-end}
+.msg .av{margin:0}
+.av-space{width:22px;flex:none}
+.bubble{background:var(--bg);border-radius:14px;padding:7px 11px;overflow-wrap:anywhere;white-space:pre-wrap;min-width:0}
+.msg.mine .bubble{background:var(--accent);color:#fff}
+.msg-time{font:500 10px/1 var(--mono);opacity:.6;margin-left:8px;white-space:nowrap}
+.msg .x{border:0;background:none;color:var(--muted);opacity:0;padding:0 2px}
+.msg:hover .x,.msg .x:focus-visible{opacity:1}
+.chatform{display:flex;gap:8px;align-items:flex-end}
+#chat-input{resize:none;max-height:140px}
 .pill{font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -182,6 +205,7 @@ details.removed .idea{opacity:.75}
     <button class="tab" role="tab" id="tab-ideas" data-view="ideas">Ideas <span class="count" id="c-ideas">0</span></button>
     <button class="tab" role="tab" id="tab-projects" data-view="projects">Projects <span class="count" id="c-projects">0</span></button>
     <button class="tab" role="tab" id="tab-skills" data-view="skills">Skills</button>
+    <button class="tab" role="tab" id="tab-chat" data-view="chat">Chat <span class="count" id="c-chat" hidden>0</span></button>
   </nav>
   <div class="status" id="status">Loading the board…</div>
 
@@ -209,6 +233,16 @@ details.removed .idea{opacity:.75}
   <section id="view-plan" hidden><div id="plan"></div></section>
 
   <section id="view-skills" hidden><div id="skills"></div></section>
+
+  <section id="view-chat" hidden>
+    <div class="chatbox">
+      <div class="chatlog" id="chatlog" aria-live="polite"></div>
+      <form class="chatform" id="chatform">
+        <textarea id="chat-input" rows="1" maxlength="1000" placeholder="Message the team" aria-label="Message"></textarea>
+        <button class="btn primary" id="chat-send">Send</button>
+      </form>
+    </div>
+  </section>
 </div>
 <div class="toast" id="toast" hidden></div>
 <script type="module" src="app.js"></script>
