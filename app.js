@@ -228,6 +228,7 @@ function renderAll() {
   const voting = ideas.filter(i => i.status === "voting").sort((a, b) => b.createdAt - a.createdAt);
   const removed = ideas.filter(i => i.status === "removed");
   const projects = ideas.filter(i => i.status === "approved").sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0));
+  fillComposeCats();
   $("#c-ideas").textContent = voting.length; $("#c-projects").textContent = projects.length;
   const r = route();
   if (r.view === "current") renderCurrent(projects);
@@ -300,24 +301,48 @@ function renderCurrent(projects) {
 
 /* ----- ideas ----- */
 
-$("#f-cat").append(...CATEGORIES.map(c => el("option", { value: c }, c)));
+const NEW = "__new";
+const allCats = () => {
+  const base = CATEGORIES.filter(c => c !== "Other");
+  const custom = [...new Set(ideas.map(i => i.category).filter(c => c && !CATEGORIES.includes(c)))].sort((a, b) => a.localeCompare(b));
+  return [...base, ...custom, "Other"];
+};
+const catOptions = () => [...allCats().map(c => el("option", { value: c }, c)), el("option", { value: NEW }, "+ New category\u2026")];
+function fillComposeCats() {
+  const sel = $("#f-cat"), v = sel.value;
+  sel.replaceChildren(el("option", { value: "" }, "Pick a category\u2026"), ...catOptions());
+  sel.value = v;
+}
+$("#f-cat").addEventListener("change", e => {
+  const n = $("#f-newcat"); n.hidden = e.target.value !== NEW; n.required = !n.hidden;
+  if (!n.hidden) n.focus();
+});
+fillComposeCats();
 const catFilter = { ideas: "", projects: "" };
 function catBar(where, list) {
   const box = $("#cat-" + where); box.replaceChildren();
-  const used = CATEGORIES.filter(c => list.some(i => (i.category || "Other") === c));
+  const used = allCats().filter(c => list.some(i => (i.category || "Other") === c));
   if (used.length < 2 && !catFilter[where]) return list;
   const pick = c => { catFilter[where] = catFilter[where] === c ? "" : c; render() };
   box.append(el("button", { class: "cat", "aria-pressed": String(!catFilter[where]), onclick: () => pick("") }, `All ${list.length}`),
     ...used.map(c => el("button", { class: "cat", "aria-pressed": String(catFilter[where] === c), onclick: () => pick(c) }, `${c} ${list.filter(i => (i.category || "Other") === c).length}`)));
   return catFilter[where] ? list.filter(i => (i.category || "Other") === catFilter[where]) : list;
 }
+function cleanCat(raw) {
+  const t = (raw || "").trim().replace(/\s+/g, " ").slice(0, 30);
+  if (!t) return "";
+  return allCats().find(c => c.toLowerCase() === t.toLowerCase()) || t.charAt(0).toUpperCase() + t.slice(1);
+}
 const catChip = i => el("span", { class: "catchip" }, i.category || "No category");
 
 $("#compose").addEventListener("submit", ev => {
   ev.preventDefault();
-  const title = $("#f-title").value.trim(), pitch = $("#f-pitch").value.trim(), category = $("#f-cat").value; if (!title || !category) return;
+  const title = $("#f-title").value.trim(), pitch = $("#f-pitch").value.trim();
+  let category = $("#f-cat").value;
+  if (category === NEW) category = cleanCat($("#f-newcat").value);
+  if (!title || !category) return;
   write(() => setDoc(doc(db, "ideas", uid()), { title, pitch, category, author: me, createdAt: Date.now(), status: "voting", votes: { [me]: "keep" }, tasks: {}, backers: {} }), "Idea added to the vote");
-  $("#f-title").value = ""; $("#f-pitch").value = ""; $("#f-cat").value = "";
+  $("#f-title").value = ""; $("#f-pitch").value = ""; $("#f-cat").value = ""; $("#f-newcat").value = ""; $("#f-newcat").hidden = true; $("#f-newcat").required = false;
 });
 
 function renderIdeas(all, removed) {
@@ -390,11 +415,22 @@ function renderPlanPage(p) {
   box.append(planBody(p));
 }
 
+let newCatFor = null;
 function catSelect(p) {
-  const sel = el("select", { class: "mini", "aria-label": "Category", onchange: e => write(() => upd(p.id, { category: e.target.value }), "Category changed") },
-    !p.category ? el("option", { value: "" }, "Pick a category…") : null, CATEGORIES.map(c => el("option", { value: c }, c)));
+  const wrapStyle = "gap:8px;font-size:13px;color:var(--muted)";
+  if (newCatFor === p.id) {
+    const inp = el("input", { id: "newcat-" + p.id, class: "mini", maxlength: "30", placeholder: "New category name", style: "padding:6px 8px;font-size:13px" });
+    const save = () => { const c = cleanCat(inp.value); if (!c) return; newCatFor = null; write(() => upd(p.id, { category: c }), "Category changed") };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } if (e.key === "Escape") { newCatFor = null; render() } });
+    setTimeout(() => inp.focus(), 0);
+    return el("div", { class: "row", style: wrapStyle }, "Category", inp, el("button", { class: "btn", onclick: save }, "Save"), el("button", { class: "btn quiet", onclick: () => { newCatFor = null; render() } }, "Cancel"));
+  }
+  const sel = el("select", { class: "mini", "aria-label": "Category", onchange: e => {
+    if (e.target.value === NEW) { newCatFor = p.id; render(); return }
+    write(() => upd(p.id, { category: e.target.value }), "Category changed");
+  } }, !p.category ? el("option", { value: "" }, "Pick a category\u2026") : null, catOptions());
   sel.value = p.category || "";
-  return el("label", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Category", sel);
+  return el("label", { class: "row", style: wrapStyle }, "Category", sel);
 }
 
 function planBody(p, opts = {}) {
