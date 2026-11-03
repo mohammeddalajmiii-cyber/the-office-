@@ -20,6 +20,10 @@ const SKILLS = {
 };
 const SKILL_IDS = Object.keys(SKILLS);
 
+// Only these accounts can choose or stop the current project.
+const ADMINS = ["mohammedd.alajmiii@gmail.com"];
+const ADMIN_NAME = "Mohammed";
+
 const CATEGORIES = ["App", "Website", "Game", "Video / YouTube", "Music", "Business", "Event", "Art & Design", "Social media", "School", "Sports", "Other"];
 
 const PHASES = [
@@ -131,6 +135,7 @@ $("#signin").onclick = async () => {
 };
 $("#signout").onclick = () => signOut(auth);
 
+let isAdmin = false;
 let ideas = [], focusId = null, me = null, people = {}, unsubs = [];
 const suggestions = {};          // projectId -> [{task, owner, why}]
 let quiz = null;                 // {i, answers:[], grow:[]} while taking the quiz
@@ -139,6 +144,7 @@ onAuthStateChanged(auth, u => {
   unsubs.forEach(f => f()); unsubs = [];
   if (!u) { me = null; $("#gate").hidden = false; $("#app").hidden = true; $("#account").hidden = true; return }
   me = u.uid;
+  isAdmin = ADMINS.includes((u.email || "").toLowerCase());
   $("#gate").hidden = true; $("#app").hidden = false; $("#account").hidden = false;
   $("#me-chip").replaceChildren(el("img", { class: "av", src: u.photoURL || AV, alt: "", referrerpolicy: "no-referrer" }), u.displayName || u.email);
   status("Loading the board…");
@@ -244,9 +250,18 @@ function renderCurrent(projects) {
   const box = $("#current"); box.replaceChildren();
   const fp = projects.find(p => p.id === focusId);
   if (!fp) {
+    const top = byVotes(projects).slice(0, 3);
     box.append(el("div", { class: "empty" }, el("h3", {}, "No current project yet"),
-      el("p", { style: "margin:6px auto 14px;max-width:46ch" }, "Confirm ideas in the vote, plan them on Projects, then press “Make it our project” on the one you all want to build."),
-      el("button", { class: "btn primary", onclick: () => { location.hash = "projects" } }, "Go to Projects")));
+      el("p", { style: "margin:6px auto 14px;max-width:48ch" }, isAdmin
+        ? "Everyone votes on the Projects tab. When you're ready, press \u201cMake it our project\u201d on the one you choose."
+        : `Vote on the Projects tab for the ones you want to build. ${ADMIN_NAME} picks the current project.`),
+      el("button", { class: "btn primary", onclick: () => { location.hash = "projects" } }, isAdmin ? "Go to Projects" : "Vote on projects")));
+    if (top.length) {
+      box.append(el("div", { class: "row", style: "margin:22px 0 10px" }, el("h2", {}, "Most votes so far")));
+      box.append(el("div", { class: "list", style: "margin-top:0" }, top.map((p, n) => el("article", { class: "idea" },
+        el("div", { class: "row" }, el("span", { class: "label" }, `#${n + 1}`), el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), catChip(p)),
+        el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p))))));
+    }
     return;
   }
   const tasks = tasksOf(fp);
@@ -256,7 +271,7 @@ function renderCurrent(projects) {
   const joined = !!(fp.members || {})[me];
 
   box.append(el("section", { class: "focus" },
-    el("div", { class: "label" }, "The project we're all building" + (fp.category ? " \u00b7 " + fp.category : "")),
+    el("div", { class: "label" }, `Picked by ${ADMIN_NAME}` + (fp.category ? " \u00b7 " + fp.category : "")),
     el("h2", {}, fp.title),
     fp.pitch ? el("p", { style: "margin:0;opacity:.8;max-width:65ch" }, fp.pitch) : null,
     line(progressOf(tasks), "tasks"),
@@ -266,7 +281,7 @@ function renderCurrent(projects) {
       el("span", { style: "font-size:13px;opacity:.8" }, members.length ? `${members.length} on the team` : "Nobody has joined yet"),
       el("span", { class: "spacer" }),
       el("button", { class: "btn", onclick: () => write(() => upd(fp.id, { ["members." + me]: joined ? DEL() : true }), joined ? "You left the team" : "You joined the team") }, joined ? "Leave team" : "Join the team"),
-      el("button", { class: "btn quiet", style: "color:inherit;opacity:.75", onclick: () => write(() => setDoc(doc(db, "meta", "focus"), { projectId: null }), "No current project") }, "Stop this project"))));
+      isAdmin ? el("button", { class: "btn quiet", style: "color:inherit;opacity:.75", onclick: () => write(() => setDoc(doc(db, "meta", "focus"), { projectId: null }), "No current project") }, "Stop this project") : null)));
 
   /* who's doing what */
   const unassigned = tasks.filter(t => !t.owner && !t.done);
@@ -378,24 +393,41 @@ function renderIdeas(all, removed) {
 
 function renderProjects(all) {
   const box = $("#projects"); box.replaceChildren();
-  const projects = catBar("projects", all);
+  const ranked = byVotes(all);
+  const rank = Object.fromEntries(ranked.map((p, n) => [p.id, n + 1]));
+  const projects = catBar("projects", ranked);
+  if (all.length) box.append(el("p", { style: "margin:0;color:var(--muted);font-size:14px" },
+    isAdmin ? "Everyone votes for the projects they want to build. You pick the current project." : `Vote for the projects you want to build. ${ADMIN_NAME} picks the current project.`));
   if (all.length && !projects.length) box.append(el("div", { class: "empty" }, "No projects in this category."));
   else if (!projects.length) box.append(el("div", { class: "empty" }, "No confirmed projects yet. Ideas land here once more people vote keep than drop and someone confirms them."));
   for (const p of projects) {
-    const tasks = tasksOf(p), backed = !!(p.backers || {})[me];
-    const backers = Object.entries(p.backers || {}).filter(([, v]) => v).map(([u]) => u);
+    const tasks = tasksOf(p), n = projectVoters(p).length;
     box.append(el("article", { class: "idea" },
+      el("div", { class: "row" }, el("span", { class: "label" }, `#${rank[p.id]} \u00b7 ${n} vote${n === 1 ? "" : "s"}`)),
       el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), catChip(p), p.id === focusId ? el("span", { class: "pill" }, "Current project") : null),
       p.pitch ? el("p", {}, p.pitch) : null,
       line(progressOf(tasks), "tasks"),
       tasks.length ? phaseBar(tasks) : null,
       el("div", { class: "row" },
-        el("button", { class: "v keep", "aria-pressed": String(backed), onclick: () => write(() => upd(p.id, { ["backers." + me]: backed ? DEL() : true })) }, "I want to build this", el("b", {}, backers.length), el("span", { class: "stack" }, backers.slice(0, 6).map(av))),
+        voteButton(p),
         el("span", { class: "spacer" }),
-        el("button", { class: "btn" + (tasks.length ? "" : " primary"), onclick: () => { location.hash = "plan-" + p.id } }, tasks.length ? "Open the plan" : "Start planning"),
-        p.id === focusId ? null : el("button", { class: "btn primary", onclick: () => write(() => setDoc(doc(db, "meta", "focus"), { projectId: p.id, setBy: me, at: Date.now() }), "This is our project now") }, "Make it our project"))));
+        el("button", { class: "btn", onclick: () => { location.hash = "plan-" + p.id } }, tasks.length ? "Open the plan" : "Start planning"),
+        pickButton(p))));
   }
 }
+
+/* ----- project votes ----- */
+
+const projectVoters = p => Object.entries(p.backers || {}).filter(([, v]) => v).map(([u]) => u);
+const byVotes = list => list.slice().sort((a, b) => projectVoters(b).length - projectVoters(a).length || (a.approvedAt || 0) - (b.approvedAt || 0));
+function voteButton(p) {
+  const voted = !!(p.backers || {})[me], vs = projectVoters(p);
+  return el("button", { class: "v keep", "aria-pressed": String(voted), onclick: () => write(() => upd(p.id, { ["backers." + me]: voted ? DEL() : true }), voted ? "Vote removed" : "Voted") },
+    voted ? "Voted" : "Vote for this", el("b", {}, vs.length), el("span", { class: "stack" }, vs.slice(0, 6).map(av)));
+}
+const pickButton = p => isAdmin && p.id !== focusId
+  ? el("button", { class: "btn primary", onclick: () => write(() => setDoc(doc(db, "meta", "focus"), { projectId: p.id, setBy: me, at: Date.now() }), "This is our project now") }, "Make it our project")
+  : null;
 
 /* ----- plan page ----- */
 
@@ -410,8 +442,7 @@ function renderPlanPage(p) {
     catSelect(p),
     line(progressOf(tasks), "tasks"),
     tasks.length ? phaseBar(tasks) : null,
-    p.id === focusId ? null : el("div", { class: "row" }, el("span", { class: "spacer" }),
-      el("button", { class: "btn primary", onclick: () => write(() => setDoc(doc(db, "meta", "focus"), { projectId: p.id, setBy: me, at: Date.now() }), "This is our project now") }, "Make it our project"))));
+    el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p))));
   box.append(planBody(p));
 }
 
