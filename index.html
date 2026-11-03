@@ -175,8 +175,25 @@ details.removed .idea{opacity:.75}
 .bubble{background:var(--bg);border-radius:14px;padding:7px 11px;overflow-wrap:anywhere;white-space:pre-wrap;min-width:0}
 .msg.mine .bubble{background:var(--accent);color:#fff}
 .msg-time{font:500 10px/1 var(--mono);opacity:.6;margin-left:8px;white-space:nowrap}
-.msg .x{border:0;background:none;color:var(--muted);opacity:0;padding:0 2px}
-.msg:hover .x,.msg .x:focus-visible{opacity:1}
+.bubble{cursor:pointer;display:grid;gap:4px}
+.bubble>span:not(.msg-time){display:inline}
+.msg.selected .bubble{outline:2px solid var(--accent);outline-offset:2px}
+.msg.flash .bubble{animation:flash 1.2s ease}
+@keyframes flash{0%,40%{box-shadow:0 0 0 4px var(--accent-soft)}100%{box-shadow:none}}
+.quote{display:grid;gap:1px;text-align:left;border:0;border-left:3px solid var(--accent);background:var(--surface);color:var(--ink);border-radius:6px;padding:5px 8px;font-size:13px;max-width:100%;overflow-wrap:anywhere;white-space:normal;cursor:pointer}
+.quote span{color:var(--muted)}
+.msg.mine .quote{background:rgba(255,255,255,.18);border-left-color:#fff;color:#fff}
+.msg.mine .quote span{color:rgba(255,255,255,.85)}
+.msg-actions{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 6px 30px}
+.msg-actions.mine{justify-content:flex-end;margin-left:0}
+.act{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px;font-weight:600;color:var(--ink)}
+.act.danger{color:var(--drop);border-color:var(--drop)}
+.act.quiet{color:var(--muted)}
+.chat-context{display:flex;gap:10px;align-items:center;border-left:3px solid var(--accent);background:var(--surface);border-radius:8px;padding:8px 10px}
+.ctx-title{font-size:12px;font-weight:600;color:var(--accent)}
+.ctx-text{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-context .x{border:0;background:none;color:var(--muted);font-size:16px;padding:4px}
+@media (prefers-reduced-motion:reduce){.msg.flash .bubble{animation:none}}
 .chatform{display:flex;gap:8px;align-items:flex-end}
 #chat-input{resize:none;max-height:140px}
 .pill{font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
@@ -237,6 +254,7 @@ details.removed .idea{opacity:.75}
   <section id="view-chat" hidden>
     <div class="chatbox">
       <div class="chatlog" id="chatlog" aria-live="polite"></div>
+      <div class="chat-context" id="chat-context" hidden></div>
       <form class="chatform" id="chatform">
         <textarea id="chat-input" rows="1" maxlength="1000" placeholder="Message the team" aria-label="Message"></textarea>
         <button class="btn primary" id="chat-send">Send</button>

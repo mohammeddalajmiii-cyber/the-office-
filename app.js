@@ -682,16 +682,45 @@ function ago(at) {
 /* ----- chat ----- */
 
 let chat = [];
+let chatSel = null;      // message whose actions are showing
+let chatReply = null;    // message being replied to
+let chatEdit = null;     // own message being edited
+let chatDel = null;      // own message waiting for delete confirmation
 const seenKey = () => "chatSeen:" + me;
 const getSeen = () => { try { return +localStorage.getItem(seenKey()) || 0 } catch { return 0 } };
 const setSeen = v => { try { localStorage.setItem(seenKey(), String(v)) } catch { } };
+const msgById = id => chat.find(m => m.id === id);
+const snippet = t => (t || "").replace(/\s+/g, " ").slice(0, 90) + ((t || "").length > 90 ? "…" : "");
 
 $("#chatform").addEventListener("submit", e => { e.preventDefault(); sendChat() });
-$("#chat-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat() } });
+$("#chat-input").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat() }
+  if (e.key === "Escape" && (chatReply || chatEdit)) { e.preventDefault(); cancelChatMode() }
+});
+function cancelChatMode() {
+  if (chatEdit) $("#chat-input").value = "";
+  chatReply = null; chatEdit = null; render();
+}
 function sendChat() {
   const inp = $("#chat-input"); const text = inp.value.trim(); if (!text) return;
   inp.value = "";
-  write(() => setDoc(doc(db, "chat", uid()), { by: me, text, at: Date.now() }));
+  if (chatEdit) {
+    const id = chatEdit; chatEdit = null;
+    const old = msgById(id);
+    if (old && old.text !== text) write(() => updateDoc(doc(db, "chat", id), { text, edited: Date.now() }), "Message edited");
+    else render();
+    return;
+  }
+  const data = { by: me, text, at: Date.now() };
+  if (chatReply && msgById(chatReply)) data.replyTo = chatReply;
+  chatReply = null;
+  write(() => setDoc(doc(db, "chat", uid()), data));
+  render();
+}
+function jumpTo(id) {
+  const n = document.getElementById("msg-" + id); if (!n) return;
+  n.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  n.classList.remove("flash"); void n.offsetWidth; n.classList.add("flash");
 }
 
 function renderChat() {
@@ -702,6 +731,19 @@ function renderChat() {
   const badge = $("#c-chat"); badge.hidden = !unread; badge.textContent = unread;
   if (!onChat) return;
 
+  /* reply / edit bar above the input */
+  if (chatReply && !msgById(chatReply)) chatReply = null;
+  if (chatEdit && !msgById(chatEdit)) chatEdit = null;
+  const ctx = $("#chat-context"); ctx.replaceChildren();
+  const ctxMsg = msgById(chatEdit || chatReply);
+  ctx.hidden = !ctxMsg;
+  if (ctxMsg) ctx.append(
+    el("div", { style: "flex:1;min-width:0" },
+      el("div", { class: "ctx-title" }, chatEdit ? "Editing your message" : `Replying to ${name(ctxMsg.by)}`),
+      el("div", { class: "ctx-text" }, snippet(ctxMsg.text))),
+    el("button", { type: "button", class: "x", title: "Cancel", "aria-label": "Cancel", onclick: cancelChatMode }, "✕"));
+  $("#chat-send").textContent = chatEdit ? "Save" : "Send";
+
   const log = $("#chatlog");
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
   const prevTop = log.scrollTop;
@@ -711,13 +753,30 @@ function renderChat() {
   for (const m of chat) {
     const day = new Date(m.at).toDateString();
     if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
-    const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60 * 1000;
+    const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60 * 1000 && !m.replyTo;
     if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, name(m.by)));
     const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    log.append(el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") },
-      mine ? null : (grouped ? el("span", { class: "av-space" }) : av(m.by)),
-      el("div", { class: "bubble", title: time }, m.text, el("span", { class: "msg-time" }, time)),
-      mine ? el("button", { class: "x", title: "Delete message", "aria-label": "Delete message", onclick: () => write(() => deleteDoc(doc(db, "chat", m.id))) }, "\u2715") : null));
+    const orig = m.replyTo ? msgById(m.replyTo) : null;
+    const quote = m.replyTo ? el("button", { type: "button", class: "quote", onclick: e => { e.stopPropagation(); if (orig) jumpTo(orig.id) } },
+      el("strong", {}, orig ? name(orig.by) : "Message"), el("span", {}, orig ? snippet(orig.text) : "This message was deleted")) : null;
+    const sel = chatSel === m.id;
+    const bubble = el("div", { class: "bubble", tabindex: "0", role: "button", "aria-label": "Message options", "aria-expanded": String(sel),
+      onclick: () => { if (String(getSelection())) return; chatSel = sel ? null : m.id; chatDel = null; render() },
+      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); chatSel = sel ? null : m.id; chatDel = null; render() } } },
+      quote, el("span", {}, m.text), el("span", { class: "msg-time" }, (m.edited ? "edited · " : "") + time));
+    const row = el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") + (sel ? " selected" : ""), id: "msg-" + m.id },
+      mine ? null : (grouped ? el("span", { class: "av-space" }) : av(m.by)), bubble);
+    log.append(row);
+    if (sel) {
+      const act = (label, fn, cls = "") => el("button", { type: "button", class: "act " + cls, onclick: e => { e.stopPropagation(); fn() } }, label);
+      log.append(el("div", { class: "msg-actions" + (mine ? " mine" : "") },
+        act("Reply", () => { chatReply = m.id; chatEdit = null; chatSel = null; render(); $("#chat-input").focus() }),
+        mine ? act("Edit", () => { chatEdit = m.id; chatReply = null; chatSel = null; $("#chat-input").value = m.text; render(); const i = $("#chat-input"); i.focus(); i.setSelectionRange(i.value.length, i.value.length) }) : null,
+        mine ? (chatDel === m.id
+          ? act("Tap again to delete", () => { chatSel = null; chatDel = null; if (chatEdit === m.id) { chatEdit = null; $("#chat-input").value = "" } write(() => deleteDoc(doc(db, "chat", m.id)), "Message deleted") }, "danger")
+          : act("Delete", () => { chatDel = m.id; render() }, "danger")) : null,
+        act("Close", () => { chatSel = null; chatDel = null; render() }, "quiet")));
+    }
     lastDay = day; lastBy = m.by; lastAt = m.at;
   }
   log.scrollTop = atBottom || !prevTop ? log.scrollHeight : prevTop;
