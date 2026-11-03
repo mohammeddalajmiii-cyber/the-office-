@@ -201,6 +201,28 @@ details.removed .idea{opacity:.75}
 @media (prefers-reduced-motion:reduce){.msg.flash .bubble{animation:none}}
 .chatform{display:flex;gap:8px;align-items:flex-end}
 #chat-input{resize:none;max-height:140px}
+.attach{flex:none;width:42px;height:42px;display:grid;place-items:center;border:1px solid var(--line);background:var(--surface);border-radius:8px;color:var(--muted)}
+.attach:hover{color:var(--accent);border-color:var(--accent)}
+.attach-list{display:flex;gap:8px;flex-wrap:wrap}
+.att-chip{display:flex;gap:8px;align-items:center;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:5px 6px 5px 5px;max-width:100%;min-width:0;font-size:13px}
+.att-chip img{width:34px;height:34px;object-fit:cover;border-radius:5px;flex:none}
+.att-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}
+.att-chip .x{border:0;background:none;color:var(--muted)}
+.upload-status{font-size:13px;color:var(--accent);font-weight:600}
+.chatbox.dropping .chatlog{outline:2px dashed var(--accent);outline-offset:-6px}
+.att-img{border:0;padding:0;background:none;border-radius:10px;overflow:hidden;display:block;max-width:min(260px,100%);cursor:zoom-in}
+.att-img img{display:block;width:100%;height:auto;max-height:320px;object-fit:cover}
+.att-file{display:flex;gap:10px;align-items:center;background:var(--surface);color:var(--ink);border-radius:10px;padding:8px;min-width:0;max-width:280px}
+.att-ext{flex:none;width:38px;height:38px;display:grid;place-items:center;border-radius:6px;background:var(--accent-soft);color:var(--accent);font:600 10px/1 var(--mono)}
+.att-info{flex:1;min-width:0}
+.att-name{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-size{font:500 11px/1.4 var(--mono);color:var(--muted)}
+.att-file .act{flex:none}
+.lightbox{position:fixed;inset:0;z-index:50;background:rgba(10,14,18,.86);display:grid;grid-template-rows:auto 1fr;padding:calc(12px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));gap:10px}
+.lb-bar{display:flex;gap:8px;align-items:center;color:#fff}
+.lb-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.lb-body{display:grid;place-items:center;min-height:0;color:#fff}
+.lb-body img,.lb-body video{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
 .pill{font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -265,13 +287,18 @@ details.removed .idea{opacity:.75}
     <div class="chatbox">
       <div class="chatlog" id="chatlog" aria-live="polite"></div>
       <div class="chat-context" id="chat-context" hidden></div>
+      <div class="attach-list" id="attach-list" hidden></div>
+      <div class="upload-status" id="upload-status" hidden></div>
       <form class="chatform" id="chatform">
+        <button type="button" class="attach" id="chat-attach" aria-label="Attach files" title="Attach photos or files"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
+        <input type="file" id="chat-file" multiple hidden>
         <textarea id="chat-input" rows="1" maxlength="1000" placeholder="Message the team" aria-label="Message"></textarea>
         <button class="btn primary" id="chat-send">Send</button>
       </form>
     </div>
   </section>
 </div>
+<div class="lightbox" id="lightbox" hidden></div>
 <div class="toast" id="toast" hidden></div>
 <script>
   // Returning visitors skip the loading screen and see the board right away.

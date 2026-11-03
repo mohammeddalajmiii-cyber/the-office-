@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const fb = initializeApp(firebaseConfig);
@@ -167,7 +167,7 @@ onAuthStateChanged(auth, u => {
     const before = chat.length ? chat[chat.length - 1].at : 0;
     chat = s.docs.map(d => ({ id: d.id, ...d.data() }));
     const newest = chat.length ? chat[chat.length - 1] : null;
-    if (before && newest && newest.at > before && newest.by !== me && route().view !== "chat") toast(`${firstName(newest.by)}: ${newest.text.slice(0, 60)}`);
+    if (before && newest && newest.at > before && newest.by !== me && route().view !== "chat") toast(`${firstName(newest.by)}: ${msgSummary(newest).slice(0, 60)}`);
     render();
   }, () => {}));
   unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); render() }, () => {}));
@@ -707,22 +707,171 @@ function cancelChatMode() {
   if (chatEdit) $("#chat-input").value = "";
   chatReply = null; chatEdit = null; render();
 }
-function sendChat() {
-  const inp = $("#chat-input"); const text = inp.value.trim(); if (!text) return;
-  inp.value = "";
+let sending = false;
+async function sendChat() {
+  if (sending) return;
+  const inp = $("#chat-input"); const text = inp.value.trim();
   if (chatEdit) {
+    if (!text) return;
+    inp.value = "";
     const id = chatEdit; chatEdit = null;
     const old = msgById(id);
     if (old && old.text !== text) write(() => updateDoc(doc(db, "chat", id), { text, edited: Date.now() }), "Message edited");
     else render();
     return;
   }
-  const data = { by: me, text, at: Date.now() };
-  if (chatReply && msgById(chatReply)) data.replyTo = chatReply;
+  if (!text && !pending.length) return;
+  inp.value = "";
+  let replyTo = chatReply && msgById(chatReply) ? chatReply : null;
   chatReply = null;
-  write(() => setDoc(doc(db, "chat", uid()), data));
+  const files = pending.splice(0); renderAttach();
+  if (files.length) {
+    sending = true; $("#chat-send").disabled = true;
+    try {
+      for (let i = 0; i < files.length; i++) {
+        setUploadStatus(`Sending ${files.length > 1 ? `file ${i + 1} of ${files.length}` : files[i].f.name}\u2026`);
+        const file = await uploadFile(await prepareFile(files[i].f), pct => setUploadStatus(`Sending ${files[i].f.name}\u2026 ${pct}%`));
+        const data = { by: me, text: "", at: Date.now(), file };
+        if (replyTo) { data.replyTo = replyTo; replyTo = null }
+        await setDoc(doc(db, "chat", uid()), data);
+      }
+    } catch (e) {
+      status(e.code === "permission-denied" ? "Sending files isn't allowed yet. Ask Mohammed to update the database rules." : "A file didn't send. Check your connection and try again.", true);
+    }
+    sending = false; $("#chat-send").disabled = false; setUploadStatus("");
+  }
+  if (text) {
+    const data = { by: me, text, at: Date.now() };
+    if (replyTo) data.replyTo = replyTo;
+    write(() => setDoc(doc(db, "chat", uid()), data));
+  }
   render();
 }
+
+/* ----- chat attachments (stored in the database in pieces, since free Firebase has no file storage) ----- */
+
+const MAX_FILE = 5 * 1024 * 1024;     // 5 MB per file
+const MAX_IMAGE_IN = 30 * 1024 * 1024;// photos bigger than 5 MB are shrunk first
+const PART = 900 * 1024;              // one database document holds under 1 MB
+let pending = [];                     // files waiting to be sent: {f, key, url}
+
+const fmtSize = n => n < 1024 ? n + " B" : n < 1048576 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(1) + " MB";
+const extOf = name => ((name || "").split(".").pop() || "file").slice(0, 4).toUpperCase();
+function msgSummary(m) {
+  if (m.text) return snippet(m.text);
+  if (m.file) return m.file.thumb ? "Photo" : "File: " + m.file.name;
+  return "";
+}
+
+$("#chat-attach").onclick = () => $("#chat-file").click();
+$("#chat-file").onchange = e => { addFiles([...e.target.files]); e.target.value = "" };
+$("#chat-input").addEventListener("paste", e => { const fs = [...((e.clipboardData && e.clipboardData.files) || [])]; if (fs.length) { e.preventDefault(); addFiles(fs) } });
+const chatboxEl = document.querySelector(".chatbox");
+chatboxEl.addEventListener("dragover", e => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); chatboxEl.classList.add("dropping") } });
+chatboxEl.addEventListener("dragleave", e => { if (!chatboxEl.contains(e.relatedTarget)) chatboxEl.classList.remove("dropping") });
+chatboxEl.addEventListener("drop", e => { e.preventDefault(); chatboxEl.classList.remove("dropping"); addFiles([...e.dataTransfer.files]) });
+
+function addFiles(fs) {
+  for (const f of fs) {
+    const isImg = /^image\/(jpeg|png|webp|heic|heif|bmp)$/.test(f.type);
+    if (f.size > (isImg ? MAX_IMAGE_IN : MAX_FILE)) { toast(`${f.name} is too big. The limit is 5 MB per file.`); continue }
+    pending.push({ f, key: uid(), url: f.type.startsWith("image/") ? URL.createObjectURL(f) : null });
+  }
+  renderAttach(); $("#chat-input").focus();
+}
+function renderAttach() {
+  const box = $("#attach-list"); box.replaceChildren(); box.hidden = !pending.length;
+  for (const p of pending) box.append(el("div", { class: "att-chip" },
+    p.url ? el("img", { src: p.url, alt: "" }) : el("span", { class: "att-ext" }, extOf(p.f.name)),
+    el("span", { class: "att-chip-name" }, p.f.name), el("span", { class: "att-size" }, fmtSize(p.f.size)),
+    el("button", { type: "button", class: "x", "aria-label": "Remove " + p.f.name, onclick: () => { if (p.url) URL.revokeObjectURL(p.url); pending = pending.filter(x => x !== p); renderAttach() } }, "\u2715")));
+}
+function setUploadStatus(t) { const n = $("#upload-status"); n.textContent = t; n.hidden = !t }
+
+function canvasJpeg(img, max, q) {
+  const r = Math.min(1, max / Math.max(img.width, img.height));
+  const c = document.createElement("canvas"); c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return new Promise(res => c.toBlob(b => res({ blob: b, w: c.width, h: c.height, canvas: c }), "image/jpeg", q));
+}
+async function prepareFile(f) {
+  const out = { blob: f, name: f.name || "file", type: f.type || "application/octet-stream" };
+  if (f.type.startsWith("image/") && f.type !== "image/svg+xml") {
+    try {
+      const img = await createImageBitmap(f);
+      out.w = img.width; out.h = img.height;
+      const keepOriginal = f.size <= PART && /^image\/(jpeg|png|webp|gif)$/.test(f.type);
+      if (!keepOriginal && f.type !== "image/gif") {
+        const big = await canvasJpeg(img, 1600, 0.82);
+        out.blob = big.blob; out.type = "image/jpeg"; out.name = out.name.replace(/\.[^.]+$/, "") + ".jpg"; out.w = big.w; out.h = big.h;
+      }
+      const small = await canvasJpeg(img, 480, 0.6);
+      out.thumb = small.canvas.toDataURL("image/jpeg", 0.6);
+    } catch { /* not a picture the browser can read: send it as a normal file */ }
+  }
+  if (out.blob.size > MAX_FILE) throw new Error("too big");
+  return out;
+}
+async function uploadFile(p, onProgress) {
+  const id = uid(); const buf = new Uint8Array(await p.blob.arrayBuffer());
+  const parts = Math.max(1, Math.ceil(buf.length / PART));
+  for (let n = 0; n < parts; n++) {
+    await setDoc(doc(db, "fileparts", `${id}_${n}`), { by: me, fileId: id, n, data: Bytes.fromUint8Array(buf.subarray(n * PART, (n + 1) * PART)) });
+    onProgress && onProgress(Math.round((n + 1) / parts * 100));
+  }
+  const file = { id, name: p.name, type: p.type, size: buf.length, parts };
+  if (p.thumb) { file.thumb = p.thumb; file.w = p.w; file.h = p.h }
+  return file;
+}
+const fileCache = {};
+function loadFile(f) {
+  if (!fileCache[f.id]) fileCache[f.id] = (async () => {
+    const snaps = await Promise.all(Array.from({ length: f.parts }, (_, n) => getDoc(doc(db, "fileparts", `${f.id}_${n}`))));
+    if (snaps.some(s => !s.exists())) throw new Error("missing");
+    return URL.createObjectURL(new Blob(snaps.map(s => s.data().data.toUint8Array()), { type: f.type }));
+  })().catch(e => { delete fileCache[f.id]; throw e });
+  return fileCache[f.id];
+}
+async function downloadFile(f) {
+  try {
+    toast("Downloading\u2026");
+    const url = await loadFile(f);
+    const a = el("a", { href: url, download: f.name }); document.body.append(a); a.click(); a.remove();
+  } catch { toast("That file couldn't be loaded. It may have been deleted.") }
+}
+function deleteMessage(m) {
+  const jobs = [deleteDoc(doc(db, "chat", m.id))];
+  if (m.file && m.by === me) for (let n = 0; n < m.file.parts; n++) jobs.push(deleteDoc(doc(db, "fileparts", `${m.file.id}_${n}`)).catch(() => {}));
+  return Promise.all(jobs);
+}
+const playable = f => /^(video|audio)\//.test(f.type);
+function attachmentEl(f) {
+  if (f.thumb) return el("button", { type: "button", class: "att-img", "aria-label": "Open photo " + f.name, onclick: e => { e.stopPropagation(); openViewer(f) } },
+    el("img", { src: f.thumb, alt: f.name, width: f.w || null, height: f.h || null }));
+  return el("div", { class: "att-file" },
+    el("span", { class: "att-ext" }, extOf(f.name)),
+    el("div", { class: "att-info" }, el("div", { class: "att-name" }, f.name), el("div", { class: "att-size" }, fmtSize(f.size))),
+    el("button", { type: "button", class: "act", onclick: e => { e.stopPropagation(); playable(f) ? openViewer(f) : downloadFile(f) } }, playable(f) ? "Play" : "Download"));
+}
+async function openViewer(f) {
+  const lb = $("#lightbox"); lb.hidden = false;
+  const body = el("div", { class: "lb-body" }, f.thumb ? el("img", { src: f.thumb, alt: f.name }) : el("p", {}, "Loading\u2026"));
+  const close = () => { lb.hidden = true; lb.replaceChildren(); document.removeEventListener("keydown", esc) };
+  const esc = e => { if (e.key === "Escape") close() };
+  document.addEventListener("keydown", esc);
+  lb.replaceChildren(el("div", { class: "lb-bar" }, el("span", { class: "lb-name" }, f.name), el("span", { class: "spacer" }),
+    el("button", { class: "btn", onclick: () => downloadFile(f) }, "Download"), el("button", { class: "btn", onclick: close }, "Close")), body);
+  lb.onclick = e => { if (e.target === lb) close() };
+  try {
+    const url = await loadFile(f);
+    if (lb.hidden) return;
+    const media = f.type.startsWith("video/") ? el("video", { src: url, controls: true, autoplay: true, playsinline: true })
+      : f.type.startsWith("audio/") ? el("audio", { src: url, controls: true, autoplay: true })
+      : el("img", { src: url, alt: f.name });
+    body.replaceChildren(media);
+  } catch { body.replaceChildren(el("p", {}, "That file couldn't be loaded. It may have been deleted.")) }
+}
+
 function jumpTo(id) {
   const n = document.getElementById("msg-" + id); if (!n) return;
   n.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -746,7 +895,7 @@ function renderChat() {
   if (ctxMsg) ctx.append(
     el("div", { style: "flex:1;min-width:0" },
       el("div", { class: "ctx-title" }, chatEdit ? "Editing your message" : `Replying to ${name(ctxMsg.by)}`),
-      el("div", { class: "ctx-text" }, snippet(ctxMsg.text))),
+      el("div", { class: "ctx-text" }, msgSummary(ctxMsg))),
     el("button", { type: "button", class: "x", title: "Cancel", "aria-label": "Cancel", onclick: cancelChatMode }, "✕"));
   $("#chat-send").textContent = chatEdit ? "Save" : "Send";
 
@@ -764,12 +913,12 @@ function renderChat() {
     const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     const orig = m.replyTo ? msgById(m.replyTo) : null;
     const quote = m.replyTo ? el("button", { type: "button", class: "quote", onclick: e => { e.stopPropagation(); if (orig) jumpTo(orig.id) } },
-      el("strong", {}, orig ? name(orig.by) : "Message"), el("span", {}, orig ? snippet(orig.text) : "This message was deleted")) : null;
+      el("strong", {}, orig ? name(orig.by) : "Message"), el("span", {}, orig ? msgSummary(orig) : "This message was deleted")) : null;
     const sel = chatSel === m.id;
     const bubble = el("div", { class: "bubble", tabindex: "0", role: "button", "aria-label": "Message options", "aria-expanded": String(sel),
       onclick: () => { if (String(getSelection())) return; chatSel = sel ? null : m.id; chatDel = null; render() },
       onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); chatSel = sel ? null : m.id; chatDel = null; render() } } },
-      quote, el("span", {}, m.text), el("span", { class: "msg-time" }, (m.edited ? "edited · " : "") + time));
+      quote, m.file ? attachmentEl(m.file) : null, m.text ? el("span", {}, m.text) : null, el("span", { class: "msg-time" }, (m.edited ? "edited · " : "") + time));
     const row = el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") + (sel ? " selected" : ""), id: "msg-" + m.id },
       mine ? null : (grouped ? el("span", { class: "av-space" }) : av(m.by)), bubble);
     log.append(row);
@@ -779,7 +928,7 @@ function renderChat() {
         act("Reply", () => { chatReply = m.id; chatEdit = null; chatSel = null; render(); $("#chat-input").focus() }),
         mine ? act("Edit", () => { chatEdit = m.id; chatReply = null; chatSel = null; $("#chat-input").value = m.text; render(); const i = $("#chat-input"); i.focus(); i.setSelectionRange(i.value.length, i.value.length) }) : null,
         mine ? (chatDel === m.id
-          ? act("Tap again to delete", () => { chatSel = null; chatDel = null; if (chatEdit === m.id) { chatEdit = null; $("#chat-input").value = "" } write(() => deleteDoc(doc(db, "chat", m.id)), "Message deleted") }, "danger")
+          ? act("Tap again to delete", () => { chatSel = null; chatDel = null; if (chatEdit === m.id) { chatEdit = null; $("#chat-input").value = "" } write(() => deleteMessage(m), "Message deleted") }, "danger")
           : act("Delete", () => { chatDel = m.id; render() }, "danger")) : null,
         act("Close", () => { chatSel = null; chatDel = null; render() }, "quiet")));
     }
