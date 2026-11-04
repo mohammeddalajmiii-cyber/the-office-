@@ -28,31 +28,16 @@ const ADMIN_NAME = "Mohammed";
 
 const CATEGORIES = ["App", "Website", "Game", "Video / YouTube", "Music", "Business", "Event", "Art & Design", "Social media", "School", "Sports", "Other"];
 
-const PHASES = [
-  { id: "goal",     name: "Goal",     hint: "What are we making, and for who?" },
-  { id: "research", name: "Research", hint: "What exists already, and do people want it?" },
-  { id: "design",   name: "Design",   hint: "How will it look and work?" },
-  { id: "build",    name: "Build",    hint: "Make the first working version." },
-  { id: "test",     name: "Test",     hint: "Let people try it and fix what breaks." },
-  { id: "launch",   name: "Launch",   hint: "Show it off and get people using it." },
-];
+// Plans made before custom phases existed used these six.
+const OLD_PHASES = [["goal", "Goal"], ["research", "Research"], ["design", "Design"], ["build", "Build"], ["test", "Test"], ["launch", "Launch"]];
 
-const TEMPLATE = [
-  ["goal", "Write one sentence: what we're making and who it's for", "write"],
-  ["goal", "Decide what 'done' means for the first version", "organize"],
-  ["goal", "Set a finish date and weekly check-ins", "organize"],
-  ["research", "Find 3 similar things that already exist and what they do well", "research"],
-  ["research", "Ask 5 people if they'd actually use it", "people"],
-  ["design", "Sketch the main screens or parts", "design"],
-  ["design", "Pick a name, colors and a logo", "design"],
-  ["build", "Set up the project and the tools we need", "build"],
-  ["build", "Build the first working version", "build"],
-  ["build", "Make the content: text, photos, video, sound", "media"],
-  ["test", "Get 3 people to try it and write down every problem", "research"],
-  ["test", "Fix the biggest problems", "build"],
-  ["launch", "Make a trailer, reel or post to show it off", "media"],
-  ["launch", "Write the description and captions", "write"],
-  ["launch", "Share it and get people to try it", "people"],
+// Starting points for a plan. They only add phase names; planners rename, reorder and fill them.
+const PLAN_TEMPLATES = [
+  { name: "App or website", phases: ["Goal", "Research", "Design", "Build", "Test", "Launch"] },
+  { name: "Video or content", phases: ["Idea", "Script", "Filming", "Editing", "Posting"] },
+  { name: "Event", phases: ["Plan", "Venue & date", "Invites", "Prep", "Event day", "Wrap-up"] },
+  { name: "Business", phases: ["Idea", "Research", "Product", "Branding", "Selling"] },
+  { name: "Music", phases: ["Idea", "Writing", "Recording", "Mixing", "Release"] },
 ];
 
 const QUIZ = [
@@ -289,7 +274,7 @@ function renderCurrent(projects) {
     el("h2", {}, fp.title),
     fp.pitch ? el("p", { style: "margin:0;opacity:.8;max-width:65ch" }, fp.pitch) : null,
     line(progressOf(tasks), "tasks"),
-    phaseBar(tasks),
+    phaseBar(fp, tasks),
     el("div", { class: "row" },
       el("span", { class: "stack" }, members.slice(0, 8).map(av)),
       el("span", { style: "font-size:13px;opacity:.8" }, members.length ? `${members.length} on the team` : "Nobody has joined yet"),
@@ -313,7 +298,7 @@ function renderCurrent(projects) {
       line(pr, "tasks"),
       mine.length ? el("ul", { class: "steps" }, mine.map(t => {
         const cid = "m-" + t.id; return el("li", { class: t.done ? "done" : "" },
-          el("input", { type: "checkbox", id: cid, checked: t.done, onchange: e => toggleDone(fp, t, e.target.checked) }),
+          el("input", { type: "checkbox", id: cid, checked: t.done, disabled: !(t.owner === me || canPlan(fp)), onchange: e => toggleDone(fp, t, e.target.checked) }),
           el("div", { style: "flex:1;min-width:0;display:grid;gap:6px" },
             el("label", { for: cid }, t.text, t.due ? el("span", { class: "label", style: "display:block;margin-top:4px" }, "Due " + fmtDate(t.due)) : null),
             notesBlock(fp, t, "m")))
@@ -323,10 +308,10 @@ function renderCurrent(projects) {
     el("div", { class: "by", style: "color:var(--ink);font-weight:600;font-size:15px" }, "Not assigned yet"),
     el("ul", { class: "steps" }, unassigned.slice(0, 8).map(t => el("li", {}, el("span", {}, t.text)))),
     unassigned.length > 8 ? el("p", {}, `+${unassigned.length - 8} more in the plan`) : null,
-    el("button", { class: "btn primary", onclick: () => runSuggest(fp) }, "Suggest who does what")));
+    canPlan(fp) ? el("button", { class: "btn primary", onclick: () => runSuggest(fp) }, "Suggest who does what") : null));
   box.append(grid);
 
-  box.append(el("div", { class: "row", style: "margin:26px 0 4px" }, el("h2", {}, "The plan, A to Z")));
+  box.append(el("div", { class: "row", style: "margin:26px 0 4px" }, el("h2", {}, "The plan")));
   box.append(planBody(fp, { hideSuggest: true }));
 }
 
@@ -423,7 +408,7 @@ function renderProjects(all) {
       el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), catChip(p), p.id === focusId ? el("span", { class: "pill" }, "Current project") : null),
       p.pitch ? el("p", {}, p.pitch) : null,
       line(progressOf(tasks), "tasks"),
-      tasks.length ? phaseBar(tasks) : null,
+      phaseBar(p, tasks),
       el("div", { class: "row" },
         voteButton(p),
         el("span", { class: "spacer" }),
@@ -456,8 +441,9 @@ function renderPlanPage(p) {
     el("div", { class: "row" }, el("h2", { style: "flex:1 1 auto;min-width:0" }, p.title), p.id === focusId ? el("span", { class: "pill" }, "Current project") : null),
     p.pitch ? el("p", {}, p.pitch) : null,
     catSelect(p),
+    plannersRow(p),
     line(progressOf(tasks), "tasks"),
-    tasks.length ? phaseBar(tasks) : null,
+    phaseBar(p, tasks),
     el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p))));
   box.append(planBody(p));
 }
@@ -481,57 +467,185 @@ function catSelect(p) {
 }
 
 function planBody(p, opts = {}) {
-  const tasks = tasksOf(p);
+  const tasks = tasksOf(p), phases = getPhases(p), planner = canPlan(p);
   const wrap = el("div", { style: "display:grid;gap:14px;margin-top:14px" });
+
+  if (!phases.length) {
+    if (!planner) {
+      wrap.append(el("div", { class: "empty" }, el("h3", {}, "No plan yet"),
+        el("p", { style: "margin:6px auto 0;max-width:46ch" }, `${name(p.author)} and the planners will add the phases and tasks here.`)));
+      return wrap;
+    }
+    const suggested = templateFor(p.category);
+    const card = el("section", { class: "idea", style: "gap:14px" },
+      el("h3", {}, "Build the plan"),
+      el("p", {}, "Split the project into phases, the big stages it goes through. Then add tasks inside each phase and give each one to someone. Start from scratch, or use one of these as a starting point and change anything:"),
+      el("div", { class: "row", style: "gap:8px" }, PLAN_TEMPLATES.map(tp => el("button", { class: "btn" + (tp === suggested ? " primary" : ""), title: tp.phases.join(" → "), onclick: () => usePlanTemplate(p, tp) }, tp.name))),
+      el("p", { style: "font-size:13px" }, "Each one only adds phase names, like " + suggested.phases.join(" → ") + ". You add the tasks."),
+      addPhaseRow(p, phases, "Or type your first phase, e.g. Brainstorm"));
+    wrap.append(card);
+    return wrap;
+  }
+
   const unassigned = tasks.filter(t => !t.owner && !t.done).length;
-  const tools = el("div", { class: "row" });
-  if (!tasks.length) tools.append(el("p", { style: "margin:0;color:var(--muted);flex:1 1 260px" }, "No plan yet. Start from our A-to-Z template and edit it, or add tasks one by one below."),
-    el("button", { class: "btn primary", onclick: () => addTemplate(p) }, "Fill in a starter plan"));
-  else if (!opts.hideSuggest && unassigned) tools.append(el("span", { style: "color:var(--muted);font-size:14px" }, `${unassigned} task${unassigned > 1 ? "s" : ""} not assigned yet.`), el("span", { class: "spacer" }),
-    el("button", { class: "btn primary", onclick: () => runSuggest(p) }, "Suggest who does what"));
-  if (tools.childNodes.length) wrap.append(tools);
+  if (planner && !opts.hideSuggest && unassigned) wrap.append(el("div", { class: "row" },
+    el("span", { style: "color:var(--muted);font-size:14px" }, `${unassigned} task${unassigned > 1 ? "s" : ""} not assigned yet.`), el("span", { class: "spacer" }),
+    el("button", { class: "btn", onclick: () => runSuggest(p) }, "Suggest who does what")));
   if (!opts.hideSuggest && suggestions[p.id]) wrap.append(suggestPanel(p));
 
-  PHASES.forEach((ph, n) => {
-    const list = tasks.filter(t => t.phase === ph.id);
-    const pr = progressOf(list);
-    const sec = el("section", { class: "idea phase" },
-      el("div", { class: "phase-h" }, el("span", { class: "phase-n" }, `${n + 1}/6`), el("h3", {}, ph.name), el("span", { style: "color:var(--muted);font-size:13px" }, ph.hint), el("span", { class: "spacer" }),
-        list.length ? el("span", { class: "label" }, `${pr.done}/${pr.total}`) : null),
-      ...list.map(t => taskRow(p, t)));
-    const tid = `add-${p.id}-${ph.id}`;
-    const inp = el("input", { id: tid, placeholder: "Add a task", maxlength: "140" });
-    const sk = el("select", { class: "mini", id: tid + "-sk", "aria-label": "Skill needed" }, el("option", { value: "" }, "Skill…"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
-    const add = () => { const text = inp.value.trim(); if (!text) return; inp.value = ""; write(() => upd(p.id, { ["tasks." + uid()]: { text, phase: ph.id, skill: sk.value || null, owner: null, done: false, order: Date.now(), due: null } })) };
-    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
-    sec.append(el("div", { class: "addtask" }, inp, sk, el("button", { class: "btn", onclick: add }, "Add")));
-    wrap.append(sec);
-  });
+  const known = new Set(phases.map(ph => ph.id));
+  const loose = tasks.filter(t => !known.has(t.phase));
+  phases.forEach((ph, n) => wrap.append(phaseCard(p, ph, n, phases, tasks.filter(t => t.phase === ph.id))));
+  if (loose.length) wrap.append(phaseCard(p, { id: "__loose", name: "Not in a phase" }, -1, phases, loose));
+  if (planner) wrap.append(el("section", { class: "idea addphase" }, el("h3", {}, "Add a phase"), addPhaseRow(p, phases, "Phase name, e.g. Filming")));
   return wrap;
 }
 
-function taskRow(p, t) {
-  const cid = "t-" + t.id;
-  const ownerSel = el("select", { class: "mini", "aria-label": "Who's doing it", onchange: e => write(() => upd(p.id, { [t.path + ".owner"]: e.target.value || null })) },
-    el("option", { value: "", selected: !t.owner }, "Unassigned"),
-    teamIds().map(u => el("option", { value: u, selected: t.owner === u }, name(u))));
-  const skillSel = el("select", { class: "mini", "aria-label": "Skill needed", onchange: e => write(() => upd(p.id, { [t.path + ".skill"]: e.target.value || null })) },
-    el("option", { value: "", selected: !t.skill }, "Any skill"),
-    SKILL_IDS.map(s => el("option", { value: s, selected: t.skill === s }, SKILLS[s].name)));
-  ownerSel.value = t.owner || ""; skillSel.value = t.skill || "";
-  const due = el("input", { type: "date", class: "mini", "aria-label": "Due date", value: t.due || "", onchange: e => write(() => upd(p.id, { [t.path + ".due"]: e.target.value || null })) });
-  return el("div", { class: "task" + (t.done ? " done" : "") },
-    el("input", { type: "checkbox", id: cid, checked: t.done, onchange: e => toggleDone(p, t, e.target.checked) }),
+function phaseCard(p, ph, n, phases, list) {
+  const planner = canPlan(p), pr = progressOf(list), loose = ph.id === "__loose";
+  const head = el("div", { class: "phase-h" });
+  if (renamingPhase === p.id + ph.id) {
+    const inp = el("input", { id: "rename-" + ph.id, class: "mini", value: ph.name, maxlength: "40", style: "font-size:15px;padding:6px 8px;flex:1 1 160px" });
+    const save = () => { const v = inp.value.trim(); renamingPhase = null; if (v && v !== ph.name) write(() => phaseWrite(p, { [`phases.${ph.id}.name`]: v })); else render() };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } if (e.key === "Escape") { renamingPhase = null; render() } });
+    setTimeout(() => { inp.focus(); inp.select() }, 0);
+    head.append(inp, el("button", { class: "btn", onclick: save }, "Save"), el("button", { class: "btn quiet", onclick: () => { renamingPhase = null; render() } }, "Cancel"));
+  } else {
+    head.append(...[
+      loose ? null : el("span", { class: "phase-n" }, `${n + 1}/${phases.length}`),
+      el("h3", {}, ph.name),
+      ph.due ? el("span", { class: "chip" }, "By " + fmtDate(ph.due)) : null,
+      el("span", { class: "spacer" }),
+      list.length ? el("span", { class: "label" }, `${pr.done}/${pr.total} done`) : null].filter(Boolean));
+  }
+  const sec = el("section", { class: "idea phase" }, head);
+  if (planner && !loose && renamingPhase !== p.id + ph.id) {
+    const due = el("input", { type: "date", class: "mini", "aria-label": "Finish this phase by", value: ph.due || "", onchange: e => write(() => phaseWrite(p, { [`phases.${ph.id}.due`]: e.target.value || null })) });
+    const tools = el("div", { class: "phase-tools" },
+      el("label", { class: "row", style: "gap:6px" }, "Finish by", due),
+      el("span", { class: "spacer" }),
+      n > 0 ? el("button", { class: "linkbtn", "aria-label": "Move phase up", onclick: () => movePhase(p, phases, n, -1) }, "↑ Up") : null,
+      n < phases.length - 1 ? el("button", { class: "linkbtn", "aria-label": "Move phase down", onclick: () => movePhase(p, phases, n, 1) }, "↓ Down") : null,
+      el("button", { class: "linkbtn", onclick: () => { renamingPhase = p.id + ph.id; render() } }, "Rename"),
+      delPhase === p.id + ph.id
+        ? el("button", { class: "linkbtn danger", onclick: () => deletePhase(p, ph, list) }, list.length ? `Delete phase and its ${list.length} task${list.length > 1 ? "s" : ""}` : "Tap again to delete")
+        : el("button", { class: "linkbtn danger", onclick: () => { delPhase = p.id + ph.id; render() } }, "Delete"));
+    sec.append(tools);
+  }
+  if (!list.length) sec.append(el("p", { style: "font-size:14px" }, planner ? "No tasks in this phase yet. Add the first one below." : "No tasks in this phase yet."));
+  for (const t of list) sec.append(taskRow(p, t, phases));
+  if (planner && !loose) sec.append(addTaskRow(p, ph));
+  return sec;
+}
+
+function addTaskRow(p, ph) {
+  const tid = `add-${p.id}-${ph.id}`;
+  const inp = el("input", { id: tid, placeholder: "Add a task in " + ph.name, maxlength: "140" });
+  const who = el("select", { class: "mini", id: tid + "-who", "aria-label": "Who does it" }, el("option", { value: "" }, "Who?"), teamIds().map(u => el("option", { value: u }, name(u))));
+  const sk = el("select", { class: "mini", id: tid + "-sk", "aria-label": "Skill needed" }, el("option", { value: "" }, "Skill…"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
+  const add = () => {
+    const text = inp.value.trim(); if (!text) return; inp.value = "";
+    write(() => upd(p.id, { ["tasks." + uid()]: { text, phase: ph.id, skill: sk.value || null, owner: who.value || null, done: false, order: Date.now(), due: null } }));
+  };
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
+  return el("div", { class: "addtask" }, inp, who, sk, el("button", { class: "btn", onclick: add }, "Add"));
+}
+
+function addPhaseRow(p, phases, placeholder) {
+  const inp = el("input", { id: "addphase-" + p.id, placeholder, maxlength: "40" });
+  const add = () => {
+    const v = inp.value.trim(); if (!v) return; inp.value = "";
+    const order = phases.length ? Math.max(...phases.map(x => x.order || 0)) + 1 : 1;
+    write(() => phaseWrite(p, { ["phases." + uid()]: { name: v, order, due: null } }), "Phase added");
+  };
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
+  return el("div", { class: "addtask" }, inp, el("button", { class: "btn primary", onclick: add }, "Add phase"));
+}
+
+function taskRow(p, t, phases) {
+  const cid = "t-" + t.id, planner = canPlan(p), mineOrPlanner = planner || t.owner === me;
+  const check = el("input", { type: "checkbox", id: cid, checked: t.done, disabled: !mineOrPlanner, title: mineOrPlanner ? "" : "Only the person doing it or a planner can tick this", onchange: e => toggleDone(p, t, e.target.checked) });
+  let meta;
+  if (planner) {
+    const ownerSel = el("select", { class: "mini", "aria-label": "Who's doing it", onchange: e => write(() => upd(p.id, { [t.path + ".owner"]: e.target.value || null })) },
+      el("option", { value: "" }, "Unassigned"), teamIds().map(u => el("option", { value: u }, name(u))));
+    const skillSel = el("select", { class: "mini", "aria-label": "Skill needed", onchange: e => write(() => upd(p.id, { [t.path + ".skill"]: e.target.value || null })) },
+      el("option", { value: "" }, "Any skill"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
+    const phaseSel = el("select", { class: "mini", "aria-label": "Phase", onchange: e => write(() => phaseWrite(p, { [t.path + ".phase"]: e.target.value })) },
+      phases.map(ph => el("option", { value: ph.id }, ph.name)));
+    ownerSel.value = t.owner || ""; skillSel.value = t.skill || ""; phaseSel.value = t.phase;
+    const due = el("input", { type: "date", class: "mini", "aria-label": "Due date", value: t.due || "", onchange: e => write(() => upd(p.id, { [t.path + ".due"]: e.target.value || null })) });
+    meta = el("div", { class: "meta" }, t.owner ? av(t.owner) : null, ownerSel, skillSel, due, phases.length > 1 ? phaseSel : null);
+  } else {
+    meta = el("div", { class: "meta" },
+      t.owner ? el("span", { class: "by" }, av(t.owner), name(t.owner)) : el("span", { class: "label" }, "Not assigned"),
+      t.skill ? el("span", { class: "chip" }, SKILLS[t.skill].name) : null,
+      t.due ? el("span", { class: "label" }, "Due " + fmtDate(t.due)) : null);
+  }
+  return el("div", { class: "task" + (t.done ? " done" : "") + (t.owner === me ? " mytask" : "") },
+    check,
     el("label", { for: cid, class: "ttext" }, t.text),
-    el("button", { class: "x", title: "Delete task", "aria-label": "Delete task " + t.text, onclick: () => write(() => upd(p.id, { [t.path]: DEL() })) }, "✕"),
-    el("div", { class: "meta" }, t.owner ? av(t.owner) : null, ownerSel, skillSel, due),
+    planner ? el("button", { class: "x", title: "Delete task", "aria-label": "Delete task " + t.text, onclick: () => write(() => upd(p.id, { [t.path]: DEL() })) }, "✕") : el("span"),
+    meta,
     notesBlock(p, t, "p"));
 }
 
-function addTemplate(p) {
+/* ----- planners & phases ----- */
+
+let renamingPhase = null, delPhase = null;
+const canPlan = p => !!p && (isAdmin || p.author === me || !!(p.planners || {})[me]);
+const plannerIds = p => [...new Set([p.author, ...Object.entries(p.planners || {}).filter(([, v]) => v).map(([u]) => u)].filter(Boolean))];
+
+function getPhases(p) {
+  if (p.phases) return Object.entries(p.phases).filter(([, v]) => v && v.name).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.order || 0) - (b.order || 0));
+  // Plans made before custom phases existed used these six.
+  if (tasksOf(p).length) return OLD_PHASES.map((ph, n) => ({ id: ph[0], name: ph[1], order: n + 1, due: null, virtual: true }));
+  return [];
+}
+// Saves a phase change; turns the old built-in phases into real ones the first time someone edits them.
+function phaseWrite(p, data) {
+  const out = {};
+  for (const ph of getPhases(p)) if (ph.virtual) out["phases." + ph.id] = { name: ph.name, order: ph.order, due: null };
+  return upd(p.id, Object.assign(out, data));
+}
+function movePhase(p, phases, n, dir) {
+  const a = phases[n], b = phases[n + dir]; if (!b) return;
+  write(() => phaseWrite(p, { [`phases.${a.id}.order`]: b.order, [`phases.${b.id}.order`]: a.order }));
+}
+function deletePhase(p, ph, list) {
+  delPhase = null;
+  const data = { [`phases.${ph.id}`]: DEL() };
+  for (const t of list) data[t.path] = DEL();
+  write(async () => { await phaseWrite(p, {}); await upd(p.id, data) }, "Phase deleted");
+}
+function usePlanTemplate(p, tp) {
   const base = Date.now(); const data = {};
-  TEMPLATE.forEach(([phase, text, skill], n) => data["tasks." + uid() + n] = { text, phase, skill, owner: null, done: false, order: base + n, due: null });
-  write(() => upd(p.id, data), "Starter plan added. Edit it however you like");
+  tp.phases.forEach((nm, n) => data["phases." + uid() + n] = { name: nm, order: n + 1, due: null });
+  write(() => upd(p.id, data), "Phases added. Rename, reorder or delete any of them");
+}
+function templateFor(cat) {
+  const c = (cat || "").toLowerCase();
+  if (/video|youtube|social|film/.test(c)) return PLAN_TEMPLATES[1];
+  if (/event|sport/.test(c)) return PLAN_TEMPLATES[2];
+  if (/business|sell/.test(c)) return PLAN_TEMPLATES[3];
+  if (/music/.test(c)) return PLAN_TEMPLATES[4];
+  return PLAN_TEMPLATES[0];
+}
+
+function plannersRow(p) {
+  const ids = plannerIds(p), boss = isAdmin || p.author === me;
+  const row = el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Planners:",
+    ...ids.map(u => el("span", { class: "planner" }, av(u), name(u), u === p.author ? el("span", { class: "label" }, "idea") : null,
+      boss && u !== p.author ? el("button", { class: "x", "aria-label": "Remove " + name(u) + " as planner", onclick: () => write(() => upd(p.id, { ["planners." + u]: DEL() }), "Planner removed") }, "✕") : null)));
+  if (boss) {
+    const others = teamIds().filter(u => !ids.includes(u));
+    if (others.length) {
+      const sel = el("select", { class: "mini", "aria-label": "Add a planner", onchange: e => { const u = e.target.value; if (u) write(() => upd(p.id, { ["planners." + u]: true }), `${name(u)} can now plan this project`) } },
+        el("option", { value: "" }, "+ Add a planner"), others.map(u => el("option", { value: u }, name(u))));
+      row.append(sel);
+    }
+  }
+  return row;
 }
 
 function runSuggest(p) {
@@ -939,8 +1053,9 @@ function renderChat() {
 
 /* ----- shared bits ----- */
 
-function phaseBar(tasks) {
-  return el("div", { class: "phasebar" }, PHASES.map((ph, n) => {
+function phaseBar(p, tasks) {
+  const phases = getPhases(p); if (!phases.length) return null;
+  return el("div", { class: "phasebar" }, phases.map((ph, n) => {
     const list = tasks.filter(t => t.phase === ph.id); const pr = progressOf(list);
     return el("span", { class: "ph" + (pr.total && pr.done === pr.total ? " complete" : "") }, `${n + 1} ${ph.name} ${pr.done}/${pr.total}`);
   }));

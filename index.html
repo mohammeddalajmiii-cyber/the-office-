@@ -223,6 +223,13 @@ details.removed .idea{opacity:.75}
 .lb-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .lb-body{display:grid;place-items:center;min-height:0;color:#fff}
 .lb-body img,.lb-body video{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
+.phase-tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted)}
+.linkbtn.danger{color:var(--drop)}
+.addphase{border-style:dashed}
+.planner{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 8px 3px 3px;color:var(--ink)}
+.planner .x{border:0;background:none;color:var(--muted);padding:0 2px}
+.task.mytask{background:linear-gradient(90deg,var(--accent-soft),transparent 60%)}
+.task input[type=checkbox]:disabled{opacity:.5;cursor:not-allowed}
 .pill{font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
