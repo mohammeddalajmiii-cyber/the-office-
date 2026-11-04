@@ -155,6 +155,7 @@ onAuthStateChanged(auth, u => {
     if (before && newest && newest.at > before && newest.by !== me && route().view !== "chat") toast(`${firstName(newest.by)}: ${msgSummary(newest).slice(0, 60)}`);
     render();
   }, () => {}));
+  unsubs.push(onSnapshot(collection(db, "private", me, "tasks"), s => { personal = s.docs.map(d => ({ id: d.id, ...d.data() })); render() }, () => {}));
   unsubs.push(onSnapshot(collection(db, "private", me, "notes"), s => {
     myNotes = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at || 0) - (a.at || 0));
     // Don't redraw while typing in a note, so the cursor doesn't jump.
@@ -1083,8 +1084,9 @@ function prioControl(p) {
 
 let mineShow = "todo";
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` };
+let personal = [];
 function myTasks() {
-  const out = [];
+  const out = personal.map(t => ({ t, phase: "", personal: true, p: { id: "__personal", title: "Just for me", priority: t.priority || "medium" } }));
   for (const p of ideas.filter(i => i.status === "approved")) {
     const phases = getPhases(p);
     for (const t of tasksOf(p)) if (t.owner === me) out.push({ p, t, phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" });
@@ -1108,7 +1110,8 @@ function renderMine() {
       el("button", { "aria-pressed": String(mineShow === "todo"), onclick: () => { mineShow = "todo"; render() } }, `To do ${todo.filter(x => !x.t.done).length}`),
       el("button", { "aria-pressed": String(mineShow === "done"), onclick: () => { mineShow = "done"; render() } }, `Done ${done.length}`))));
 
-  if (!all.length) { box.append(el("div", { class: "empty" }, "You don't have any tasks yet. When a planner gives you a task in any project, it shows up here.")); return }
+  box.append(addPersonalTaskRow());
+  if (!all.length) { box.append(el("div", { class: "empty" }, "No tasks yet. Add one for yourself above. When a planner gives you a task in a project, it shows up here too.")); return }
 
   if (mineShow === "done") {
     if (!done.length) { box.append(el("div", { class: "empty" }, "Nothing finished yet.")); return }
@@ -1128,7 +1131,26 @@ function renderMine() {
     box.append(sec);
   }
 }
-function myTaskRow({ p, t, phase }) {
+function addPersonalTaskRow() {
+  const inp = el("input", { id: "ptask-text", placeholder: "Add a task just for yourself", maxlength: "200" });
+  const due = el("input", { type: "date", class: "mini", id: "ptask-due", "aria-label": "Due date" });
+  const pri = el("select", { class: "mini", id: "ptask-prio", "aria-label": "Priority" }, PRIORITIES.map(x => el("option", { value: x.id }, x.name + " priority")));
+  pri.value = "medium";
+  const add = () => {
+    const text = inp.value.trim(); if (!text) return;
+    const data = { text, done: false, due: due.value || null, priority: pri.value, order: Date.now() };
+    inp.value = ""; due.value = "";
+    write(() => setDoc(doc(db, "private", me, "tasks", uid()), data), "Task added");
+  };
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
+  return el("div", { class: "idea", style: "gap:8px;margin-bottom:12px" },
+    el("div", { class: "addtask", style: "margin:0" }, inp, el("button", { class: "btn primary", onclick: add }, "Add")),
+    el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, pri, el("label", { class: "row", style: "gap:6px" }, "Due", due),
+      el("span", { class: "spacer" }), el("span", {}, "Only you can see these")));
+}
+function myTaskRow(x) {
+  if (x.personal) return personalTaskRow(x.t);
+  const { p, t, phase } = x;
   const cid = "my-" + t.id, today = todayStr();
   const late = !t.done && t.due && t.due < today, soon = !t.done && t.due === today;
   return el("div", { class: "task" + (t.done ? " done" : "") },
@@ -1141,6 +1163,19 @@ function myTaskRow({ p, t, phase }) {
       p.id === focusId ? el("span", { class: "pill" }, "Current") : null,
       t.due ? el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, late ? "Overdue · " + fmtDate(t.due) : soon ? "Due today" : "Due " + fmtDate(t.due)) : null),
     notesBlock(p, t, "mine"));
+}
+
+function personalTaskRow(t) {
+  const cid = "myp-" + t.id, today = todayStr();
+  const late = !t.done && t.due && t.due < today, soon = !t.done && t.due === today;
+  const ref = doc(db, "private", me, "tasks", t.id);
+  return el("div", { class: "task" + (t.done ? " done" : "") },
+    el("input", { type: "checkbox", id: cid, checked: !!t.done, onchange: e => write(() => setDoc(ref, { done: e.target.checked, doneAt: e.target.checked ? Date.now() : null }, { merge: true }), e.target.checked ? "Done" : null) }),
+    el("label", { for: cid, class: "ttext" }, t.text),
+    el("button", { class: "x", title: "Delete task", "aria-label": "Delete task " + t.text, onclick: () => write(() => deleteDoc(ref), "Task deleted") }, "\u2715"),
+    el("div", { class: "meta" },
+      el("span", { class: "label" }, "Just for me"),
+      t.due ? el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, late ? "Overdue \u00b7 " + fmtDate(t.due) : soon ? "Due today" : "Due " + fmtDate(t.due)) : null));
 }
 
 /* ----- private notes (only the person who wrote them can read them) ----- */
