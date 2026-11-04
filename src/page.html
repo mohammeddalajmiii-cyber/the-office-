@@ -180,6 +180,11 @@ details.removed .idea{opacity:.75}
 .noteinput,#chat-input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:9px 12px;resize:vertical;font:inherit;color:inherit}
 .linkbtn{background:none;border:0;color:var(--accent);font-weight:600;font-size:13px;padding:0}
 .steps .notes .x,.note .x{opacity:1}
+/* In each person's list, notes sit under the task instead of beside it */
+.steps .notes{grid-column:auto;width:100%}
+.steps li{padding:8px 0;border-top:1px solid var(--line)}
+.steps li:first-child{border-top:0}
+.steps label{line-height:1.45}
 .chatbox{display:grid;gap:10px}
 .chatlog{height:clamp(300px,calc(100dvh - 290px),640px);overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:3px}
 .day{align-self:center;font:500 11px/1 var(--body);color:var(--muted);margin:12px 0 6px}
