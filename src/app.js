@@ -102,17 +102,16 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 
 /* ---------- routing ---------- */
 
-const VIEWS = ["me", "current", "ideas", "projects", "chat", "skills", "plan"];
+const VIEWS = ["me", "ideas", "projects", "chat", "skills", "project"];
 function route() {
   const h = location.hash.slice(1);
-  if (h.startsWith("plan-")) return { view: "plan", id: h.slice(5) };
-  if (h.startsWith("build-")) return { view: "current", id: h.slice(6) };
-  if (h === "projects-done") return { view: "projects" };
+  for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
+  if (h === "projects-done" || h === "current") return { view: "projects" };
   if (h === "mine" || h === "notes") return { view: "me" };
-  return { view: VIEWS.includes(h) && h !== "plan" ? h : "me" };
+  return { view: VIEWS.includes(h) && h !== "project" ? h : "me" };
 }
 function show() {
-  const r = route(); const tabView = r.view === "plan" ? "projects" : r.view === "skills" ? "me" : r.view;
+  const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" ? "me" : r.view;
   for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
   render();
@@ -286,10 +285,9 @@ function renderAll() {
   fillComposeCats();
   $("#c-ideas").textContent = voting.length; $("#c-projects").textContent = projects.length;
   const r = route();
-  if (r.view === "current") renderCurrent(projects, r.id);
   if (r.view === "ideas") renderIdeas(voting, removed);
   if (r.view === "projects") renderProjects(projects);
-  if (r.view === "plan") renderPlanPage(ideas.find(p => p.id === r.id && (p.status === "approved" || p.status === "completed")));
+  if (r.view === "project") renderProjectPage(ideas.find(p => p.id === r.id && (p.status === "approved" || p.status === "completed")));
   if (r.view === "skills") renderSkills();
   if (r.view === "me") renderMe();
   const open = myTasks().filter(x => !x.t.done && !x.closed).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
@@ -299,41 +297,8 @@ function renderAll() {
   renderChat();
 }
 
-/* ----- current project (home) ----- */
-
-function renderCurrent(projects, id) {
-  const box = $("#current"); box.replaceChildren();
-  const active = activeProjects();
-  let fp = id ? projects.find(p => p.id === id) : null;
-  if (!fp && active.length === 1) fp = active[0];
-  if (!fp && active.length > 1) {
-    box.append(el("div", { class: "row", style: "margin:4px 0 12px" }, el("h2", {}, "What we're building"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${active.length} projects`)));
-    box.append(el("div", { class: "list", style: "margin-top:0" }, active.map(p => buildCard(p))));
-    if (isAdmin) box.append(el("p", { style: "margin-top:16px;color:var(--muted);font-size:14px" }, "To start another one, press \u201cStart building\u201d on it in Projects."));
-    return;
-  }
-  if (!fp) {
-    const top = byVotes(projects).slice(0, 3);
-    box.append(el("div", { class: "empty" }, el("h3", {}, "Nothing is being built yet"),
-      el("p", { style: "margin:6px auto 14px;max-width:48ch" }, isAdmin
-        ? "Everyone votes on the Projects tab. Press \u201cStart building\u201d on any project to start it. You can run several at once."
-        : `Vote on the Projects tab for the ones you want to build. ${ADMIN_NAME} decides which ones we start.`),
-      el("button", { class: "btn primary", onclick: () => { location.hash = "projects" } }, isAdmin ? "Go to Projects" : "Vote on projects")));
-    if (top.length) {
-      box.append(el("div", { class: "row", style: "margin:22px 0 10px" }, el("h2", {}, "Most votes so far")));
-      box.append(el("div", { class: "list", style: "margin-top:0" }, top.map((p, n) => el("article", { class: "idea" },
-        el("div", { class: "row" }, el("span", { class: "label" }, `#${n + 1}`), el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), catChip(p)),
-        el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p))))));
-    }
-    return;
-  }
-  if (active.length > 1) box.append(el("button", { class: "back", onclick: () => { location.hash = "current" } }, "\u2190 Everything we're building"));
-  renderBoard(box, fp);
-}
-
 /* ----- a project's team board: tasks, this week, meetings ----- */
 
-let boardTab = "tasks";
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const weekKey = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x) };
 const weekLabel = k => k === weekKey() ? "This week" : "Week of " + fmtDate(k);
@@ -343,53 +308,64 @@ const teamOf = p => {
   return [...set].sort((a, b) => a === me ? -1 : b === me ? 1 : name(a).localeCompare(name(b)));
 };
 
-function renderBoard(box, fp) {
-  const tasks = tasksOf(fp), members = teamOf(fp), joined = !!(fp.members || {})[me];
-  const goal = (fp.goals || {})[weekKey()];
-  box.append(el("section", { class: "focus" },
-    el("div", { class: "label" }, (isActive(fp) ? "Building now" : "Not started") + (fp.category ? " · " + fp.category : "") + " · " + prioOf(fp).name + " priority"),
-    el("h2", {}, fp.title),
-    fp.pitch ? el("p", { style: "margin:0;opacity:.8;max-width:65ch" }, fp.pitch) : null,
-    goal && goal.text ? el("div", { class: "goal-line" + (goal.reached ? " reached" : "") }, el("span", { class: "tlabel" }, goal.reached ? "This week's goal ✓ reached" : "This week's goal"), el("span", {}, goal.text)) : null,
-    line(progressOf(tasks), "tasks"),
-    phaseBar(fp, tasks),
-    el("div", { class: "row" },
-      el("span", { class: "stack" }, members.slice(0, 8).map(av)),
-      el("span", { style: "font-size:13px;opacity:.8" }, members.length ? `${members.length} on the team` : "Nobody has joined yet"),
-      el("span", { class: "spacer" }),
-      el("button", { class: "btn", onclick: () => write(() => upd(fp.id, { ["members." + me]: joined ? DEL() : true }), joined ? "You left the team" : "You joined the team") }, joined ? "Leave team" : "Join the team"),
-      el("button", { class: "btn", onclick: () => { location.hash = "plan-" + fp.id } }, canPlan(fp) ? "Edit plan" : "See the plan")),
-    (isAdmin && isActive(fp)) || pickButton(fp) || canPlan(fp) ? el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
-      isAdmin && isActive(fp) ? el("button", { class: "btn quiet", onclick: () => pauseBuilding(fp) }, "Pause this project") : null,
-      pickButton(fp),
-      canPlan(fp) ? completeButton(fp) : null) : null));
+let projTab = "tasks", showSettings = null, planEdit = null;
+const taskFilter = {};   // project id -> person id whose tasks to show
 
-  const meetings = Object.values(fp.meetings || {}).filter(Boolean).length;
-  box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin:4px 0 14px" },
-    el("button", { "aria-pressed": String(boardTab === "tasks"), onclick: () => { boardTab = "tasks"; render() } }, "Tasks"),
-    el("button", { "aria-pressed": String(boardTab === "week"), onclick: () => { boardTab = "week"; render() } }, "This week"),
-    el("button", { "aria-pressed": String(boardTab === "meet"), onclick: () => { boardTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : ""))));
-  if (boardTab === "week") return renderWeek(box, fp, members);
-  if (boardTab === "meet") return renderMeetings(box, fp);
+function renderProjectPage(p) {
+  const box = $("#project"); box.replaceChildren();
+  box.append(el("button", { class: "back", onclick: () => { location.hash = p && p.status === "completed" ? "projects-done" : "projects" } }, "\u2190 Projects"));
+  if (!p) { box.append(el("div", { class: "empty" }, "This project isn't on the board anymore.")); return }
+  const tasks = tasksOf(p), team = teamOf(p), joined = !!(p.members || {})[me], planner = canPlan(p);
+  const done = p.status === "completed", goal = (p.goals || {})[weekKey()];
+  const mineLeft = tasks.filter(t => isAssignee(t, me) && !t.done).length;
+  const settingsOpen = showSettings === p.id;
 
-  /* who's doing what */
-  const unassigned = tasks.filter(t => !t.owner && !t.done);
-  if (suggestions[fp.id]) box.append(suggestPanel(fp));
-  const grid = el("div", { class: "members" });
-  if (!members.length) grid.append(el("div", { class: "empty" }, "Press “Join the team” to get your own task list. Everyone who joins gets a box here."));
-  for (const m of members) {
-    const mine = tasks.filter(t => isAssignee(t, m)).sort((a, b) => (a.done - b.done) || taskPrioRank(a) - taskPrioRank(b) || (a.due || "9999").localeCompare(b.due || "9999"));
-    grid.append(el("article", { class: "idea member" + (m === me ? " me" : "") },
-      el("div", { class: "by", style: "color:var(--ink);font-weight:600;font-size:15px" }, av(m), name(m), el("span", { class: "spacer" }),
-        ...topSkills(m).slice(0, 1).map(s => el("span", { class: "chip" }, SKILLS[s].name))),
-      line(progressOf(mine), "tasks"),
-      mine.length ? el("div", { class: "tasklist" }, mine.map(t => taskItem(fp, t, "m-" + m, { people: "multi" }))) : el("p", {}, "No tasks yet.")));
+  const head = el("section", { class: "focus" },
+    el("div", { class: "row", style: "gap:6px" },
+      done ? el("span", { class: "done-badge" }, "\u2713 Completed " + fmtDay(p.completedAt)) : el("span", { class: "pill" }, isActive(p) ? "Building now" : "Up next"),
+      prioChip(p), p.category ? catChip(p) : null),
+    el("div", { class: "row", style: "align-items:flex-start;flex-wrap:nowrap" }, el("h2", { style: "flex:1;min-width:0" }, p.title),
+      planner || joined ? el("button", { class: "btn small", "aria-expanded": String(settingsOpen), onclick: () => { showSettings = settingsOpen ? null : p.id; render() } }, settingsOpen ? "Close" : "Settings") : null),
+    p.pitch ? el("p", { class: "pitch" }, p.pitch) : null,
+    !done && goal && goal.text ? el("div", { class: "goal-line" + (goal.reached ? " reached" : "") }, el("span", { class: "tlabel" }, goal.reached ? "This week's goal \u2713 reached" : "This week's goal"), el("span", {}, goal.text)) : null,
+    tasks.length ? line(progressOf(tasks), "tasks") : null,
+    mineLeft ? el("div", { class: "now-sub" }, `${mineLeft} of these are yours`) : null);
+  const actions = el("div", { class: "row", style: "gap:8px" });
+  if (!done && !isActive(p)) actions.append(voteButton(p));
+  if (!done && !joined) actions.append(el("button", { class: "btn", onclick: () => write(() => upd(p.id, { ["members." + me]: true }), "You joined the team") }, "Join the team"));
+  actions.append(el("span", { class: "spacer" }));
+  const pick = pickButton(p); if (pick) actions.append(pick);
+  if (actions.childNodes.length > 1) head.append(actions);
+  box.append(head);
+
+  if (settingsOpen) {
+    const set = el("section", { class: "idea settings" }, el("h3", {}, "Project settings"));
+    if (planner) set.append(catSelect(p), prioControl(p), plannersRow(p));
+    const btns = el("div", { class: "row", style: "gap:8px" });
+    if (joined) btns.append(el("button", { class: "btn quiet", onclick: () => write(() => upd(p.id, { ["members." + me]: DEL() }), "You left the team") }, "Leave the team"));
+    btns.append(el("span", { class: "spacer" }));
+    if (isAdmin && isActive(p)) btns.append(el("button", { class: "btn", onclick: () => pauseBuilding(p) }, "Pause"));
+    if (planner) btns.append(done ? el("button", { class: "btn", onclick: () => reopenProject(p) }, "Reopen") : completeButton(p));
+    set.append(btns);
+    box.append(set);
   }
-  if (unassigned.length) grid.append(el("article", { class: "idea" },
-    el("div", { class: "by", style: "color:var(--ink);font-weight:600;font-size:15px" }, "Not assigned yet", el("span", { class: "spacer" }), el("span", { class: "label" }, unassigned.length + "")),
-    el("div", { class: "tasklist" }, unassigned.map(t => taskItem(fp, t, "u", { people: "never" }))),
-    canPlan(fp) ? el("button", { class: "btn primary", onclick: () => runSuggest(fp) }, "Suggest who does what") : null));
-  box.append(grid);
+
+  const meetings = Object.values(p.meetings || {}).filter(Boolean).length;
+  box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin:4px 0 14px" },
+    el("button", { "aria-pressed": String(projTab === "tasks"), onclick: () => { projTab = "tasks"; render() } }, "Tasks"),
+    el("button", { "aria-pressed": String(projTab === "week"), onclick: () => { projTab = "week"; render() } }, "This week"),
+    el("button", { "aria-pressed": String(projTab === "meet"), onclick: () => { projTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : ""))));
+  if (projTab === "week") return renderWeek(box, p, team);
+  if (projTab === "meet") return renderMeetings(box, p);
+
+  // people chips: tap someone to see only their tasks
+  const f = taskFilter[p.id] || null;
+  if (team.length && tasks.length) {
+    const chip = (u, label, count) => el("button", { class: "pchip", "aria-pressed": String(f === u), onclick: () => { taskFilter[p.id] = u; render() } }, u ? av(u) : null, label, count != null ? el("span", { class: "pcount" }, count) : null);
+    box.append(el("div", { class: "pchips" }, chip(null, "Everyone"),
+      ...team.map(u => { const list = tasks.filter(t => isAssignee(t, u)); return chip(u, u === me ? "You" : name(u).split(" ")[0], `${list.filter(t => t.done).length}/${list.length}`) })));
+  }
+  box.append(planBody(p, { filter: f }));
 }
 
 /* this week: goal + check-ins */
@@ -521,10 +497,11 @@ $("#f-cat").addEventListener("change", e => {
 });
 fillComposeCats();
 const catFilter = { ideas: "", projects: "" };
+const catEls = { ideas: $("#cat-ideas"), projects: $("#cat-projects") };   // kept so the filter can sit under the tabs
 function catBar(where, list) {
-  const box = $("#cat-" + where); box.replaceChildren();
+  const box = catEls[where]; box.replaceChildren();
   const used = allCats().filter(c => list.some(i => (i.category || "Other") === c));
-  if (used.length < 2 && !catFilter[where]) return list;
+  if ((used.length < 2 || list.length < 6) && !catFilter[where]) { box.replaceChildren(); return list }
   const pick = c => { catFilter[where] = catFilter[where] === c ? "" : c; render() };
   box.append(el("button", { class: "cat", "aria-pressed": String(!catFilter[where]), onclick: () => pick("") }, `All ${list.length}`),
     ...used.map(c => el("button", { class: "cat", "aria-pressed": String(catFilter[where] === c), onclick: () => pick(c) }, `${c} ${list.filter(i => (i.category || "Other") === c).length}`)));
@@ -586,28 +563,34 @@ function renderProjects(all) {
   box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin-bottom:14px" },
     el("button", { "aria-pressed": String(projShow === "active"), onclick: () => { projShow = "active"; if (location.hash === "#projects-done") location.hash = "projects"; render() } }, `Projects ${all.length}`),
     el("button", { "aria-pressed": String(projShow === "done"), onclick: () => { projShow = "done"; render() } }, `Completed ${done.length}`)));
-  if (projShow === "done") { renderCompleted(box, done); $("#cat-projects").replaceChildren(); return }
+  if (projShow === "done") { renderCompleted(box, done); catEls.projects.replaceChildren(); return }
+  box.append(catEls.projects);
   const ranked = byVotes(all);
   const rank = Object.fromEntries(ranked.map((p, n) => [p.id, n + 1]));
   const projects = catBar("projects", ranked);
-  if (all.length) box.append(el("p", { style: "margin:0;color:var(--muted);font-size:14px" },
-    isAdmin ? "Everyone votes for the projects they want to build. You decide which ones to start." : `Vote for the projects you want to build. ${ADMIN_NAME} decides which ones we start.`));
-  if (all.length && !projects.length) box.append(el("div", { class: "empty" }, "No projects in this category."));
-  else if (!projects.length) box.append(el("div", { class: "empty" }, "No confirmed projects yet. Ideas land here once more people vote keep than drop and someone confirms them."));
-  for (const p of projects) {
-    const tasks = tasksOf(p), n = projectVoters(p).length;
-    box.append(el("article", { class: "idea" },
-      el("div", { class: "row" }, el("span", { class: "label" }, `#${rank[p.id]} \u00b7 ${n} vote${n === 1 ? "" : "s"}`)),
-      el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), catChip(p), prioChip(p), isActive(p) ? el("span", { class: "pill" }, "Building now") : null),
-      p.pitch ? el("p", {}, p.pitch) : null,
-      line(progressOf(tasks), "tasks"),
-      phaseBar(p, tasks),
-      el("div", { class: "row" },
-        voteButton(p),
-        el("span", { class: "spacer" }),
-        el("button", { class: "btn", onclick: () => { location.hash = "plan-" + p.id } }, tasks.length ? "Open the plan" : "Start planning"),
-        pickButton(p))));
+  if (all.length && !projects.length) { box.append(el("div", { class: "empty" }, "No projects in this category.")); return }
+  if (!projects.length) { box.append(el("div", { class: "empty" }, "No projects yet. Ideas land here once the team votes to keep them.")); return }
+  const building = projects.filter(isActive).sort((a, b) => prioRank(a) - prioRank(b));
+  const next = projects.filter(p => !isActive(p));
+  if (building.length) {
+    box.append(el("h2", { class: "sec-h" }, "Building now"));
+    box.append(el("div", { class: "list", style: "margin-top:0" }, building.map(p => projCard(p))));
   }
+  if (next.length) {
+    box.append(el("div", { class: "sec-h row" }, el("h2", {}, "Up next"), el("span", { class: "spacer" }), el("span", { class: "label" }, isAdmin ? "Vote, then start the ones you pick" : `Vote for what we build next`)));
+    box.append(el("div", { class: "list", style: "margin-top:0" }, next.map(p => projCard(p, rank[p.id]))));
+  }
+}
+function projCard(p, n) {
+  const tasks = tasksOf(p), team = teamOf(p), left = tasks.filter(t => isAssignee(t, me) && !t.done).length;
+  const open = () => { location.hash = "project-" + p.id };
+  return el("article", { class: "idea projcard" },
+    el("button", { class: "cardlink", onclick: open, "aria-label": "Open " + p.title },
+      el("div", { class: "row", style: "gap:8px" }, n ? el("span", { class: "rank" }, "#" + n) : null, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), p.priority === "urgent" || p.priority === "high" ? prioChip(p) : null),
+      tasks.length ? line(progressOf(tasks), "tasks") : el("span", { class: "label" }, canPlan(p) ? "No plan yet. Tap to make one" : "No plan yet")),
+    isActive(p)
+      ? el("div", { class: "row" }, el("span", { class: "stack" }, team.slice(0, 6).map(av)), el("span", { class: "spacer" }), el("span", { class: "now-sub" }, left ? `${left} of your tasks left` : ""))
+      : el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p)));
 }
 
 /* ----- project votes ----- */
@@ -654,15 +637,6 @@ function completeProject(p) {
   location.hash = "projects-done";
 }
 function reopenProject(p) { write(() => upd(p.id, { status: "approved", completedAt: DEL(), completedBy: DEL() }), "Reopened. It's back in Projects") }
-function buildCard(p) {
-  const tasks = tasksOf(p), mineLeft = tasks.filter(t => t.owner === me && !t.done).length;
-  const team = [...new Set([...Object.entries(p.members || {}).filter(([, v]) => v).map(([u]) => u), ...tasks.map(t => t.owner).filter(Boolean)])];
-  return el("button", { class: "idea buildcard", onclick: () => { location.hash = "build-" + p.id } },
-    el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), prioChip(p)),
-    line(progressOf(tasks), "tasks"),
-    el("div", { class: "row" }, el("span", { class: "stack" }, team.slice(0, 6).map(av)),
-      el("span", { class: "spacer" }), el("span", { class: "now-sub" }, mineLeft ? `${mineLeft} of your tasks left \u2192` : "Open \u2192")));
-}
 function celebrate() {
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const c = el("canvas", { class: "confetti" }); document.body.append(c);
@@ -699,26 +673,6 @@ function renderCompleted(box, done) {
   }
 }
 function fmtDay(at) { return at ? new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "" }
-
-function renderPlanPage(p) {
-  const box = $("#plan"); box.replaceChildren();
-  box.append(el("button", { class: "back", onclick: () => { location.hash = "projects" } }, "← All projects"));
-  if (!p) { box.append(el("div", { class: "empty" }, "This project isn't on the board anymore.")); return }
-  const tasks = tasksOf(p);
-  box.append(el("article", { class: "idea" },
-    p.status === "completed" ? el("div", { class: "done-badge", style: "justify-self:start" }, "\u2713 Completed " + fmtDay(p.completedAt)) : null,
-    el("div", { class: "row" }, el("h2", { style: "flex:1 1 auto;min-width:0" }, p.title), isActive(p) ? el("span", { class: "pill" }, "Building now") : null),
-    p.pitch ? el("p", {}, p.pitch) : null,
-    catSelect(p),
-    prioControl(p),
-    plannersRow(p),
-    line(progressOf(tasks), "tasks"),
-    phaseBar(p, tasks),
-    p.status === "completed"
-      ? el("div", { class: "row" }, el("span", { class: "spacer" }), canPlan(p) ? el("button", { class: "btn", onclick: () => reopenProject(p) }, "Reopen project") : null)
-      : el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), isActive(p) ? el("button", { class: "btn", onclick: () => { location.hash = "build-" + p.id } }, "Open the team board") : null, pickButton(p), canPlan(p) ? completeButton(p) : null)));
-  box.append(planBody(p));
-}
 
 let newCatFor = null;
 function catSelect(p) {
@@ -760,20 +714,31 @@ function planBody(p, opts = {}) {
   }
 
   const unassigned = tasks.filter(t => !t.owner && !t.done).length;
-  if (planner && !opts.hideSuggest && unassigned) wrap.append(el("div", { class: "row" },
-    el("span", { style: "color:var(--muted);font-size:14px" }, `${unassigned} task${unassigned > 1 ? "s" : ""} not assigned yet.`), el("span", { class: "spacer" }),
-    el("button", { class: "btn", onclick: () => runSuggest(p) }, "Suggest who does what")));
-  if (!opts.hideSuggest && suggestions[p.id]) wrap.append(suggestPanel(p));
+  const editing = planner && planEdit === p.id;
+  if (planner && !opts.filter) wrap.append(el("div", { class: "row", style: "gap:8px" },
+    unassigned ? el("span", { style: "color:var(--muted);font-size:14px" }, `${unassigned} not assigned`) : null,
+    el("span", { class: "spacer" }),
+    unassigned ? el("button", { class: "btn small", onclick: () => runSuggest(p) }, "Suggest who does what") : null,
+    el("button", { class: "btn small" + (editing ? " primary" : ""), onclick: () => { planEdit = editing ? null : p.id; render() } }, editing ? "Done editing" : "Edit phases")));
+  if (suggestions[p.id]) wrap.append(suggestPanel(p));
 
+  const show = t => !opts.filter || isAssignee(t, opts.filter);
   const known = new Set(phases.map(ph => ph.id));
-  const loose = tasks.filter(t => !known.has(t.phase));
-  phases.forEach((ph, n) => wrap.append(phaseCard(p, ph, n, phases, tasks.filter(t => t.phase === ph.id))));
-  if (loose.length) wrap.append(phaseCard(p, { id: "__loose", name: "Not in a phase" }, -1, phases, loose));
-  if (planner) wrap.append(el("section", { class: "idea addphase" }, el("h3", {}, "Add a phase"), addPhaseRow(p, phases, "Phase name, e.g. Filming")));
+  const loose = tasks.filter(t => !known.has(t.phase) && show(t));
+  let shown = 0;
+  phases.forEach((ph, n) => {
+    const list = tasks.filter(t => t.phase === ph.id && show(t));
+    if (opts.filter && !list.length) return;
+    shown++;
+    wrap.append(phaseCard(p, ph, n, phases, list, { editing, filtered: !!opts.filter }));
+  });
+  if (loose.length) wrap.append(phaseCard(p, { id: "__loose", name: "Not in a phase" }, -1, phases, loose, { editing, filtered: !!opts.filter }));
+  if (opts.filter && !shown && !loose.length) wrap.append(el("div", { class: "empty" }, (opts.filter === me ? "You don't" : name(opts.filter) + " doesn't") + " have any tasks in this project yet."));
+  if (editing) wrap.append(el("section", { class: "idea addphase" }, el("h3", {}, "Add a phase"), addPhaseRow(p, phases, "Phase name, e.g. Filming")));
   return wrap;
 }
 
-function phaseCard(p, ph, n, phases, list) {
+function phaseCard(p, ph, n, phases, list, mode = {}) {
   const planner = canPlan(p), pr = progressOf(list), loose = ph.id === "__loose";
   const head = el("div", { class: "phase-h" });
   if (renamingPhase === p.id + ph.id) {
@@ -791,7 +756,7 @@ function phaseCard(p, ph, n, phases, list) {
       list.length ? el("span", { class: "label" }, `${pr.done}/${pr.total} done`) : null].filter(Boolean));
   }
   const sec = el("section", { class: "idea phase" }, head);
-  if (planner && !loose && renamingPhase !== p.id + ph.id) {
+  if (planner && mode.editing && !loose && renamingPhase !== p.id + ph.id) {
     const due = el("input", { type: "date", class: "mini", "aria-label": "Finish this phase by", value: ph.due || "", onchange: e => write(() => phaseWrite(p, { [`phases.${ph.id}.due`]: e.target.value || null })) });
     const tools = el("div", { class: "phase-tools" },
       el("label", { class: "row", style: "gap:6px" }, "Finish by", due),
@@ -804,23 +769,23 @@ function phaseCard(p, ph, n, phases, list) {
         : el("button", { class: "linkbtn danger", onclick: () => { delPhase = p.id + ph.id; render() } }, "Delete"));
     sec.append(tools);
   }
-  if (!list.length) sec.append(el("p", { style: "font-size:14px" }, planner ? "No tasks in this phase yet. Add the first one below." : "No tasks in this phase yet."));
+  if (!list.length) sec.append(el("p", { style: "font-size:14px" }, planner ? "No tasks yet. Add the first one below." : "No tasks yet."));
   for (const t of list) sec.append(taskItem(p, t, "p", { people: "always" }));
-  if (planner && !loose) sec.append(addTaskRow(p, ph));
+  if (planner && !loose && !mode.filtered) sec.append(addTaskRow(p, ph));
   return sec;
 }
 
 function addTaskRow(p, ph) {
   const tid = `add-${p.id}-${ph.id}`;
-  const inp = el("input", { id: tid, placeholder: "Add a task in " + ph.name, maxlength: "140" });
+  const inp = el("input", { id: tid, placeholder: "+ Add a task", maxlength: "140" });
   const who = el("select", { class: "mini", id: tid + "-who", "aria-label": "Who does it" }, el("option", { value: "" }, "Who?"), teamIds().map(u => el("option", { value: u }, name(u))));
-  const sk = el("select", { class: "mini", id: tid + "-sk", "aria-label": "Skill needed" }, el("option", { value: "" }, "Skill…"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
   const add = () => {
     const text = inp.value.trim(); if (!text) return; inp.value = "";
-    write(() => upd(p.id, { ["tasks." + uid()]: { text, phase: ph.id, skill: sk.value || null, owner: who.value || null, assignedBy: me, assignedAt: Date.now(), done: false, order: Date.now(), due: null } }));
+    write(() => upd(p.id, { ["tasks." + uid()]: { text, phase: ph.id, skill: null, owner: who.value || null, assignedBy: me, assignedAt: Date.now(), done: false, order: Date.now(), due: null } }));
   };
   inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
-  return el("div", { class: "addtask" }, inp, who, sk, el("button", { class: "btn", onclick: add }, "Add"));
+  return el("div", { class: "padd", style: "margin:6px 0 0" }, el("div", { class: "addtask", style: "margin:0;flex-wrap:nowrap" }, inp, el("button", { class: "btn", onclick: add }, "Add")),
+    el("div", { class: "padd-more row", style: "gap:8px;font-size:13px;color:var(--muted)" }, el("label", { for: who.id }, "Who does it?"), who));
 }
 
 function addPhaseRow(p, phases, placeholder) {
@@ -1452,37 +1417,26 @@ function renderMine(box) {
   const today = todayStr();
   const overdue = todo.filter(x => !x.t.done && x.t.due && x.t.due < today).length;
 
-  box.append(el("div", { class: "row", style: "margin-bottom:12px" },
-    el("div", {}, el("p", { style: "margin:0;color:var(--muted);font-size:14px" },
-      all.length ? `${todo.filter(x => !x.t.done).length} to do${overdue ? ` · ${overdue} overdue` : ""} · ${done.length} done` : "Everything assigned to you, across every project.")),
-    el("span", { class: "spacer" }),
-    el("div", { class: "seg", role: "group", "aria-label": "Show" },
-      el("button", { "aria-pressed": String(mineShow === "todo"), onclick: () => { mineShow = "todo"; render() } }, `To do ${todo.filter(x => !x.t.done).length}`),
-      el("button", { "aria-pressed": String(mineShow === "done"), onclick: () => { mineShow = "done"; render() } }, `Done ${done.length}`))));
-
   box.append(addPersonalTaskRow());
   if (!all.length) { box.append(el("div", { class: "empty" }, "No tasks yet. Add one for yourself above. When a planner gives you a task in a project, it shows up here too.")); return }
 
-  if (mineShow === "done") {
-    if (!done.length) { box.append(el("div", { class: "empty" }, "Nothing finished yet.")); return }
-    const list = el("div", { class: "idea", style: "gap:0" });
-    done.sort((a, b) => (b.t.doneAt || 0) - (a.t.doneAt || 0)).forEach(x => list.append(myTaskRow(x)));
-    box.append(list); return;
-  }
-  if (!todo.length) { box.append(el("div", { class: "empty" }, "All done. Nice work.")); return }
-
-  // Highest priority project first, then the soonest due date.
+  const list = el("section", { class: "idea", style: "gap:0" });
+  if (!todo.length) list.append(el("p", { style: "padding:6px 0" }, "All done. Nice work."));
+  // Highest priority first, then the soonest due date.
   todo.sort((a, b) => prioRank(a.p) - prioRank(b.p) || taskPrioRank(a.t) - taskPrioRank(b.t) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (isActive(a.p) ? -1 : isActive(b.p) ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
-  for (const pr of PRIORITIES) {
-    const group = todo.filter(x => prioOf(x.p).id === pr.id); if (!group.length) continue;
-    const sec = el("section", { class: "idea", style: "gap:0;margin-bottom:12px" },
-      el("div", { class: "row", style: "margin-bottom:4px" }, el("span", { class: "prio prio-" + pr.id }, pr.name + " priority"), el("span", { class: "spacer" }), el("span", { class: "label" }, group.length + (group.length > 1 ? " tasks" : " task"))));
-    group.forEach(x => sec.append(myTaskRow(x)));
-    box.append(sec);
+  todo.forEach(x => list.append(myTaskRow(x)));
+  box.append(list);
+  if (done.length) {
+    box.append(el("button", { class: "linkbtn", style: "margin:12px 4px", onclick: () => { mineShow = mineShow === "done" ? "todo" : "done"; render() } }, mineShow === "done" ? "Hide finished" : `Show finished (${done.length})`));
+    if (mineShow === "done") {
+      const dl = el("section", { class: "idea", style: "gap:0;opacity:.85" });
+      done.sort((a, b) => (b.t.doneAt || 0) - (a.t.doneAt || 0)).slice(0, 30).forEach(x => dl.append(myTaskRow(x)));
+      box.append(dl);
+    }
   }
 }
 function addPersonalTaskRow() {
-  const inp = el("input", { id: "ptask-text", placeholder: "Add a task just for yourself", maxlength: "200" });
+  const inp = el("input", { id: "ptask-text", placeholder: "+ Add a private task for yourself", maxlength: "200" });
   const due = el("input", { type: "date", class: "mini", id: "ptask-due", "aria-label": "Due date" });
   const pri = el("select", { class: "mini", id: "ptask-prio", "aria-label": "Priority" }, PRIORITIES.map(x => el("option", { value: x.id }, x.name + " priority")));
   pri.value = "medium";
@@ -1493,10 +1447,9 @@ function addPersonalTaskRow() {
     write(() => setDoc(doc(db, "private", me, "tasks", uid()), data), "Task added");
   };
   inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
-  return el("div", { class: "idea", style: "gap:8px;margin-bottom:12px" },
+  return el("div", { class: "padd" },
     el("div", { class: "addtask", style: "margin:0" }, inp, el("button", { class: "btn primary", onclick: add }, "Add")),
-    el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, pri, el("label", { class: "row", style: "gap:6px" }, "Due", due),
-      el("span", { class: "spacer" }), el("span", {}, "Only you can see these")));
+    el("div", { class: "padd-more row", style: "gap:8px;font-size:13px;color:var(--muted)" }, pri, el("label", { class: "row", style: "gap:6px" }, "Due", due), el("span", { class: "spacer" }), el("span", {}, "Only you see these")));
 }
 function myTaskRow(x) {
   if (x.personal) return personalTaskRow(x.t);
