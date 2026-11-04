@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>The Office Pitch Room</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#4656D6">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://firestore.googleapis.com">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
@@ -280,6 +285,25 @@ details.removed .idea{opacity:.75}
 .seg-wide button{flex:1;padding:9px 12px;font-size:14px}
 .me-foot{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:28px;padding-top:16px;border-top:1px solid var(--line)}
 .me-email{font-size:13px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bell{position:relative;border:0;background:none;color:var(--ink);width:40px;height:40px;display:grid;place-items:center;border-radius:50%}
+.bell:hover{background:var(--surface)}
+.bell .count{top:2px;left:auto;right:0}
+.alerts{position:fixed;z-index:25;top:calc(env(safe-area-inset-top,0px) + 58px);right:max(12px,env(safe-area-inset-right,0px));width:min(380px,calc(100vw - 24px));max-height:min(70vh,560px);overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 40px rgba(15,20,35,.18);padding:10px;box-sizing:border-box;display:grid;gap:2px;align-content:start}
+.alerts .x{border:0;background:none;color:var(--muted);font-size:16px;padding:4px 6px}
+.alert{display:flex;gap:10px;align-items:flex-start;text-align:left;width:100%;border:0;background:none;border-radius:12px;padding:10px;color:var(--ink);font-size:14px}
+.alert:hover{background:var(--bg)}
+.alert.new{background:var(--accent-soft)}
+.alert .av{width:30px;height:30px}
+.alert-dot{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--warn-soft);color:var(--warn);font-weight:800}
+.alert-body{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}
+.alert-time{font-size:12px;color:var(--muted)}
+.alert-tip{display:flex;gap:10px;align-items:center;background:var(--bg);border-radius:12px;padding:10px 12px;font-size:13.5px;margin-bottom:6px}
+.alert-empty{color:var(--muted);font-size:14px;padding:6px 10px 10px;margin:0}
+.buildcard{text-align:left;width:100%;color:var(--ink);font:inherit;cursor:pointer}
+.buildcard:hover{border-color:var(--accent)}
+.done-badge{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--keep);background:var(--keep-soft);border-radius:999px;padding:4px 10px}
+.done-card h3{font-size:19px}
+.confetti{position:fixed;inset:0;z-index:60;pointer-events:none}
 .pill{font:500 11px/1 var(--body);padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;z-index:30;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));max-width:calc(100% - 32px);box-sizing:border-box;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -300,8 +324,10 @@ details.removed .idea{opacity:.75}
     <button class="brand" id="brand">Pitch Room</button>
     <span class="spacer"></span>
     <span class="status" id="status"></span>
+    <button class="bell" id="bell" aria-label="Alerts"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="count" id="c-alerts" hidden>0</span></button>
     <button class="me-btn" id="me-btn" aria-label="My space"><img class="av" id="me-av" alt="" referrerpolicy="no-referrer"></button>
   </header>
+  <div class="alerts" id="alerts" hidden></div>
   <nav class="nav" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" data-view="me"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="4"/></svg></span>Me <span class="count" id="c-mine" hidden>0</span></button>
     <button class="tab" role="tab" data-view="current"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V5l8-2 8 2v15"/><path d="M9 20v-6h6v6"/></svg></span>Project</button>
@@ -477,6 +503,8 @@ const VIEWS = ["me", "current", "ideas", "projects", "chat", "skills", "plan"];
 function route() {
   const h = location.hash.slice(1);
   if (h.startsWith("plan-")) return { view: "plan", id: h.slice(5) };
+  if (h.startsWith("build-")) return { view: "current", id: h.slice(6) };
+  if (h === "projects-done") return { view: "projects" };
   if (h === "mine" || h === "notes") return { view: "me" };
   return { view: VIEWS.includes(h) && h !== "plan" ? h : "me" };
 }
@@ -499,6 +527,9 @@ async function doSignOut() { await fbReady; clearCache(); await signOut(auth) }
 
 let isAdmin = false;
 let ideas = [], focusId = null, me = null, people = {}, unsubs = [];
+let activeMap = {};   // projects being built right now: id -> {by, at}. Only the admin changes this.
+const isActive = p => !!p && p.status === "approved" && (!!activeMap[p.id] || p.id === focusId);
+const activeProjects = () => ideas.filter(isActive).sort((a, b) => prioRank(a) - prioRank(b) || ((activeMap[a.id] || {}).at || 0) - ((activeMap[b.id] || {}).at || 0));
 const suggestions = {};          // projectId -> [{task, owner, why}]
 let quiz = null;                 // {i, answers:[], grow:[]} while taking the quiz
 
@@ -509,7 +540,7 @@ function onAuth(u) {
   $("#boot").hidden = true;
   if (!u) { me = null; live = false; remember(false); clearCache(); $("#gate").hidden = false; $("#app").hidden = true; return }
   remember(true);
-  if (me && me !== u.uid) { ideas = []; people = {}; chat = []; personal = []; myNotes = []; focusId = null }
+  if (me && me !== u.uid) { ideas = []; people = {}; chat = []; personal = []; myNotes = []; focusId = null; activeMap = {} }
   me = u.uid;
   isAdmin = ADMINS.includes((u.email || "").toLowerCase());
   myProfile = { name: u.displayName || u.email, email: u.email, photo: u.photoURL || "" };
@@ -525,7 +556,7 @@ function onAuth(u) {
     } else status("Can't reach the board. Check your connection.", true);
   };
   unsubs.push(onSnapshot(collection(db, "ideas"), s => { ideas = s.docs.map(d => ({ id: d.id, ...d.data() })); live = true; status(""); render() }, denied));
-  unsubs.push(onSnapshot(doc(db, "meta", "focus"), s => { focusId = s.exists() ? s.data().projectId : null; render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "focus"), s => { const d = s.exists() ? s.data() : {}; focusId = d.projectId || null; activeMap = d.active || {}; render() }, () => {}));
   unsubs.push(onSnapshot(query(collection(db, "chat"), orderBy("at"), limitToLast(300)), s => {
     const before = chat.length ? chat[chat.length - 1].at : 0;
     chat = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -561,7 +592,7 @@ function saveCache() {
   if (!me || !live) return;
   clearTimeout(cacheT);
   cacheT = setTimeout(() => {
-    const data = { me, isAdmin, myProfile, ideas, people, focusId, personal, chat: chat.slice(-40) };
+    const data = { me, isAdmin, myProfile, ideas, people, focusId, activeMap, personal, chat: chat.slice(-40) };
     try { localStorage.setItem(CACHE, JSON.stringify(data)) }
     catch { try { data.chat = []; localStorage.setItem(CACHE, JSON.stringify(data)) } catch { } }
   }, 1000);
@@ -571,7 +602,7 @@ function loadCache() {
   let c = null; try { c = JSON.parse(localStorage.getItem(CACHE) || "null") } catch { }
   if (!c || !c.me) return false;
   ({ me, isAdmin, myProfile } = c);
-  ideas = c.ideas || []; people = c.people || {}; focusId = c.focusId || null; personal = c.personal || []; chat = c.chat || [];
+  ideas = c.ideas || []; people = c.people || {}; focusId = c.focusId || null; activeMap = c.activeMap || {}; personal = c.personal || []; chat = c.chat || [];
   $("#boot").hidden = true; $("#gate").hidden = true; $("#app").hidden = false;
   return true;
 }
@@ -652,13 +683,14 @@ function renderAll() {
   fillComposeCats();
   $("#c-ideas").textContent = voting.length; $("#c-projects").textContent = projects.length;
   const r = route();
-  if (r.view === "current") renderCurrent(projects);
+  if (r.view === "current") renderCurrent(projects, r.id);
   if (r.view === "ideas") renderIdeas(voting, removed);
   if (r.view === "projects") renderProjects(projects);
-  if (r.view === "plan") renderPlanPage(projects.find(p => p.id === r.id));
+  if (r.view === "plan") renderPlanPage(ideas.find(p => p.id === r.id && (p.status === "approved" || p.status === "completed")));
   if (r.view === "skills") renderSkills();
   if (r.view === "me") renderMe();
-  const open = myTasks().filter(x => !x.t.done).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
+  const open = myTasks().filter(x => !x.t.done && !x.closed).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
+  renderAlerts();
   const meAv = $("#me-av"); const src = (myProfile && myProfile.photo) || (people[me] || {}).photo || AV; if (meAv.getAttribute("src") !== src) meAv.src = src;
   saveCache();
   renderChat();
@@ -666,15 +698,23 @@ function renderAll() {
 
 /* ----- current project (home) ----- */
 
-function renderCurrent(projects) {
+function renderCurrent(projects, id) {
   const box = $("#current"); box.replaceChildren();
-  const fp = projects.find(p => p.id === focusId);
+  const active = activeProjects();
+  let fp = id ? projects.find(p => p.id === id) : null;
+  if (!fp && active.length === 1) fp = active[0];
+  if (!fp && active.length > 1) {
+    box.append(el("div", { class: "row", style: "margin:4px 0 12px" }, el("h2", {}, "What we're building"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${active.length} projects`)));
+    box.append(el("div", { class: "list", style: "margin-top:0" }, active.map(p => buildCard(p))));
+    if (isAdmin) box.append(el("p", { style: "margin-top:16px;color:var(--muted);font-size:14px" }, "To start another one, press \u201cStart building\u201d on it in Projects."));
+    return;
+  }
   if (!fp) {
     const top = byVotes(projects).slice(0, 3);
-    box.append(el("div", { class: "empty" }, el("h3", {}, "No current project yet"),
+    box.append(el("div", { class: "empty" }, el("h3", {}, "Nothing is being built yet"),
       el("p", { style: "margin:6px auto 14px;max-width:48ch" }, isAdmin
-        ? "Everyone votes on the Projects tab. When you're ready, press \u201cMake it our project\u201d on the one you choose."
-        : `Vote on the Projects tab for the ones you want to build. ${ADMIN_NAME} picks the current project.`),
+        ? "Everyone votes on the Projects tab. Press \u201cStart building\u201d on any project to start it. You can run several at once."
+        : `Vote on the Projects tab for the ones you want to build. ${ADMIN_NAME} decides which ones we start.`),
       el("button", { class: "btn primary", onclick: () => { location.hash = "projects" } }, isAdmin ? "Go to Projects" : "Vote on projects")));
     if (top.length) {
       box.append(el("div", { class: "row", style: "margin:22px 0 10px" }, el("h2", {}, "Most votes so far")));
@@ -684,6 +724,7 @@ function renderCurrent(projects) {
     }
     return;
   }
+  if (active.length > 1) box.append(el("button", { class: "back", onclick: () => { location.hash = "current" } }, "\u2190 Everything we're building"));
   const tasks = tasksOf(fp);
   const memberSet = new Set(Object.entries(fp.members || {}).filter(([, v]) => v).map(([u]) => u));
   for (const t of tasks) if (t.owner) memberSet.add(t.owner);
@@ -691,7 +732,7 @@ function renderCurrent(projects) {
   const joined = !!(fp.members || {})[me];
 
   box.append(el("section", { class: "focus" },
-    el("div", { class: "label" }, `Picked by ${ADMIN_NAME}` + (fp.category ? " \u00b7 " + fp.category : "") + " \u00b7 " + prioOf(fp).name + " priority"),
+    el("div", { class: "label" }, (isActive(fp) ? "Building now" : "Not started") + (fp.category ? " \u00b7 " + fp.category : "") + " \u00b7 " + prioOf(fp).name + " priority"),
     el("h2", {}, fp.title),
     fp.pitch ? el("p", { style: "margin:0;opacity:.8;max-width:65ch" }, fp.pitch) : null,
     line(progressOf(tasks), "tasks"),
@@ -701,7 +742,11 @@ function renderCurrent(projects) {
       el("span", { style: "font-size:13px;opacity:.8" }, members.length ? `${members.length} on the team` : "Nobody has joined yet"),
       el("span", { class: "spacer" }),
       el("button", { class: "btn", onclick: () => write(() => upd(fp.id, { ["members." + me]: joined ? DEL() : true }), joined ? "You left the team" : "You joined the team") }, joined ? "Leave team" : "Join the team"),
-      isAdmin ? el("button", { class: "btn quiet", style: "color:inherit;opacity:.75", onclick: () => write(() => setDoc(doc(db, "meta", "focus"), { projectId: null }), "No current project") }, "Stop this project") : null)));
+      el("button", { class: "btn", onclick: () => { location.hash = "plan-" + fp.id } }, "Edit plan"))),
+    el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
+      isAdmin && isActive(fp) ? el("button", { class: "btn quiet", onclick: () => pauseBuilding(fp) }, "Pause this project") : null,
+      pickButton(fp),
+      canPlan(fp) ? completeButton(fp) : null));
 
   /* who's doing what */
   const unassigned = tasks.filter(t => !t.owner && !t.done);
@@ -813,20 +858,27 @@ function renderIdeas(all, removed) {
 
 /* ----- projects list ----- */
 
+let projShow = "active";
 function renderProjects(all) {
   const box = $("#projects"); box.replaceChildren();
+  if (location.hash === "#projects-done") projShow = "done";
+  const done = ideas.filter(i => i.status === "completed").sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+  box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin-bottom:14px" },
+    el("button", { "aria-pressed": String(projShow === "active"), onclick: () => { projShow = "active"; if (location.hash === "#projects-done") location.hash = "projects"; render() } }, `Projects ${all.length}`),
+    el("button", { "aria-pressed": String(projShow === "done"), onclick: () => { projShow = "done"; render() } }, `Completed ${done.length}`)));
+  if (projShow === "done") { renderCompleted(box, done); $("#cat-projects").replaceChildren(); return }
   const ranked = byVotes(all);
   const rank = Object.fromEntries(ranked.map((p, n) => [p.id, n + 1]));
   const projects = catBar("projects", ranked);
   if (all.length) box.append(el("p", { style: "margin:0;color:var(--muted);font-size:14px" },
-    isAdmin ? "Everyone votes for the projects they want to build. You pick the current project." : `Vote for the projects you want to build. ${ADMIN_NAME} picks the current project.`));
+    isAdmin ? "Everyone votes for the projects they want to build. You decide which ones to start." : `Vote for the projects you want to build. ${ADMIN_NAME} decides which ones we start.`));
   if (all.length && !projects.length) box.append(el("div", { class: "empty" }, "No projects in this category."));
   else if (!projects.length) box.append(el("div", { class: "empty" }, "No confirmed projects yet. Ideas land here once more people vote keep than drop and someone confirms them."));
   for (const p of projects) {
     const tasks = tasksOf(p), n = projectVoters(p).length;
     box.append(el("article", { class: "idea" },
       el("div", { class: "row" }, el("span", { class: "label" }, `#${rank[p.id]} \u00b7 ${n} vote${n === 1 ? "" : "s"}`)),
-      el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), catChip(p), prioChip(p), p.id === focusId ? el("span", { class: "pill" }, "Current project") : null),
+      el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), catChip(p), prioChip(p), isActive(p) ? el("span", { class: "pill" }, "Building now") : null),
       p.pitch ? el("p", {}, p.pitch) : null,
       line(progressOf(tasks), "tasks"),
       phaseBar(p, tasks),
@@ -847,11 +899,86 @@ function voteButton(p) {
   return el("button", { class: "v keep", "aria-pressed": String(voted), onclick: () => write(() => upd(p.id, { ["backers." + me]: voted ? DEL() : true }), voted ? "Vote removed" : "Voted") },
     voted ? "Voted" : "Vote for this", el("b", {}, vs.length), el("span", { class: "stack" }, vs.slice(0, 6).map(av)));
 }
-const pickButton = p => isAdmin && p.id !== focusId
-  ? el("button", { class: "btn primary", onclick: () => write(() => setDoc(doc(db, "meta", "focus"), { projectId: p.id, setBy: me, at: Date.now() }), "This is our project now") }, "Make it our project")
+const pickButton = p => isAdmin && p.status === "approved" && !isActive(p)
+  ? el("button", { class: "btn primary", onclick: () => startBuilding(p) }, "Start building")
   : null;
+function startBuilding(p) {
+  write(async () => {
+    const data = { active: { [p.id]: { by: me, at: Date.now() } } };
+    if (focusId && focusId !== p.id) data.active[focusId] = { by: me, at: Date.now() - 1 };  // keep the old single "current project" running
+    data.projectId = null;
+    await setDoc(doc(db, "meta", "focus"), data, { merge: true });
+  }, "Started building " + p.title);
+}
+function pauseBuilding(p) {
+  write(async () => {
+    const data = { ["active." + p.id]: DEL() };
+    if (focusId === p.id) data.projectId = null;
+    await updateDoc(doc(db, "meta", "focus"), data);
+  }, "Paused. It's still in Projects");
+}
+let confirmDone = null;
+function completeButton(p) {
+  if (confirmDone === p.id) return el("span", { class: "row", style: "gap:6px" },
+    el("button", { class: "btn quiet", onclick: () => { confirmDone = null; render() } }, "Cancel"),
+    el("button", { class: "btn primary", onclick: () => completeProject(p) }, "Yes, it's finished"));
+  return el("button", { class: "btn", onclick: () => { confirmDone = p.id; render() } }, "Mark as completed");
+}
+function completeProject(p) {
+  confirmDone = null;
+  write(async () => {
+    await upd(p.id, { status: "completed", completedAt: Date.now(), completedBy: me });
+    if (isAdmin && (activeMap[p.id] || focusId === p.id)) await updateDoc(doc(db, "meta", "focus"), { ["active." + p.id]: DEL(), ...(focusId === p.id ? { projectId: null } : {}) }).catch(() => {});
+  }, p.title + " is completed. Well done!");
+  celebrate();
+  location.hash = "projects-done";
+}
+function reopenProject(p) { write(() => upd(p.id, { status: "approved", completedAt: DEL(), completedBy: DEL() }), "Reopened. It's back in Projects") }
+function buildCard(p) {
+  const tasks = tasksOf(p), mineLeft = tasks.filter(t => t.owner === me && !t.done).length;
+  const team = [...new Set([...Object.entries(p.members || {}).filter(([, v]) => v).map(([u]) => u), ...tasks.map(t => t.owner).filter(Boolean)])];
+  return el("button", { class: "idea buildcard", onclick: () => { location.hash = "build-" + p.id } },
+    el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), prioChip(p)),
+    line(progressOf(tasks), "tasks"),
+    el("div", { class: "row" }, el("span", { class: "stack" }, team.slice(0, 6).map(av)),
+      el("span", { class: "spacer" }), el("span", { class: "now-sub" }, mineLeft ? `${mineLeft} of your tasks left \u2192` : "Open \u2192")));
+}
+function celebrate() {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const c = el("canvas", { class: "confetti" }); document.body.append(c);
+  const ctx = c.getContext("2d"); c.width = innerWidth; c.height = innerHeight;
+  const cs = getComputedStyle(document.documentElement);
+  const colors = ["--accent", "--keep", "--warn", "--drop"].map(v => cs.getPropertyValue(v).trim() || "#4656D6");
+  const bits = Array.from({ length: 140 }, () => ({ x: innerWidth / 2, y: innerHeight * .35, vx: (Math.random() - .5) * 14, vy: Math.random() * -14 - 4, r: Math.random() * 6 + 3, c: colors[Math.random() * 4 | 0], a: Math.random() * 6 }));
+  let t = 0;
+  (function frame() {
+    ctx.clearRect(0, 0, c.width, c.height);
+    for (const b of bits) { b.vy += .45; b.x += b.vx; b.y += b.vy; b.a += .2; ctx.fillStyle = b.c; ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a); ctx.fillRect(-b.r / 2, -b.r / 4, b.r, b.r / 2); ctx.restore() }
+    if (++t < 110) requestAnimationFrame(frame); else c.remove();
+  })();
+}
 
 /* ----- plan page ----- */
+
+function renderCompleted(box, done) {
+  if (!done.length) { box.append(el("div", { class: "empty" }, "No completed projects yet. When a project is finished, a planner presses \u201cMark as completed\u201d and it moves here.")); return }
+  for (const p of done) {
+    const tasks = tasksOf(p), pr = progressOf(tasks);
+    const team = [...new Set(tasks.map(t => t.owner).filter(Boolean))];
+    const days = p.approvedAt > 1.6e12 && p.completedAt ? Math.max(1, Math.round((p.completedAt - p.approvedAt) / 864e5)) : null;
+    box.append(el("article", { class: "idea done-card" },
+      el("div", { class: "row" }, el("span", { class: "done-badge" }, "\u2713 Completed " + fmtDay(p.completedAt)), el("span", { class: "spacer" }), catChip(p)),
+      el("h3", {}, p.title),
+      p.pitch ? el("p", {}, p.pitch) : null,
+      el("div", { class: "row", style: "gap:14px;font-size:14px;color:var(--muted)" },
+        el("span", {}, `${pr.done} of ${pr.total} tasks done`), days ? el("span", {}, `${days} day${days > 1 ? "s" : ""} from start to finish`) : null,
+        el("span", { class: "row", style: "gap:6px" }, el("span", { class: "stack" }, team.slice(0, 6).map(av)), team.length ? `${team.length} worked on it` : "")),
+      el("div", { class: "row" }, el("span", { class: "spacer" }),
+        canPlan(p) ? el("button", { class: "btn quiet", onclick: () => reopenProject(p) }, "Reopen") : null,
+        el("button", { class: "btn", onclick: () => { location.hash = "plan-" + p.id } }, "See the plan and notes"))));
+  }
+}
+function fmtDay(at) { return at ? new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "" }
 
 function renderPlanPage(p) {
   const box = $("#plan"); box.replaceChildren();
@@ -859,14 +986,17 @@ function renderPlanPage(p) {
   if (!p) { box.append(el("div", { class: "empty" }, "This project isn't on the board anymore.")); return }
   const tasks = tasksOf(p);
   box.append(el("article", { class: "idea" },
-    el("div", { class: "row" }, el("h2", { style: "flex:1 1 auto;min-width:0" }, p.title), p.id === focusId ? el("span", { class: "pill" }, "Current project") : null),
+    p.status === "completed" ? el("div", { class: "done-badge", style: "justify-self:start" }, "\u2713 Completed " + fmtDay(p.completedAt)) : null,
+    el("div", { class: "row" }, el("h2", { style: "flex:1 1 auto;min-width:0" }, p.title), isActive(p) ? el("span", { class: "pill" }, "Building now") : null),
     p.pitch ? el("p", {}, p.pitch) : null,
     catSelect(p),
     prioControl(p),
     plannersRow(p),
     line(progressOf(tasks), "tasks"),
     phaseBar(p, tasks),
-    el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p))));
+    p.status === "completed"
+      ? el("div", { class: "row" }, el("span", { class: "spacer" }), canPlan(p) ? el("button", { class: "btn", onclick: () => reopenProject(p) }, "Reopen project") : null)
+      : el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), isActive(p) ? el("button", { class: "btn", onclick: () => { location.hash = "build-" + p.id } }, "Open the team board") : null, pickButton(p), canPlan(p) ? completeButton(p) : null)));
   box.append(planBody(p));
 }
 
@@ -967,7 +1097,7 @@ function addTaskRow(p, ph) {
   const sk = el("select", { class: "mini", id: tid + "-sk", "aria-label": "Skill needed" }, el("option", { value: "" }, "Skill…"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
   const add = () => {
     const text = inp.value.trim(); if (!text) return; inp.value = "";
-    write(() => upd(p.id, { ["tasks." + uid()]: { text, phase: ph.id, skill: sk.value || null, owner: who.value || null, done: false, order: Date.now(), due: null } }));
+    write(() => upd(p.id, { ["tasks." + uid()]: { text, phase: ph.id, skill: sk.value || null, owner: who.value || null, assignedBy: me, assignedAt: Date.now(), done: false, order: Date.now(), due: null } }));
   };
   inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
   return el("div", { class: "addtask" }, inp, who, sk, el("button", { class: "btn", onclick: add }, "Add"));
@@ -989,7 +1119,7 @@ function taskRow(p, t, phases) {
   const check = el("input", { type: "checkbox", id: cid, checked: t.done, disabled: !mineOrPlanner, title: mineOrPlanner ? "" : "Only the person doing it or a planner can tick this", onchange: e => toggleDone(p, t, e.target.checked) });
   let meta;
   if (planner) {
-    const ownerSel = el("select", { class: "mini", "aria-label": "Who's doing it", onchange: e => write(() => upd(p.id, { [t.path + ".owner"]: e.target.value || null })) },
+    const ownerSel = el("select", { class: "mini", "aria-label": "Who's doing it", onchange: e => write(() => upd(p.id, { [t.path + ".owner"]: e.target.value || null, [t.path + ".assignedBy"]: me, [t.path + ".assignedAt"]: Date.now() })) },
       el("option", { value: "" }, "Unassigned"), teamIds().map(u => el("option", { value: u }, name(u))));
     const skillSel = el("select", { class: "mini", "aria-label": "Skill needed", onchange: e => write(() => upd(p.id, { [t.path + ".skill"]: e.target.value || null })) },
       el("option", { value: "" }, "Any skill"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
@@ -1064,7 +1194,7 @@ function plannersRow(p) {
   if (boss) {
     const others = teamIds().filter(u => !ids.includes(u));
     if (others.length) {
-      const sel = el("select", { class: "mini", "aria-label": "Add a planner", onchange: e => { const u = e.target.value; if (u) write(() => upd(p.id, { ["planners." + u]: true }), `${name(u)} can now plan this project`) } },
+      const sel = el("select", { class: "mini", "aria-label": "Add a planner", onchange: e => { const u = e.target.value; if (u) write(() => upd(p.id, { ["planners." + u]: { by: me, at: Date.now() } }), `${name(u)} can now plan this project`) } },
         el("option", { value: "" }, "+ Add a planner"), others.map(u => el("option", { value: u }, name(u))));
       row.append(sel);
     }
@@ -1091,7 +1221,7 @@ function suggestPanel(p) {
     el("div", { class: "row" }, el("span", { class: "spacer" }),
       el("button", { class: "btn quiet", onclick: () => { delete suggestions[p.id]; render() } }, "Dismiss"),
       el("button", { class: "btn primary", onclick: () => {
-        const data = {}; for (const s of list) data[s.task.path + ".owner"] = s.owner;
+        const data = {}; for (const s of list) { data[s.task.path + ".owner"] = s.owner; data[s.task.path + ".assignedBy"] = me; data[s.task.path + ".assignedAt"] = Date.now() }
         delete suggestions[p.id];
         write(() => upd(p.id, data), "Tasks assigned");
       } }, "Assign all")));
@@ -1193,7 +1323,7 @@ function toggleDone(p, t, done) {
 }
 function notesBlock(p, t, where) {
   const key = where + ":" + t.id;
-  const isOpen = openNote === key || (openNote === "any:" + t.id && where === ({ current: "m", mine: "mine" }[route().view] || "p"));
+  const isOpen = openNote === key || (openNote === "any:" + t.id && where === ({ current: "m", me: "mine" }[route().view] || "p"));
   const notes = Object.entries(t.notes || {}).filter(([, n]) => n && n.text).map(([id, n]) => ({ id, ...n })).sort((a, b) => (a.at || 0) - (b.at || 0));
   const box = el("div", { class: "notes" });
   if (t.done && t.doneBy) box.append(el("div", { class: "note-meta" }, `Done by ${name(t.doneBy)}${t.doneAt ? " \u00b7 " + ago(t.doneAt) : ""}`));
@@ -1503,9 +1633,9 @@ const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
 let personal = [];
 function myTasks() {
   const out = personal.map(t => ({ t, phase: "", personal: true, p: { id: "__personal", title: "Just for me", priority: t.priority || "medium" } }));
-  for (const p of ideas.filter(i => i.status === "approved")) {
+  for (const p of ideas.filter(i => i.status === "approved" || i.status === "completed")) {
     const phases = getPhases(p);
-    for (const t of tasksOf(p)) if (t.owner === me) out.push({ p, t, phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" });
+    for (const t of tasksOf(p)) if (t.owner === me) out.push({ p, t, closed: p.status === "completed", phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" });
   }
   return out;
 }
@@ -1513,7 +1643,7 @@ function renderMine(box) {
   const all = myTasks();
   // A task you just ticked stays in "To do" until you save or skip its note.
   const noting = x => openNote && openNote.endsWith(":" + x.t.id);
-  const todo = all.filter(x => !x.t.done || noting(x)), done = all.filter(x => x.t.done);
+  const todo = all.filter(x => !x.closed && (!x.t.done || noting(x))), done = all.filter(x => x.t.done);
   const today = todayStr();
   const overdue = todo.filter(x => !x.t.done && x.t.due && x.t.due < today).length;
 
@@ -1537,7 +1667,7 @@ function renderMine(box) {
   if (!todo.length) { box.append(el("div", { class: "empty" }, "All done. Nice work.")); return }
 
   // Highest priority project first, then the soonest due date.
-  todo.sort((a, b) => prioRank(a.p) - prioRank(b.p) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (a.p.id === focusId ? -1 : b.p.id === focusId ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
+  todo.sort((a, b) => prioRank(a.p) - prioRank(b.p) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (isActive(a.p) ? -1 : isActive(b.p) ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
   for (const pr of PRIORITIES) {
     const group = todo.filter(x => prioOf(x.p).id === pr.id); if (!group.length) continue;
     const sec = el("section", { class: "idea", style: "gap:0;margin-bottom:12px" },
@@ -1575,7 +1705,7 @@ function myTaskRow(x) {
     el("div", { class: "meta" },
       el("button", { class: "linkbtn", onclick: () => { location.hash = "plan-" + p.id } }, p.title),
       phase ? el("span", { class: "label" }, phase) : null,
-      p.id === focusId ? el("span", { class: "pill" }, "Current") : null,
+      isActive(p) ? el("span", { class: "pill" }, "Building") : null,
       t.due ? el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, late ? "Overdue · " + fmtDate(t.due) : soon ? "Due today" : "Due " + fmtDate(t.due)) : null),
     notesBlock(p, t, "mine"));
 }
@@ -1632,6 +1762,82 @@ function renderNotes(box) {
   box.append(grid);
 }
 
+/* ----- alerts ----- */
+
+const seenAlertsKey = () => "alertsSeen:" + me;
+const getAlertsSeen = () => { try { return +localStorage.getItem(seenAlertsKey()) || 0 } catch { return 0 } };
+let alertsOpen = false, alertBaseline = null;
+const pageOpenedAt = Date.now();
+const dayStart = (offset = 0) => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() + offset * 864e5 };
+function buildAlerts() {
+  const out = [], today = todayStr();
+  const tomorrow = (() => { const d = new Date(dayStart(1)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` })();
+  const add = (key, at, who, text, go) => { if (at) out.push({ key, at, who, text, go }) };
+  for (const p of ideas) {
+    if (p.status === "voting" && p.author !== me) add("idea:" + p.id, p.createdAt, p.author, `${name(p.author)} pitched a new idea: ${p.title}`, "ideas");
+    if (p.status === "completed" && p.completedBy !== me) add("done:" + p.id, p.completedAt, p.completedBy, `${p.title} is completed`, "projects-done");
+    const pl = (p.planners || {})[me];
+    if (pl && typeof pl === "object" && pl.by !== me) add("planner:" + p.id, pl.at, pl.by, `${name(pl.by)} made you a planner of ${p.title}`, "plan-" + p.id);
+    if (p.status !== "approved") continue;
+    for (const t of tasksOf(p)) {
+      if (t.owner !== me) continue;
+      if (t.assignedBy && t.assignedBy !== me) add("task:" + t.id + ":" + t.assignedAt, t.assignedAt, t.assignedBy, `${name(t.assignedBy)} gave you a task: ${t.text} (${p.title})`, "me");
+      for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by !== me) add("note:" + nid, n.at, n.by, `${name(n.by)} left a note on your task: ${t.text}`, "plan-" + p.id);
+      if (!t.done && t.due && t.due <= tomorrow) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text} (${p.title})` : t.due === today ? `Due today: ${t.text} (${p.title})` : `Due tomorrow: ${t.text} (${p.title})`, "me");
+    }
+  }
+  for (const t of personal) if (!t.done && t.due && t.due <= tomorrow) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text}` : t.due === today ? `Due today: ${t.text}` : `Due tomorrow: ${t.text}`, "me");
+  for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
+  for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
+  return out.sort((a, b) => b.at - a.at).slice(0, 50);
+}
+function renderAlerts() {
+  const list = buildAlerts(), seen = getAlertsSeen();
+  const unread = list.filter(a => a.at > seen).length;
+  const c = $("#c-alerts"); c.hidden = !unread; c.textContent = unread > 9 ? "9+" : unread;
+  notifyDevice(list);
+  const panel = $("#alerts"); panel.hidden = !alertsOpen;
+  if (!alertsOpen) return;
+  panel.replaceChildren();
+  const perm = "Notification" in window ? Notification.permission : "unsupported";
+  panel.append(el("div", { class: "row", style: "padding:4px 4px 8px" }, el("h3", {}, "Alerts"), el("span", { class: "spacer" }),
+    el("button", { class: "x", "aria-label": "Close alerts", onclick: () => { alertsOpen = false; render() } }, "\u2715")));
+  if (perm === "default") panel.append(el("div", { class: "alert-tip" }, el("span", {}, "Get these as pop-ups on this phone or computer while the site is open."),
+    el("button", { class: "btn primary", onclick: enableDeviceAlerts }, "Turn on")));
+  if (!list.length) panel.append(el("p", { class: "alert-empty" }, "Nothing yet. You'll see new tasks, notes, replies and deadlines here."));
+  for (const a of list) panel.append(el("button", { class: "alert" + (a.at > alertsSeenAtOpen ? " new" : ""), onclick: () => { alertsOpen = false; location.hash = a.go; render() } },
+    a.who ? av(a.who) : el("span", { class: "alert-dot" }, "!"),
+    el("span", { class: "alert-body" }, el("span", {}, a.text), el("span", { class: "alert-time" }, a.key.startsWith("due:") ? "Today" : ago(a.at)))));
+}
+let alertsSeenAtOpen = 0;
+function toggleAlerts() {
+  alertsOpen = !alertsOpen;
+  if (alertsOpen) { alertsSeenAtOpen = getAlertsSeen(); try { localStorage.setItem(seenAlertsKey(), String(Date.now())) } catch { } }
+  render();
+}
+document.addEventListener("click", e => { if (alertsOpen && !e.target.closest("#alerts") && !e.target.closest("#bell")) { alertsOpen = false; render() } });
+
+// Pop-up alerts on this device. They work while the site is open (a tab or the home-screen app).
+let swReg = null;
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").then(r => { swReg = r }).catch(() => {});
+async function enableDeviceAlerts() {
+  try { const r = await Notification.requestPermission(); toast(r === "granted" ? "Alerts are on for this device" : "Alerts stay off. You can change this in your browser settings") } catch { toast("This browser can't show alerts") }
+  render();
+}
+function notifyDevice(list) {
+  if (!live) return;
+  if (alertBaseline === null) { alertBaseline = new Set(list.map(a => a.key)); return }
+  // Only pop up things that happened after the page was opened, not old ones that finished loading late.
+  const fresh = list.filter(a => !alertBaseline.has(a.key) && a.at > pageOpenedAt && !a.key.startsWith("due:"));
+  fresh.forEach(a => alertBaseline.add(a.key));
+  if (!fresh.length || !("Notification" in window) || Notification.permission !== "granted") return;
+  for (const a of fresh.slice(0, 3)) {
+    const opts = { body: a.text, icon: "icon-192.png", badge: "icon-192.png", tag: a.key, data: { go: a.go } };
+    if (swReg) swReg.showNotification("Pitch Room", opts).catch(() => {});
+    else try { new Notification("Pitch Room", opts) } catch { }
+  }
+}
+
 /* ----- me: personal home page ----- */
 
 let meTab = "tasks";
@@ -1640,12 +1846,11 @@ function renderMe() {
   const box = $("#me"); box.replaceChildren();
   const prof = people[me] || {}, tops = topSkills(me);
   const fullName = (myProfile && myProfile.name) || prof.name || "";
-  const all = myTasks(), open = all.filter(x => !x.t.done), today = todayStr();
+  const all = myTasks(), open = all.filter(x => !x.t.done && !x.closed), today = todayStr();
   const overdue = open.filter(x => x.t.due && x.t.due < today).length;
   const weekAgo = Date.now() - 7 * 864e5;
   const doneWeek = all.filter(x => x.t.done && (x.t.doneAt || 0) > weekAgo).length;
-  const fp = ideas.find(i => i.id === focusId && i.status === "approved");
-  const myInFp = fp ? tasksOf(fp).filter(t => t.owner === me && !t.done).length : 0;
+  const building = activeProjects();
 
   box.append(el("section", { class: "profile" },
     el("img", { class: "av av-lg", src: (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
@@ -1659,10 +1864,13 @@ function renderMe() {
       el("div", { class: "stat" + (overdue ? " late" : "") }, el("b", {}, overdue), el("span", {}, "overdue")),
       el("div", { class: "stat" }, el("b", {}, doneWeek), el("span", {}, "done this week"))));
 
-  if (fp) box.append(el("button", { class: "nowcard", onclick: () => { location.hash = "current" } },
-    el("span", { class: "now-label" }, "We're building"),
-    el("span", { class: "now-title" }, fp.title),
-    el("span", { class: "now-sub" }, myInFp ? `${myInFp} of your tasks left \u2192` : "Open the project \u2192")));
+  for (const p of building) {
+    const left = tasksOf(p).filter(t => t.owner === me && !t.done).length;
+    box.append(el("button", { class: "nowcard", onclick: () => { location.hash = "build-" + p.id } },
+      el("span", { class: "now-label" }, "We're building"),
+      el("span", { class: "now-title" }, p.title),
+      el("span", { class: "now-sub" }, left ? `${left} of your tasks left \u2192` : "Open the project \u2192")));
+  }
 
   if (privErr) box.append(el("div", { class: "notice" }, privErr === "rules"
     ? "Your personal tasks and notes can't load yet. Mohammed needs to publish the latest database rules in Firebase. This page will try again by itself."
@@ -1701,6 +1909,7 @@ function line(pr, unit) {
 }
 
 $("#me-btn").onclick = () => { location.hash = "me" };
+$("#bell").onclick = e => { e.stopPropagation(); toggleAlerts() };
 $("#brand").onclick = () => { location.hash = "me" };
 if (loadCache()) show();
 

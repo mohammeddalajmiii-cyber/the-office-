@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>The Office Pitch Room</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#4656D6">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://firestore.googleapis.com">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
@@ -280,6 +285,25 @@ details.removed .idea{opacity:.75}
 .seg-wide button{flex:1;padding:9px 12px;font-size:14px}
 .me-foot{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:28px;padding-top:16px;border-top:1px solid var(--line)}
 .me-email{font-size:13px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bell{position:relative;border:0;background:none;color:var(--ink);width:40px;height:40px;display:grid;place-items:center;border-radius:50%}
+.bell:hover{background:var(--surface)}
+.bell .count{top:2px;left:auto;right:0}
+.alerts{position:fixed;z-index:25;top:calc(env(safe-area-inset-top,0px) + 58px);right:max(12px,env(safe-area-inset-right,0px));width:min(380px,calc(100vw - 24px));max-height:min(70vh,560px);overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 40px rgba(15,20,35,.18);padding:10px;box-sizing:border-box;display:grid;gap:2px;align-content:start}
+.alerts .x{border:0;background:none;color:var(--muted);font-size:16px;padding:4px 6px}
+.alert{display:flex;gap:10px;align-items:flex-start;text-align:left;width:100%;border:0;background:none;border-radius:12px;padding:10px;color:var(--ink);font-size:14px}
+.alert:hover{background:var(--bg)}
+.alert.new{background:var(--accent-soft)}
+.alert .av{width:30px;height:30px}
+.alert-dot{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--warn-soft);color:var(--warn);font-weight:800}
+.alert-body{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}
+.alert-time{font-size:12px;color:var(--muted)}
+.alert-tip{display:flex;gap:10px;align-items:center;background:var(--bg);border-radius:12px;padding:10px 12px;font-size:13.5px;margin-bottom:6px}
+.alert-empty{color:var(--muted);font-size:14px;padding:6px 10px 10px;margin:0}
+.buildcard{text-align:left;width:100%;color:var(--ink);font:inherit;cursor:pointer}
+.buildcard:hover{border-color:var(--accent)}
+.done-badge{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--keep);background:var(--keep-soft);border-radius:999px;padding:4px 10px}
+.done-card h3{font-size:19px}
+.confetti{position:fixed;inset:0;z-index:60;pointer-events:none}
 .pill{font:500 11px/1 var(--body);padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;z-index:30;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));max-width:calc(100% - 32px);box-sizing:border-box;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -300,8 +324,10 @@ details.removed .idea{opacity:.75}
     <button class="brand" id="brand">Pitch Room</button>
     <span class="spacer"></span>
     <span class="status" id="status"></span>
+    <button class="bell" id="bell" aria-label="Alerts"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="count" id="c-alerts" hidden>0</span></button>
     <button class="me-btn" id="me-btn" aria-label="My space"><img class="av" id="me-av" alt="" referrerpolicy="no-referrer"></button>
   </header>
+  <div class="alerts" id="alerts" hidden></div>
   <nav class="nav" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" data-view="me"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="4"/></svg></span>Me <span class="count" id="c-mine" hidden>0</span></button>
     <button class="tab" role="tab" data-view="current"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V5l8-2 8 2v15"/><path d="M9 20v-6h6v6"/></svg></span>Project</button>
