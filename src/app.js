@@ -328,16 +328,29 @@ function renderCurrent(projects, id) {
     return;
   }
   if (active.length > 1) box.append(el("button", { class: "back", onclick: () => { location.hash = "current" } }, "\u2190 Everything we're building"));
-  const tasks = tasksOf(fp);
-  const memberSet = new Set(Object.entries(fp.members || {}).filter(([, v]) => v).map(([u]) => u));
-  for (const t of tasks) if (t.owner) memberSet.add(t.owner);
-  const members = [...memberSet].sort((a, b) => a === me ? -1 : b === me ? 1 : 0);
-  const joined = !!(fp.members || {})[me];
+  renderBoard(box, fp);
+}
 
+/* ----- a project's team board: tasks, this week, meetings ----- */
+
+let boardTab = "tasks";
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const weekKey = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x) };
+const weekLabel = k => k === weekKey() ? "This week" : "Week of " + fmtDate(k);
+const teamOf = p => {
+  const set = new Set(Object.entries(p.members || {}).filter(([, v]) => v).map(([u]) => u));
+  for (const t of tasksOf(p)) assignees(t).forEach(u => set.add(u));
+  return [...set].sort((a, b) => a === me ? -1 : b === me ? 1 : name(a).localeCompare(name(b)));
+};
+
+function renderBoard(box, fp) {
+  const tasks = tasksOf(fp), members = teamOf(fp), joined = !!(fp.members || {})[me];
+  const goal = (fp.goals || {})[weekKey()];
   box.append(el("section", { class: "focus" },
-    el("div", { class: "label" }, (isActive(fp) ? "Building now" : "Not started") + (fp.category ? " \u00b7 " + fp.category : "") + " \u00b7 " + prioOf(fp).name + " priority"),
+    el("div", { class: "label" }, (isActive(fp) ? "Building now" : "Not started") + (fp.category ? " · " + fp.category : "") + " · " + prioOf(fp).name + " priority"),
     el("h2", {}, fp.title),
     fp.pitch ? el("p", { style: "margin:0;opacity:.8;max-width:65ch" }, fp.pitch) : null,
+    goal && goal.text ? el("div", { class: "goal-line" + (goal.reached ? " reached" : "") }, el("span", { class: "tlabel" }, goal.reached ? "This week's goal ✓ reached" : "This week's goal"), el("span", {}, goal.text)) : null,
     line(progressOf(tasks), "tasks"),
     phaseBar(fp, tasks),
     el("div", { class: "row" },
@@ -345,43 +358,147 @@ function renderCurrent(projects, id) {
       el("span", { style: "font-size:13px;opacity:.8" }, members.length ? `${members.length} on the team` : "Nobody has joined yet"),
       el("span", { class: "spacer" }),
       el("button", { class: "btn", onclick: () => write(() => upd(fp.id, { ["members." + me]: joined ? DEL() : true }), joined ? "You left the team" : "You joined the team") }, joined ? "Leave team" : "Join the team"),
-      el("button", { class: "btn", onclick: () => { location.hash = "plan-" + fp.id } }, "Edit plan"))),
-    el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
+      el("button", { class: "btn", onclick: () => { location.hash = "plan-" + fp.id } }, canPlan(fp) ? "Edit plan" : "See the plan")),
+    (isAdmin && isActive(fp)) || pickButton(fp) || canPlan(fp) ? el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
       isAdmin && isActive(fp) ? el("button", { class: "btn quiet", onclick: () => pauseBuilding(fp) }, "Pause this project") : null,
       pickButton(fp),
-      canPlan(fp) ? completeButton(fp) : null));
+      canPlan(fp) ? completeButton(fp) : null) : null));
+
+  const meetings = Object.values(fp.meetings || {}).filter(Boolean).length;
+  box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin:4px 0 14px" },
+    el("button", { "aria-pressed": String(boardTab === "tasks"), onclick: () => { boardTab = "tasks"; render() } }, "Tasks"),
+    el("button", { "aria-pressed": String(boardTab === "week"), onclick: () => { boardTab = "week"; render() } }, "This week"),
+    el("button", { "aria-pressed": String(boardTab === "meet"), onclick: () => { boardTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : ""))));
+  if (boardTab === "week") return renderWeek(box, fp, members);
+  if (boardTab === "meet") return renderMeetings(box, fp);
 
   /* who's doing what */
   const unassigned = tasks.filter(t => !t.owner && !t.done);
-  box.append(el("div", { class: "row", style: "margin:22px 0 10px" }, el("h2", {}, "Who's doing what"), el("span", { class: "spacer" }),
-    unassigned.length ? el("span", { class: "label" }, `${unassigned.length} task${unassigned.length > 1 ? "s" : ""} not assigned`) : null));
   if (suggestions[fp.id]) box.append(suggestPanel(fp));
   const grid = el("div", { class: "members" });
-  if (!members.length) grid.append(el("div", { class: "empty" }, "Press “Join the team” to get your own task list. Everyone who joins gets a column here."));
+  if (!members.length) grid.append(el("div", { class: "empty" }, "Press “Join the team” to get your own task list. Everyone who joins gets a box here."));
   for (const m of members) {
-    const mine = tasks.filter(t => t.owner === m);
-    const pr = progressOf(mine);
+    const mine = tasks.filter(t => isAssignee(t, m)).sort((a, b) => (a.done - b.done) || taskPrioRank(a) - taskPrioRank(b) || (a.due || "9999").localeCompare(b.due || "9999"));
     grid.append(el("article", { class: "idea member" + (m === me ? " me" : "") },
       el("div", { class: "by", style: "color:var(--ink);font-weight:600;font-size:15px" }, av(m), name(m), el("span", { class: "spacer" }),
         ...topSkills(m).slice(0, 1).map(s => el("span", { class: "chip" }, SKILLS[s].name))),
-      line(pr, "tasks"),
-      mine.length ? el("ul", { class: "steps" }, mine.map(t => {
-        const cid = "m-" + t.id; return el("li", { class: t.done ? "done" : "" },
-          el("input", { type: "checkbox", id: cid, checked: t.done, disabled: !(t.owner === me || canPlan(fp)), onchange: e => toggleDone(fp, t, e.target.checked) }),
-          el("div", { style: "flex:1;min-width:0;display:grid;gap:6px" },
-            el("label", { for: cid }, t.text, t.due ? el("span", { class: "label", style: "display:block;margin-top:4px" }, "Due " + fmtDate(t.due)) : null),
-            notesBlock(fp, t, "m")))
-      })) : el("p", {}, "No tasks yet. Assign some in the plan below.")));
+      line(progressOf(mine), "tasks"),
+      mine.length ? el("div", { class: "tasklist" }, mine.map(t => taskItem(fp, t, "m-" + m, { people: "multi" }))) : el("p", {}, "No tasks yet.")));
   }
   if (unassigned.length) grid.append(el("article", { class: "idea" },
-    el("div", { class: "by", style: "color:var(--ink);font-weight:600;font-size:15px" }, "Not assigned yet"),
-    el("ul", { class: "steps" }, unassigned.slice(0, 8).map(t => el("li", {}, el("span", {}, t.text)))),
-    unassigned.length > 8 ? el("p", {}, `+${unassigned.length - 8} more in the plan`) : null,
+    el("div", { class: "by", style: "color:var(--ink);font-weight:600;font-size:15px" }, "Not assigned yet", el("span", { class: "spacer" }), el("span", { class: "label" }, unassigned.length + "")),
+    el("div", { class: "tasklist" }, unassigned.map(t => taskItem(fp, t, "u", { people: "never" }))),
     canPlan(fp) ? el("button", { class: "btn primary", onclick: () => runSuggest(fp) }, "Suggest who does what") : null));
   box.append(grid);
+}
 
-  box.append(el("div", { class: "row", style: "margin:26px 0 4px" }, el("h2", {}, "The plan")));
-  box.append(planBody(fp, { hideSuggest: true }));
+/* this week: goal + check-ins */
+let editGoal = null, editCheckin = null;
+function renderWeek(box, p, members) {
+  const wk = weekKey(), planner = canPlan(p);
+  const goal = (p.goals || {})[wk];
+  const g = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "This week's goal"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Week of " + fmtDate(wk))));
+  if (planner && (editGoal === p.id || !goal || !goal.text)) {
+    const ta = el("textarea", { id: "goal-" + p.id, class: "noteinput", rows: "2", maxlength: "300", placeholder: "One clear goal everyone pushes for, e.g. “Finish filming episode 1 by Friday”" });
+    if (goal && goal.text && !ta.value) ta.value = goal.text;
+    g.append(ta, el("div", { class: "row" }, el("span", { class: "spacer" }),
+      editGoal === p.id ? el("button", { class: "btn quiet", onclick: () => { editGoal = null; render() } }, "Cancel") : null,
+      el("button", { class: "btn primary", onclick: () => { const v = ta.value.trim(); if (!v) return; editGoal = null; write(() => upd(p.id, { [`goals.${wk}`]: { text: v, by: me, at: Date.now(), reached: false } }), "Goal set for this week") } }, "Set goal")));
+  } else if (goal && goal.text) {
+    g.append(el("p", { class: "goal-text" + (goal.reached ? " reached" : "") }, goal.text),
+      el("div", { class: "row" }, el("span", { class: "label" }, "Set by " + name(goal.by)), el("span", { class: "spacer" }),
+        planner ? el("button", { class: "btn quiet", onclick: () => { editGoal = p.id; render() } }, "Edit") : null,
+        planner ? el("button", { class: "btn" + (goal.reached ? "" : " primary"), onclick: () => write(() => upd(p.id, { [`goals.${wk}.reached`]: !goal.reached }), goal.reached ? null : "Goal reached!") }, goal.reached ? "Not reached yet" : "Mark as reached")
+          : el("span", { class: goal.reached ? "done-badge" : "label" }, goal.reached ? "✓ Reached" : "In progress")));
+  } else g.append(el("p", {}, "No goal for this week yet. A planner sets it."));
+  box.append(g);
+
+  /* check-ins */
+  const week = (p.checkins || {})[wk] || {};
+  const mine = week[me];
+  box.append(el("div", { class: "row", style: "margin:22px 0 10px" }, el("h2", {}, "Weekly check-in"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${Object.keys(week).length} of ${Math.max(members.length, Object.keys(week).length)} done`)));
+  if (!mine || editCheckin === p.id) {
+    const f = id => el("textarea", { id: `ci-${id}-${p.id}`, class: "noteinput", rows: "2", maxlength: "800" });
+    const did = f("did"), next = f("next"), blk = f("blk");
+    if (mine && !did.value) { did.value = mine.did || ""; next.value = mine.next || ""; blk.value = mine.blockers || "" }
+    box.append(el("section", { class: "idea checkin-form" },
+      el("p", { style: "margin:0" }, "Takes a minute. Helps everyone know where things are."),
+      el("label", { class: "tlabel", for: did.id }, "What did I do this week?"), did,
+      el("label", { class: "tlabel", for: next.id }, "What will I do next?"), next,
+      el("label", { class: "tlabel", for: blk.id }, "Anything blocking me? (leave empty if not)"), blk,
+      el("div", { class: "row" }, el("span", { class: "spacer" }),
+        mine ? el("button", { class: "btn quiet", onclick: () => { editCheckin = null; render() } }, "Cancel") : null,
+        el("button", { class: "btn primary", onclick: () => {
+          if (!did.value.trim() && !next.value.trim()) return toast("Write at least what you did or what's next");
+          editCheckin = null;
+          write(() => upd(p.id, { [`checkins.${wk}.${me}`]: { did: did.value.trim(), next: next.value.trim(), blockers: blk.value.trim(), at: Date.now() } }), "Check-in saved");
+        } }, "Save check-in"))));
+  }
+  const cards = el("div", { class: "members" });
+  for (const u of Object.keys(week).sort((a, b) => a === me ? -1 : b === me ? 1 : 0)) cards.append(checkinCard(p, u, week[u], u === me));
+  box.append(cards);
+  const waiting = members.filter(u => !week[u]);
+  if (waiting.length) box.append(el("p", { style: "color:var(--muted);font-size:14px;margin-top:12px" }, "Waiting for: " + waiting.map(u => u === me ? "you" : name(u)).join(", ")));
+
+  /* past weeks */
+  const past = [...new Set([...Object.keys(p.checkins || {}), ...Object.keys(p.goals || {})])].filter(k => k < wk).sort().reverse();
+  if (past.length) box.append(el("details", { class: "removed" }, el("summary", {}, `Past weeks (${past.length})`),
+    el("div", { class: "list" }, past.map(k => {
+      const pg = (p.goals || {})[k], pc = (p.checkins || {})[k] || {};
+      return el("section", { class: "idea" }, el("h3", {}, weekLabel(k)),
+        pg && pg.text ? el("p", {}, (pg.reached ? "✓ Goal reached: " : "Goal: ") + pg.text) : null,
+        el("div", { class: "members" }, Object.entries(pc).map(([u, c]) => checkinCard(p, u, c, false))));
+    }))));
+}
+function checkinCard(p, u, c, mine) {
+  return el("article", { class: "idea checkin" + (c.blockers ? " blocked" : "") },
+    el("div", { class: "by", style: "color:var(--ink);font-weight:600;font-size:15px" }, av(u), name(u), el("span", { class: "spacer" }), el("span", { class: "label" }, ago(c.at))),
+    c.did ? el("div", {}, el("div", { class: "tlabel" }, "Did"), el("div", { class: "pre" }, c.did)) : null,
+    c.next ? el("div", {}, el("div", { class: "tlabel" }, "Next"), el("div", { class: "pre" }, c.next)) : null,
+    c.blockers ? el("div", { class: "blocker" }, el("div", { class: "tlabel" }, "Blocked by"), el("div", { class: "pre" }, c.blockers)) : null,
+    mine ? el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: () => { editCheckin = p.id; render() } }, "Edit")) : null);
+}
+
+/* meetings */
+let newMeeting = null, editMeeting = null, delMeeting = null;
+function meetingForm(p, m) {
+  const id = m ? m.id : "new";
+  const date = el("input", { type: "date", class: "mini", id: `mt-date-${id}`, value: m ? m.date : todayStr(), style: "padding:8px 10px;font-size:14px" });
+  const title = el("input", { id: `mt-title-${id}`, class: "noteinput", maxlength: "100", placeholder: "Title, e.g. Planning the first video" });
+  const text = el("textarea", { id: `mt-text-${id}`, class: "noteinput", rows: "6", maxlength: "5000", placeholder: "What did we talk about? What did we decide? Who does what next?" });
+  if (m && !title.value) { title.value = m.title || ""; text.value = m.text || "" }
+  const save = () => {
+    if (!text.value.trim() && !title.value.trim()) return toast("Write something first");
+    const mid = m ? m.id : uid();
+    const data = { date: date.value || todayStr(), title: title.value.trim(), text: text.value.trim(), by: m ? m.by : me, at: m ? m.at : Date.now() };
+    if (m) data.edited = Date.now();
+    newMeeting = null; editMeeting = null;
+    write(() => upd(p.id, { ["meetings." + mid]: data }), "Meeting notes saved");
+  };
+  return el("section", { class: "idea" }, el("div", { class: "row" }, el("label", { class: "tlabel", for: date.id }, "Date"), date), title, text,
+    el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: () => { newMeeting = null; editMeeting = null; render() } }, "Cancel"), el("button", { class: "btn primary", onclick: save }, "Save")));
+}
+function renderMeetings(box, p) {
+  const list = Object.entries(p.meetings || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v })).sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.at - a.at);
+  box.append(el("div", { class: "row", style: "margin-bottom:12px" }, el("p", { style: "margin:0;color:var(--muted);font-size:14px;flex:1 1 220px" }, "Notes from your calls and meetups, so nobody forgets what was decided."),
+    newMeeting === p.id ? null : el("button", { class: "btn primary", onclick: () => { newMeeting = p.id; editMeeting = null; render() } }, "New meeting notes")));
+  if (newMeeting === p.id) box.append(meetingForm(p, null));
+  if (!list.length && newMeeting !== p.id) box.append(el("div", { class: "empty" }, "No meeting notes yet."));
+  const wrap = el("div", { class: "list", style: "margin-top:12px" });
+  for (const m of list) {
+    if (editMeeting === m.id) { wrap.append(meetingForm(p, m)); continue }
+    const mine = m.by === me || canPlan(p);
+    wrap.append(el("article", { class: "idea" },
+      el("div", { class: "row" }, el("span", { class: "chip" }, fmtDay(new Date((m.date || todayStr()) + "T12:00").getTime())), el("span", { class: "spacer" }), el("span", { class: "by" }, av(m.by), name(m.by))),
+      m.title ? el("h3", {}, m.title) : null,
+      m.text ? el("div", { class: "pre" }, m.text) : null,
+      mine ? el("div", { class: "row" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn quiet", onclick: () => { editMeeting = m.id; newMeeting = null; render() } }, "Edit"),
+        delMeeting === m.id
+          ? el("button", { class: "linkbtn danger", onclick: () => { delMeeting = null; write(() => upd(p.id, { ["meetings." + m.id]: DEL() }), "Deleted") } }, "Tap again to delete")
+          : el("button", { class: "linkbtn danger", onclick: () => { delMeeting = m.id; render() } }, "Delete")) : null));
+  }
+  box.append(wrap);
 }
 
 /* ----- ideas ----- */
@@ -688,7 +805,7 @@ function phaseCard(p, ph, n, phases, list) {
     sec.append(tools);
   }
   if (!list.length) sec.append(el("p", { style: "font-size:14px" }, planner ? "No tasks in this phase yet. Add the first one below." : "No tasks in this phase yet."));
-  for (const t of list) sec.append(taskRow(p, t, phases));
+  for (const t of list) sec.append(taskItem(p, t, "p", { people: "always" }));
   if (planner && !loose) sec.append(addTaskRow(p, ph));
   return sec;
 }
@@ -717,32 +834,116 @@ function addPhaseRow(p, phases, placeholder) {
   return el("div", { class: "addtask" }, inp, el("button", { class: "btn primary", onclick: add }, "Add phase"));
 }
 
-function taskRow(p, t, phases) {
-  const cid = "t-" + t.id, planner = canPlan(p), mineOrPlanner = planner || t.owner === me;
-  const check = el("input", { type: "checkbox", id: cid, checked: t.done, disabled: !mineOrPlanner, title: mineOrPlanner ? "" : "Only the person doing it or a planner can tick this", onchange: e => toggleDone(p, t, e.target.checked) });
-  let meta;
+/* ----- tasks: the same row everywhere; tap a task to open its details ----- */
+
+let openTask = null, delTask = null;          // "<where>:<taskId>"
+const isAssignee = (t, u) => t.owner === u || !!(t.helpers || {})[u];
+const assignees = t => [...new Set([t.owner, ...Object.entries(t.helpers || {}).filter(([, v]) => v).map(([u]) => u)].filter(Boolean))];
+const checkList = t => Object.entries(t.check || {}).filter(([, c]) => c && c.text).map(([id, c]) => ({ id, ...c })).sort((a, b) => (a.order || 0) - (b.order || 0));
+const TASK_PRIOS = ["urgent", "high", "medium", "low"];
+const taskPrioRank = t => TASK_PRIOS.indexOf(t.priority || "medium");
+function dueChip(t) {
+  if (!t.due) return null;
+  const today = todayStr(), late = !t.done && t.due < today, soon = !t.done && t.due === today;
+  return el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, late ? "Overdue · " + fmtDate(t.due) : soon ? "Due today" : "Due " + fmtDate(t.due));
+}
+
+function taskItem(p, t, where, opts = {}) {
+  const key = where + ":" + t.id, open = openTask === key;
+  const can = canPlan(p) || isAssignee(t, me);
+  const cl = checkList(t), cld = cl.filter(c => c.done).length;
+  const ncount = Object.values(t.notes || {}).filter(n => n && n.text).length;
+  const people = assignees(t);
+  const showPeople = opts.people === "always" || (opts.people !== "never" && (opts.people !== "multi" || people.length > 1));
+  return el("div", { class: "task" + (t.done ? " done" : "") + (isAssignee(t, me) ? " mytask" : "") + (open ? " open" : "") },
+    el("input", { type: "checkbox", id: "c-" + key, checked: t.done, disabled: !can, "aria-label": "Done: " + t.text, title: can ? "" : "Only the people on this task or a planner can tick it", onchange: e => toggleDone(p, t, e.target.checked, key) }),
+    el("button", { class: "ttext", "aria-expanded": String(open), onclick: () => { openTask = open ? null : key; delTask = null; render() } }, t.text),
+    el("button", { class: "chev", "aria-label": open ? "Close details" : "Open details", onclick: () => { openTask = open ? null : key; delTask = null; render() } }, open ? "–" : "…"),
+    el("div", { class: "meta" },
+      opts.project ? el("button", { class: "linkbtn", onclick: () => { location.hash = "plan-" + p.id } }, p.title) : null,
+      opts.phase ? el("span", { class: "label" }, opts.phase) : null,
+      showPeople ? (people.length ? el("span", { class: "stack", title: people.map(name).join(", ") }, people.slice(0, 4).map(av)) : el("span", { class: "label" }, "Not assigned")) : null,
+      !t.done && t.status === "doing" ? el("span", { class: "doing" }, "In progress") : null,
+      t.priority && t.priority !== "medium" ? el("span", { class: "prio prio-" + t.priority }, PRIORITIES.find(x => x.id === t.priority).name) : null,
+      dueChip(t),
+      cl.length ? el("span", { class: "label" }, `Checklist ${cld}/${cl.length}`) : null,
+      ncount ? el("span", { class: "label" }, `${ncount} note${ncount > 1 ? "s" : ""}`) : null),
+    open ? taskDetail(p, t, key) : null);
+}
+
+function taskDetail(p, t, key) {
+  const planner = canPlan(p), can = planner || isAssignee(t, me), phases = getPhases(p);
+  const set = (data, ok) => write(() => upd(p.id, data), ok);
+  const box = el("div", { class: "tdetail" });
+  const field = (label, ...kids) => el("div", { class: "tfield" }, el("span", { class: "tlabel" }, label), el("div", { class: "tval" }, ...kids));
+
+  const cur = t.done ? "done" : t.status === "doing" ? "doing" : "todo";
+  box.append(field("Status", el("div", { class: "seg seg-sm", role: "group", "aria-label": "Status" },
+    [["todo", "Not started"], ["doing", "In progress"], ["done", "Done"]].map(([v, l]) => el("button", { "aria-pressed": String(cur === v), disabled: !can, onclick: () => setTaskStatus(p, t, v, key) }, l)))));
+
+  const people = assignees(t);
   if (planner) {
-    const ownerSel = el("select", { class: "mini", "aria-label": "Who's doing it", onchange: e => write(() => upd(p.id, { [t.path + ".owner"]: e.target.value || null, [t.path + ".assignedBy"]: me, [t.path + ".assignedAt"]: Date.now() })) },
-      el("option", { value: "" }, "Unassigned"), teamIds().map(u => el("option", { value: u }, name(u))));
-    const skillSel = el("select", { class: "mini", "aria-label": "Skill needed", onchange: e => write(() => upd(p.id, { [t.path + ".skill"]: e.target.value || null })) },
-      el("option", { value: "" }, "Any skill"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
-    const phaseSel = el("select", { class: "mini", "aria-label": "Phase", onchange: e => write(() => phaseWrite(p, { [t.path + ".phase"]: e.target.value })) },
-      phases.map(ph => el("option", { value: ph.id }, ph.name)));
-    ownerSel.value = t.owner || ""; skillSel.value = t.skill || ""; phaseSel.value = t.phase;
-    const due = el("input", { type: "date", class: "mini", "aria-label": "Due date", value: t.due || "", onchange: e => write(() => upd(p.id, { [t.path + ".due"]: e.target.value || null })) });
-    meta = el("div", { class: "meta" }, t.owner ? av(t.owner) : null, ownerSel, skillSel, due, phases.length > 1 ? phaseSel : null);
+    const lead = el("select", { class: "mini", "aria-label": "Main person", onchange: e => set({ [t.path + ".owner"]: e.target.value || null, [t.path + ".assignedBy"]: me, [t.path + ".assignedAt"]: Date.now() }) },
+      el("option", { value: "" }, "Nobody yet"), teamIds().map(u => el("option", { value: u }, name(u))));
+    lead.value = t.owner || "";
+    const helpers = Object.entries(t.helpers || {}).filter(([, v]) => v).map(([u]) => u).filter(u => u !== t.owner);
+    const others = teamIds().filter(u => u !== t.owner && !helpers.includes(u));
+    const addSel = others.length && t.owner ? el("select", { class: "mini", "aria-label": "Add someone", onchange: e => { const u = e.target.value; if (u) set({ [`${t.path}.helpers.${u}`]: { by: me, at: Date.now() } }, `${name(u)} added to the task`) } },
+      el("option", { value: "" }, "+ Add someone"), others.map(u => el("option", { value: u }, name(u)))) : null;
+    box.append(field("People", lead,
+      ...helpers.map(u => el("span", { class: "planner" }, av(u), name(u), el("button", { class: "x", "aria-label": "Remove " + name(u), onclick: () => set({ [`${t.path}.helpers.${u}`]: DEL() }) }, "✕"))),
+      addSel));
   } else {
-    meta = el("div", { class: "meta" },
-      t.owner ? el("span", { class: "by" }, av(t.owner), name(t.owner)) : el("span", { class: "label" }, "Not assigned"),
-      t.skill ? el("span", { class: "chip" }, SKILLS[t.skill].name) : null,
-      t.due ? el("span", { class: "label" }, "Due " + fmtDate(t.due)) : null);
+    box.append(field("People", people.length ? people.map(u => el("span", { class: "planner" }, av(u), name(u))) : el("span", { class: "label" }, "Not assigned yet")));
   }
-  return el("div", { class: "task" + (t.done ? " done" : "") + (t.owner === me ? " mytask" : "") },
-    check,
-    el("label", { for: cid, class: "ttext" }, t.text),
-    planner ? el("button", { class: "x", title: "Delete task", "aria-label": "Delete task " + t.text, onclick: () => write(() => upd(p.id, { [t.path]: DEL() })) }, "✕") : el("span"),
-    meta,
-    notesBlock(p, t, "p"));
+
+  if (planner) {
+    const pr = el("select", { class: "mini", "aria-label": "Task priority", onchange: e => set({ [t.path + ".priority"]: e.target.value }) }, PRIORITIES.map(x => el("option", { value: x.id }, x.name)));
+    pr.value = t.priority || "medium";
+    const due = el("input", { type: "date", class: "mini", "aria-label": "Due date", value: t.due || "", onchange: e => set({ [t.path + ".due"]: e.target.value || null }) });
+    const sk = el("select", { class: "mini", "aria-label": "Skill needed", onchange: e => set({ [t.path + ".skill"]: e.target.value || null }) }, el("option", { value: "" }, "Any skill"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
+    sk.value = t.skill || "";
+    box.append(field("Priority", pr), field("Due", due), field("Skill", sk));
+    if (phases.length > 1) {
+      const ph = el("select", { class: "mini", "aria-label": "Phase", onchange: e => write(() => phaseWrite(p, { [t.path + ".phase"]: e.target.value })) }, phases.map(x => el("option", { value: x.id }, x.name)));
+      ph.value = t.phase; box.append(field("Phase", ph));
+    }
+  } else {
+    box.append(field("Details", el("span", { class: "row", style: "gap:6px" },
+      el("span", { class: "prio prio-" + (t.priority || "medium") }, PRIORITIES.find(x => x.id === (t.priority || "medium")).name), dueChip(t) || el("span", { class: "label" }, "No due date"),
+      t.skill ? el("span", { class: "chip" }, SKILLS[t.skill].name) : null)));
+  }
+
+  /* checklist */
+  const cl = checkList(t);
+  const ck = el("div", { class: "checklist" });
+  for (const c of cl) ck.append(el("div", { class: "ck" + (c.done ? " done" : "") },
+    el("input", { type: "checkbox", id: `ck-${key}-${c.id}`, checked: !!c.done, disabled: !can, onchange: e => set({ [`${t.path}.check.${c.id}.done`]: e.target.checked }) }),
+    el("label", { for: `ck-${key}-${c.id}` }, c.text),
+    can ? el("button", { class: "x", "aria-label": "Remove step " + c.text, onclick: () => set({ [`${t.path}.check.${c.id}`]: DEL() }) }, "✕") : null));
+  if (can) {
+    const inp = el("input", { id: "ckadd-" + key, placeholder: "Add a step", maxlength: "120" });
+    const add = () => { const v = inp.value.trim(); if (!v) return; inp.value = ""; set({ [`${t.path}.check.${uid()}`]: { text: v, done: false, order: Date.now() } }) };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
+    ck.append(el("div", { class: "addtask", style: "margin-top:2px" }, inp, el("button", { class: "btn", onclick: add }, "Add")));
+  } else if (!cl.length) ck.append(el("span", { class: "label" }, "No steps"));
+  box.append(field("Checklist", ck));
+
+  box.append(field("Notes", notesBlock(p, t, key)));
+
+  if (planner) box.append(el("div", { class: "row", style: "justify-content:flex-end" },
+    delTask === key
+      ? el("button", { class: "linkbtn danger", onclick: () => { delTask = null; openTask = null; set({ [t.path]: DEL() }, "Task deleted") } }, "Tap again to delete this task")
+      : el("button", { class: "linkbtn danger", onclick: () => { delTask = key; render() } }, "Delete task")));
+  return box;
+}
+
+function setTaskStatus(p, t, v, key) {
+  if (v === "done") return toggleDone(p, t, true, key);
+  const data = { [t.path + ".done"]: false };
+  if (v === "doing") { data[t.path + ".status"] = "doing"; data[t.path + ".startedBy"] = me; data[t.path + ".startedAt"] = Date.now() }
+  else data[t.path + ".status"] = null;
+  write(() => upd(p.id, data), v === "doing" ? "Marked as in progress" : null);
 }
 
 /* ----- planners & phases ----- */
@@ -918,15 +1119,16 @@ function bars(skills, limit) {
 /* ----- task notes ----- */
 
 let openNote = null;   // "<where>:<taskId>" of the note box that's open
-function toggleDone(p, t, done) {
+function toggleDone(p, t, done, key) {
   openNote = done ? "any:" + t.id : (openNote && openNote.endsWith(":" + t.id) ? null : openNote);
+  if (done && key) openTask = key;
   const data = { [t.path + ".done"]: done };
   if (done) { data[t.path + ".doneBy"] = me; data[t.path + ".doneAt"] = Date.now() }
   write(() => upd(p.id, data), done ? "Nice! Add a note about what you did" : null);
 }
 function notesBlock(p, t, where) {
   const key = where + ":" + t.id;
-  const isOpen = openNote === key || (openNote === "any:" + t.id && where === ({ current: "m", me: "mine" }[route().view] || "p"));
+  const isOpen = openNote === key || openNote === "any:" + t.id;
   const notes = Object.entries(t.notes || {}).filter(([, n]) => n && n.text).map(([id, n]) => ({ id, ...n })).sort((a, b) => (a.at || 0) - (b.at || 0));
   const box = el("div", { class: "notes" });
   if (t.done && t.doneBy) box.append(el("div", { class: "note-meta" }, `Done by ${name(t.doneBy)}${t.doneAt ? " \u00b7 " + ago(t.doneAt) : ""}`));
@@ -1238,7 +1440,7 @@ function myTasks() {
   const out = personal.map(t => ({ t, phase: "", personal: true, p: { id: "__personal", title: "Just for me", priority: t.priority || "medium" } }));
   for (const p of ideas.filter(i => i.status === "approved" || i.status === "completed")) {
     const phases = getPhases(p);
-    for (const t of tasksOf(p)) if (t.owner === me) out.push({ p, t, closed: p.status === "completed", phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" });
+    for (const t of tasksOf(p)) if (isAssignee(t, me)) out.push({ p, t, closed: p.status === "completed", phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" });
   }
   return out;
 }
@@ -1270,7 +1472,7 @@ function renderMine(box) {
   if (!todo.length) { box.append(el("div", { class: "empty" }, "All done. Nice work.")); return }
 
   // Highest priority project first, then the soonest due date.
-  todo.sort((a, b) => prioRank(a.p) - prioRank(b.p) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (isActive(a.p) ? -1 : isActive(b.p) ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
+  todo.sort((a, b) => prioRank(a.p) - prioRank(b.p) || taskPrioRank(a.t) - taskPrioRank(b.t) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (isActive(a.p) ? -1 : isActive(b.p) ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
   for (const pr of PRIORITIES) {
     const group = todo.filter(x => prioOf(x.p).id === pr.id); if (!group.length) continue;
     const sec = el("section", { class: "idea", style: "gap:0;margin-bottom:12px" },
@@ -1298,19 +1500,7 @@ function addPersonalTaskRow() {
 }
 function myTaskRow(x) {
   if (x.personal) return personalTaskRow(x.t);
-  const { p, t, phase } = x;
-  const cid = "my-" + t.id, today = todayStr();
-  const late = !t.done && t.due && t.due < today, soon = !t.done && t.due === today;
-  return el("div", { class: "task" + (t.done ? " done" : "") },
-    el("input", { type: "checkbox", id: cid, checked: t.done, onchange: e => toggleDone(p, t, e.target.checked) }),
-    el("label", { for: cid, class: "ttext" }, t.text),
-    el("span"),
-    el("div", { class: "meta" },
-      el("button", { class: "linkbtn", onclick: () => { location.hash = "plan-" + p.id } }, p.title),
-      phase ? el("span", { class: "label" }, phase) : null,
-      isActive(p) ? el("span", { class: "pill" }, "Building") : null,
-      t.due ? el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, late ? "Overdue · " + fmtDate(t.due) : soon ? "Due today" : "Due " + fmtDate(t.due)) : null),
-    notesBlock(p, t, "mine"));
+  return taskItem(x.p, x.t, "mine", { project: true, phase: x.phase, people: "multi" });
 }
 
 function personalTaskRow(t) {
@@ -1383,13 +1573,24 @@ function buildAlerts() {
     if (pl && typeof pl === "object" && pl.by !== me) add("planner:" + p.id, pl.at, pl.by, `${name(pl.by)} made you a planner of ${p.title}`, "plan-" + p.id);
     if (p.status !== "approved") continue;
     for (const t of tasksOf(p)) {
-      if (t.owner !== me) continue;
+      if (!isAssignee(t, me)) continue;
       if (t.assignedBy && t.assignedBy !== me) add("task:" + t.id + ":" + t.assignedAt, t.assignedAt, t.assignedBy, `${name(t.assignedBy)} gave you a task: ${t.text} (${p.title})`, "me");
+      const h = (t.helpers || {})[me];
+      if (h && h.by !== me) add("help:" + t.id, h.at, h.by, `${name(h.by)} added you to a task: ${t.text} (${p.title})`, "me");
       for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by !== me) add("note:" + nid, n.at, n.by, `${name(n.by)} left a note on your task: ${t.text}`, "plan-" + p.id);
       if (!t.done && t.due && t.due <= tomorrow) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text} (${p.title})` : t.due === today ? `Due today: ${t.text} (${p.title})` : `Due tomorrow: ${t.text} (${p.title})`, "me");
     }
   }
   for (const t of personal) if (!t.done && t.due && t.due <= tomorrow) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text}` : t.due === today ? `Due today: ${t.text}` : `Due tomorrow: ${t.text}`, "me");
+  const wk = weekKey();
+  for (const p of ideas.filter(i => i.status === "approved")) {
+    const mineHere = canPlan(p) || !!(p.members || {})[me] || tasksOf(p).some(t => isAssignee(t, me));
+    if (!mineHere) continue;
+    const g = (p.goals || {})[wk];
+    if (g && g.text && g.by !== me) add("goal:" + p.id + ":" + wk + ":" + g.at, g.at, g.by, `New goal this week in ${p.title}: ${g.text}`, "build-" + p.id);
+    for (const [u, c] of Object.entries((p.checkins || {})[wk] || {})) if (u !== me && c && c.blockers) add("blk:" + p.id + ":" + u + ":" + c.at, c.at, u, `${name(u)} is blocked in ${p.title}: ${c.blockers}`, "build-" + p.id);
+    for (const [mid, m] of Object.entries(p.meetings || {})) if (m && m.by !== me) add("meet:" + mid, m.at, m.by, `${name(m.by)} added meeting notes in ${p.title}${m.title ? ": " + m.title : ""}`, "build-" + p.id);
+  }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
   for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
   return out.sort((a, b) => b.at - a.at).slice(0, 50);
