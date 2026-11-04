@@ -99,7 +99,7 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 
 /* ---------- routing ---------- */
 
-const VIEWS = ["current", "ideas", "projects", "skills", "chat", "plan"];
+const VIEWS = ["current", "mine", "ideas", "projects", "skills", "chat", "notes", "plan"];
 function route() {
   const h = location.hash.slice(1);
   if (h.startsWith("plan-")) return { view: "plan", id: h.slice(5) };
@@ -154,6 +154,11 @@ onAuthStateChanged(auth, u => {
     const newest = chat.length ? chat[chat.length - 1] : null;
     if (before && newest && newest.at > before && newest.by !== me && route().view !== "chat") toast(`${firstName(newest.by)}: ${msgSummary(newest).slice(0, 60)}`);
     render();
+  }, () => {}));
+  unsubs.push(onSnapshot(collection(db, "private", me, "notes"), s => {
+    myNotes = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at || 0) - (a.at || 0));
+    // Don't redraw while typing in a note, so the cursor doesn't jump.
+    const a = document.activeElement; if (!(a && a.classList && a.classList.contains("pnote"))) render();
   }, () => {}));
   unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); render() }, () => {}));
   show();
@@ -240,6 +245,9 @@ function renderAll() {
   if (r.view === "projects") renderProjects(projects);
   if (r.view === "plan") renderPlanPage(projects.find(p => p.id === r.id));
   if (r.view === "skills") renderSkills();
+  if (r.view === "mine") renderMine();
+  if (r.view === "notes") renderNotes();
+  const open = myTasks().filter(x => !x.t.done).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
   renderChat();
 }
 
@@ -270,7 +278,7 @@ function renderCurrent(projects) {
   const joined = !!(fp.members || {})[me];
 
   box.append(el("section", { class: "focus" },
-    el("div", { class: "label" }, `Picked by ${ADMIN_NAME}` + (fp.category ? " \u00b7 " + fp.category : "")),
+    el("div", { class: "label" }, `Picked by ${ADMIN_NAME}` + (fp.category ? " \u00b7 " + fp.category : "") + " \u00b7 " + prioOf(fp).name + " priority"),
     el("h2", {}, fp.title),
     fp.pitch ? el("p", { style: "margin:0;opacity:.8;max-width:65ch" }, fp.pitch) : null,
     line(progressOf(tasks), "tasks"),
@@ -405,7 +413,7 @@ function renderProjects(all) {
     const tasks = tasksOf(p), n = projectVoters(p).length;
     box.append(el("article", { class: "idea" },
       el("div", { class: "row" }, el("span", { class: "label" }, `#${rank[p.id]} \u00b7 ${n} vote${n === 1 ? "" : "s"}`)),
-      el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), catChip(p), p.id === focusId ? el("span", { class: "pill" }, "Current project") : null),
+      el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), catChip(p), prioChip(p), p.id === focusId ? el("span", { class: "pill" }, "Current project") : null),
       p.pitch ? el("p", {}, p.pitch) : null,
       line(progressOf(tasks), "tasks"),
       phaseBar(p, tasks),
@@ -441,6 +449,7 @@ function renderPlanPage(p) {
     el("div", { class: "row" }, el("h2", { style: "flex:1 1 auto;min-width:0" }, p.title), p.id === focusId ? el("span", { class: "pill" }, "Current project") : null),
     p.pitch ? el("p", {}, p.pitch) : null,
     catSelect(p),
+    prioControl(p),
     plannersRow(p),
     line(progressOf(tasks), "tasks"),
     phaseBar(p, tasks),
@@ -769,7 +778,7 @@ function toggleDone(p, t, done) {
 }
 function notesBlock(p, t, where) {
   const key = where + ":" + t.id;
-  const isOpen = openNote === key || (openNote === "any:" + t.id && where === (route().view === "current" ? "m" : "p"));
+  const isOpen = openNote === key || (openNote === "any:" + t.id && where === ({ current: "m", mine: "mine" }[route().view] || "p"));
   const notes = Object.entries(t.notes || {}).filter(([, n]) => n && n.text).map(([id, n]) => ({ id, ...n })).sort((a, b) => (a.at || 0) - (b.at || 0));
   const box = el("div", { class: "notes" });
   if (t.done && t.doneBy) box.append(el("div", { class: "note-meta" }, `Done by ${name(t.doneBy)}${t.doneAt ? " \u00b7 " + ago(t.doneAt) : ""}`));
@@ -1049,6 +1058,129 @@ function renderChat() {
     lastDay = day; lastBy = m.by; lastAt = m.at;
   }
   log.scrollTop = atBottom || !prevTop ? log.scrollHeight : prevTop;
+}
+
+/* ----- project priority ----- */
+
+const PRIORITIES = [
+  { id: "urgent", name: "Urgent" },
+  { id: "high", name: "High" },
+  { id: "medium", name: "Medium" },
+  { id: "low", name: "Low" },
+];
+const prioOf = p => PRIORITIES.find(x => x.id === p.priority) || PRIORITIES[2];
+const prioRank = p => PRIORITIES.indexOf(prioOf(p));
+const prioChip = p => el("span", { class: "prio prio-" + prioOf(p).id }, prioOf(p).name + " priority");
+function prioControl(p) {
+  if (!canPlan(p)) return el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Priority", prioChip(p));
+  const sel = el("select", { class: "mini", "aria-label": "Priority", onchange: e => write(() => upd(p.id, { priority: e.target.value }), "Priority changed") },
+    PRIORITIES.map(x => el("option", { value: x.id }, x.name)));
+  sel.value = prioOf(p).id;
+  return el("label", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Priority", sel);
+}
+
+/* ----- my tasks ----- */
+
+let mineShow = "todo";
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` };
+function myTasks() {
+  const out = [];
+  for (const p of ideas.filter(i => i.status === "approved")) {
+    const phases = getPhases(p);
+    for (const t of tasksOf(p)) if (t.owner === me) out.push({ p, t, phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" });
+  }
+  return out;
+}
+function renderMine() {
+  const box = $("#mine"); box.replaceChildren();
+  const all = myTasks();
+  // A task you just ticked stays in "To do" until you save or skip its note.
+  const noting = x => openNote && openNote.endsWith(":" + x.t.id);
+  const todo = all.filter(x => !x.t.done || noting(x)), done = all.filter(x => x.t.done);
+  const today = todayStr();
+  const overdue = todo.filter(x => !x.t.done && x.t.due && x.t.due < today).length;
+
+  box.append(el("div", { class: "row", style: "margin-bottom:12px" },
+    el("div", {}, el("h2", {}, "My tasks"), el("p", { style: "margin:4px 0 0;color:var(--muted);font-size:14px" },
+      all.length ? `${todo.filter(x => !x.t.done).length} to do${overdue ? ` · ${overdue} overdue` : ""} · ${done.length} done` : "Everything assigned to you, across every project.")),
+    el("span", { class: "spacer" }),
+    el("div", { class: "seg", role: "group", "aria-label": "Show" },
+      el("button", { "aria-pressed": String(mineShow === "todo"), onclick: () => { mineShow = "todo"; render() } }, `To do ${todo.filter(x => !x.t.done).length}`),
+      el("button", { "aria-pressed": String(mineShow === "done"), onclick: () => { mineShow = "done"; render() } }, `Done ${done.length}`))));
+
+  if (!all.length) { box.append(el("div", { class: "empty" }, "You don't have any tasks yet. When a planner gives you a task in any project, it shows up here.")); return }
+
+  if (mineShow === "done") {
+    if (!done.length) { box.append(el("div", { class: "empty" }, "Nothing finished yet.")); return }
+    const list = el("div", { class: "idea", style: "gap:0" });
+    done.sort((a, b) => (b.t.doneAt || 0) - (a.t.doneAt || 0)).forEach(x => list.append(myTaskRow(x)));
+    box.append(list); return;
+  }
+  if (!todo.length) { box.append(el("div", { class: "empty" }, "All done. Nice work.")); return }
+
+  // Highest priority project first, then the soonest due date.
+  todo.sort((a, b) => prioRank(a.p) - prioRank(b.p) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (a.p.id === focusId ? -1 : b.p.id === focusId ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
+  for (const pr of PRIORITIES) {
+    const group = todo.filter(x => prioOf(x.p).id === pr.id); if (!group.length) continue;
+    const sec = el("section", { class: "idea", style: "gap:0;margin-bottom:12px" },
+      el("div", { class: "row", style: "margin-bottom:4px" }, el("span", { class: "prio prio-" + pr.id }, pr.name + " priority"), el("span", { class: "spacer" }), el("span", { class: "label" }, group.length + (group.length > 1 ? " tasks" : " task"))));
+    group.forEach(x => sec.append(myTaskRow(x)));
+    box.append(sec);
+  }
+}
+function myTaskRow({ p, t, phase }) {
+  const cid = "my-" + t.id, today = todayStr();
+  const late = !t.done && t.due && t.due < today, soon = !t.done && t.due === today;
+  return el("div", { class: "task" + (t.done ? " done" : "") },
+    el("input", { type: "checkbox", id: cid, checked: t.done, onchange: e => toggleDone(p, t, e.target.checked) }),
+    el("label", { for: cid, class: "ttext" }, t.text),
+    el("span"),
+    el("div", { class: "meta" },
+      el("button", { class: "linkbtn", onclick: () => { location.hash = "plan-" + p.id } }, p.title),
+      phase ? el("span", { class: "label" }, phase) : null,
+      p.id === focusId ? el("span", { class: "pill" }, "Current") : null,
+      t.due ? el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, late ? "Overdue · " + fmtDate(t.due) : soon ? "Due today" : "Due " + fmtDate(t.due)) : null),
+    notesBlock(p, t, "mine"));
+}
+
+/* ----- private notes (only the person who wrote them can read them) ----- */
+
+let myNotes = [];
+const noteTimers = {};
+function newPrivateNote() {
+  const id = uid();
+  myNotes.unshift({ id, text: "", at: Date.now() });
+  render();
+  setTimeout(() => { const n = document.getElementById("pn-" + id); if (n) n.focus() }, 0);
+  write(() => setDoc(doc(db, "private", me, "notes", id), { text: "", at: Date.now() }));
+}
+function savePrivateNote(id, text) {
+  clearTimeout(noteTimers[id]);
+  const mark = document.getElementById("pns-" + id); if (mark) mark.textContent = "Saving…";
+  noteTimers[id] = setTimeout(async () => {
+    try { await setDoc(doc(db, "private", me, "notes", id), { text, at: Date.now() }, { merge: true }); const m = document.getElementById("pns-" + id); if (m) m.textContent = "Saved" }
+    catch (e) { const m = document.getElementById("pns-" + id); if (m) m.textContent = e.code === "permission-denied" ? "Not saved: ask Mohammed to update the database rules" : "Not saved: check your connection" }
+  }, 700);
+}
+let delNoteId = null;
+function renderNotes() {
+  const box = $("#notes"); box.replaceChildren();
+  box.append(el("div", { class: "row", style: "margin-bottom:12px" },
+    el("div", {}, el("h2", {}, "My notes"), el("p", { style: "margin:4px 0 0;color:var(--muted);font-size:14px" }, "Only you can see these. Not your friends, not the admin.")),
+    el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: newPrivateNote }, "New note")));
+  if (!myNotes.length) { box.append(el("div", { class: "empty" }, "No notes yet. Use this for ideas, reminders, to-dos, anything just for you.")); return }
+  const grid = el("div", { class: "notegrid" });
+  for (const n of myNotes) {
+    const ta = el("textarea", { id: "pn-" + n.id, class: "noteinput pnote", maxlength: "20000", rows: "6", placeholder: "Write anything…", oninput: e => savePrivateNote(n.id, e.target.value) });
+    ta.value = n.text || "";
+    grid.append(el("article", { class: "idea", style: "gap:8px" }, ta,
+      el("div", { class: "row", style: "gap:8px;font-size:12px;color:var(--muted)" },
+        el("span", { id: "pns-" + n.id }, "Edited " + ago(n.at)), el("span", { class: "spacer" }),
+        delNoteId === n.id
+          ? el("button", { class: "linkbtn danger", onclick: () => { delNoteId = null; clearTimeout(noteTimers[n.id]); write(() => deleteDoc(doc(db, "private", me, "notes", n.id)), "Note deleted") } }, "Tap again to delete")
+          : el("button", { class: "linkbtn danger", onclick: () => { delNoteId = n.id; render() } }, "Delete"))));
+  }
+  box.append(grid);
 }
 
 /* ----- shared bits ----- */

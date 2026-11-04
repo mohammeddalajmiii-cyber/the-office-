@@ -19,17 +19,17 @@ body{margin:0}
 /* Layout: one column, sticky tab bar; ideas are a vote queue, projects are cards with a step track */
 :root{
   --bg:#EDF0F3; --surface:#FFFFFF; --ink:#141C24; --muted:#5A6573; --line:#D3DAE1;
-  --accent:#3447D6; --accent-soft:#E3E7FF; --keep:#1D7F52; --keep-soft:#DDF2E7; --drop:#B83A26; --drop-soft:#F8E1DC;
+  --accent:#3447D6; --accent-soft:#E3E7FF; --keep:#1D7F52; --keep-soft:#DDF2E7; --drop:#B83A26; --drop-soft:#F8E1DC; --warn:#A35F00; --warn-soft:#FBEBD2;
   --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
   --body:"Instrument Sans",ui-sans-serif,system-ui,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0E1318; --surface:#161D25; --ink:#E5EAF0; --muted:#8E9AA8; --line:#26313D;
-  --accent:#8A9AFF; --accent-soft:#232A55; --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; color-scheme:dark}}
+  --accent:#8A9AFF; --accent-soft:#232A55; --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; --warn:#F0B35A; --warn-soft:#3A2A10; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0E1318; --surface:#161D25; --ink:#E5EAF0; --muted:#8E9AA8; --line:#26313D;
-  --accent:#8A9AFF; --accent-soft:#232A55; --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; color-scheme:dark}
+  --accent:#8A9AFF; --accent-soft:#232A55; --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; --warn:#F0B35A; --warn-soft:#3A2A10; color-scheme:dark}
 
 body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--body)}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
@@ -230,6 +230,21 @@ details.removed .idea{opacity:.75}
 .planner .x{border:0;background:none;color:var(--muted);padding:0 2px}
 .task.mytask{background:linear-gradient(90deg,var(--accent-soft),transparent 60%)}
 .task input[type=checkbox]:disabled{opacity:.5;cursor:not-allowed}
+.prio{font:500 11px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;padding:5px 8px;border-radius:6px;white-space:nowrap;border:1px solid currentColor}
+.prio-urgent{color:var(--drop);background:var(--drop-soft)}
+.prio-high{color:var(--warn);background:var(--warn-soft)}
+.prio-medium{color:var(--accent);background:var(--accent-soft)}
+.prio-low{color:var(--muted);background:transparent}
+.focus .prio{background:transparent;color:inherit}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:var(--surface)}
+.seg button{border:0;background:none;border-radius:999px;padding:6px 12px;font-weight:600;font-size:13px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.due{font:500 11px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.due.late{color:var(--drop)}
+.due.soon{color:var(--warn)}
+.notegrid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));align-items:start}
+.pnote{min-height:140px;background:var(--surface);border-color:transparent;padding:4px 2px;font-size:15px;line-height:1.5}
+.pnote:focus{outline:none}
 .pill{font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -258,10 +273,12 @@ details.removed .idea{opacity:.75}
 
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-current" data-view="current">Current project</button>
+    <button class="tab" role="tab" id="tab-mine" data-view="mine">My tasks <span class="count" id="c-mine" hidden>0</span></button>
     <button class="tab" role="tab" id="tab-ideas" data-view="ideas">Ideas <span class="count" id="c-ideas">0</span></button>
     <button class="tab" role="tab" id="tab-projects" data-view="projects">Projects <span class="count" id="c-projects">0</span></button>
     <button class="tab" role="tab" id="tab-skills" data-view="skills">Skills</button>
     <button class="tab" role="tab" id="tab-chat" data-view="chat">Chat <span class="count" id="c-chat" hidden>0</span></button>
+    <button class="tab" role="tab" id="tab-notes" data-view="notes">My notes</button>
   </nav>
   <div class="status" id="status">Loading the board…</div>
 
@@ -289,6 +306,10 @@ details.removed .idea{opacity:.75}
   <section id="view-plan" hidden><div id="plan"></div></section>
 
   <section id="view-skills" hidden><div id="skills"></div></section>
+
+  <section id="view-mine" hidden><div id="mine"></div></section>
+
+  <section id="view-notes" hidden><div id="notes"></div></section>
 
   <section id="view-chat" hidden>
     <div class="chatbox">
