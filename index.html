@@ -397,28 +397,42 @@ input,select,textarea{background-color:rgba(0,0,0,.55)}
 <div id="sky" aria-hidden="true"></div>
 <canvas id="stars" aria-hidden="true"></canvas>
 <script>
+// Shooting stars: every few seconds a meteor streaks across the galaxy. Nothing is drawn between them,
+// it pauses when the page is hidden, and it stays off for people who turn off motion in their settings.
 (function () {
-  var c = document.getElementById("stars"), w = 0, h = 0;
-  function draw() {
-    var W = innerWidth, H = innerHeight;
-    if (Math.abs(W - w) < 40 && Math.abs(H - h) < 160) return;   // ignore small changes like a phone's address bar hiding
-    w = W; h = H;
-    var d = Math.min(devicePixelRatio || 1, 2); c.width = W * d; c.height = H * d;
-    var x = c.getContext("2d"); x.setTransform(d, 0, 0, d, 0, 0); x.clearRect(0, 0, W, H);
-    var s = 7, r = function () { return (s = (s * 16807) % 2147483647) / 2147483647 };
-    var n = Math.round(W * H / 1500);
-    for (var i = 0; i < n; i++) {
-      var px = r() * W, py = r() * H;
-      // more stars along the band that runs from top-left to bottom-right
-      var band = Math.abs((py / H) - (px / W) * 0.9 - 0.05);
-      if (band > 0.35 && r() < 0.5) continue;
-      var big = r() < 0.08;
-      x.globalAlpha = big ? 0.9 : 0.25 + r() * 0.5;
-      x.fillStyle = r() < 0.25 ? "#E6CCFF" : "#FFFFFF";
-      x.beginPath(); x.arc(px, py, big ? 1.3 : 0.6 + r() * 0.5, 0, 7); x.fill();
-    }
+  var c = document.getElementById("stars"), x = c.getContext("2d"), W = 0, H = 0, d = 1, m = null, timer = null;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  function size() { W = innerWidth; H = innerHeight; d = Math.min(devicePixelRatio || 1, 2); c.width = W * d; c.height = H * d; x.setTransform(d, 0, 0, d, 0, 0) }
+  function launch() {
+    if (document.hidden) return schedule();
+    // start near the top, fly down and across, roughly along the purple band
+    var fromLeft = Math.random() < 0.6, ang = (fromLeft ? 25 : 155) + (Math.random() * 16 - 8);
+    var rad = ang * Math.PI / 180, speed = Math.hypot(W, H) * (0.38 + Math.random() * 0.17);
+    m = { x: fromLeft ? Math.random() * W * 0.5 : W * 0.5 + Math.random() * W * 0.5, y: Math.random() * H * 0.35,
+          dx: Math.cos(rad), dy: Math.sin(rad), speed: speed, len: 150 + Math.random() * 90, t0: performance.now(), life: 1100 + Math.random() * 500 };
+    requestAnimationFrame(frame);
   }
-  draw(); addEventListener("resize", function () { clearTimeout(draw.t); draw.t = setTimeout(draw, 200) });
+  function frame(now) {
+    x.clearRect(0, 0, W, H);
+    if (!m) return;
+    var p = (now - m.t0) / m.life;
+    if (p >= 1) { m = null; x.clearRect(0, 0, W, H); return schedule() }
+    var dist = m.speed * (now - m.t0) / 1000, hx = m.x + m.dx * dist, hy = m.y + m.dy * dist;
+    var fade = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85, tl = m.len * (0.6 + 0.4 * Math.min(1, p * 3));
+    var tx = hx - m.dx * tl, ty = hy - m.dy * tl;
+    var g = x.createLinearGradient(tx, ty, hx, hy);
+    g.addColorStop(0, "rgba(177,76,255,0)"); g.addColorStop(0.6, "rgba(214,170,255," + 0.75 * fade + ")"); g.addColorStop(1, "rgba(255,255,255," + fade + ")");
+    x.strokeStyle = g; x.lineWidth = 2.6; x.lineCap = "round";
+    x.beginPath(); x.moveTo(tx, ty); x.lineTo(hx, hy); x.stroke();
+    var glow = x.createRadialGradient(hx, hy, 0, hx, hy, 10);
+    glow.addColorStop(0, "rgba(255,255,255," + fade + ")"); glow.addColorStop(1, "rgba(200,140,255,0)");
+    x.fillStyle = glow; x.beginPath(); x.arc(hx, hy, 10, 0, 7); x.fill();
+    requestAnimationFrame(frame);
+  }
+  function schedule() { clearTimeout(timer); timer = setTimeout(launch, 2500 + Math.random() * 4500) }
+  size(); addEventListener("resize", function () { clearTimeout(size.t); size.t = setTimeout(size, 200) });
+  document.addEventListener("visibilitychange", function () { if (!document.hidden && !m) schedule() });
+  setTimeout(launch, 1200);
 })();
 </script>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="brandg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D08BFF"/><stop offset="1" stop-color="#7B2CFF"/></linearGradient></defs></svg>
