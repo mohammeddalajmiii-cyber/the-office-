@@ -590,7 +590,7 @@ function renderIdeas(all, removed) {
       el("div", { class: "vote" }, vb("keep", "Keep", k), vb("drop", "Drop", d), el("span", { class: "spacer" }), verdict),
       el("div", { class: "row" },
         el("span", { class: "spacer" }),
-        i.author === me ? el("button", { class: "btn quiet", onclick: () => write(() => deleteDoc(doc(db, "ideas", i.id)), "Idea deleted") }, "Delete my idea") : null,
+        ideaDeleteBtn(i),
         el("button", { class: "btn", disabled: !(d > k), title: "Available when more people vote drop than keep", onclick: () => write(() => upd(i.id, { status: "removed" }), "Idea removed") }, "Remove"),
         el("button", { class: "btn primary", disabled: !(k > d), title: "Available when more people vote keep than drop", onclick: () => write(() => upd(i.id, { status: "approved", approvedAt: Date.now() }), "Moved to Projects") }, "Confirm → Projects"))));
   }
@@ -598,8 +598,19 @@ function renderIdeas(all, removed) {
   if (removed.length) {
     rb.append(el("details", { class: "removed" }, el("summary", {}, `Removed ideas (${removed.length})`),
       el("div", { class: "list" }, removed.map(i => el("article", { class: "idea" }, el("h3", {}, i.title), el("div", { class: "row" }, el("span", { class: "by" }, av(i.author), name(i.author)), el("span", { class: "spacer" }),
+        ideaDeleteBtn(i),
         el("button", { class: "btn", onclick: () => write(() => upd(i.id, { status: "voting" }), "Back in the vote") }, "Bring back to vote")))))));
   }
+}
+
+// The person who pitched an idea, and the admin, can delete it (asks once to be sure).
+let confirmDelIdea = null;
+function ideaDeleteBtn(i) {
+  if (!(isAdmin || i.author === me)) return null;
+  if (confirmDelIdea === i.id) return el("span", { class: "row", style: "gap:6px" },
+    el("button", { class: "btn quiet", onclick: () => { confirmDelIdea = null; render() } }, "Cancel"),
+    el("button", { class: "btn danger-btn", onclick: () => { confirmDelIdea = null; write(() => deleteDoc(doc(db, "ideas", i.id)), "Idea deleted") } }, "Yes, delete it"));
+  return el("button", { class: "btn quiet danger-quiet", onclick: () => { confirmDelIdea = i.id; render() } }, i.author === me ? "Delete my idea" : "Delete");
 }
 
 /* ----- projects list ----- */
