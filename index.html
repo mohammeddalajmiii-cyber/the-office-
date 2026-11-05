@@ -370,6 +370,9 @@ details.removed .idea{opacity:.75}
 @media (max-width:520px){.linkfields{grid-template-columns:1fr}}
 .projcard .links{margin-top:-2px}
 .renameblock{display:grid;gap:6px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.filechip{cursor:pointer;font:inherit;font-size:13.5px;font-weight:600}
+.fext{flex:none;font-size:9.5px;font-weight:800;letter-spacing:.02em;color:var(--accent);background:var(--accent-soft);border-radius:4px;padding:3px 4px}
+.fthumb{width:20px;height:20px;object-fit:cover;border-radius:4px}
 .pill{font:500 11px/1 var(--body);padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;z-index:30;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));max-width:calc(100% - 32px);box-sizing:border-box;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -1085,7 +1088,8 @@ function linkChip(p, l, editable) {
 function linksBlock(p) {
   const links = linksOf(p);
   const canAdd = p.status !== "completed" || canPlan(p);
-  const box = el("div", { class: "links" }, links.map(l => linkChip(p, l, true)));
+  const files = filesOf(p);
+  const box = el("div", { class: "links" }, links.map(l => linkChip(p, l, true)), files.map(f => fileChip(p, f, true)));
   if (addingLink === p.id) {
     const url = el("input", { id: "link-url-" + p.id, class: "noteinput", type: "url", inputmode: "url", placeholder: "Paste a link, e.g. instagram.com/ourpage", maxlength: "500" });
     const label = el("input", { id: "link-label-" + p.id, class: "noteinput", maxlength: "40", placeholder: "Name (optional), e.g. Instagram" });
@@ -1101,8 +1105,60 @@ function linksBlock(p) {
       el("div", { class: "linkfields" }, url, label),
       el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => { addingLink = null; render() } }, "Cancel"), el("button", { class: "btn primary small", onclick: save }, "Add link")));
   }
-  if (canAdd) box.append(el("button", { class: "linkchip addlink", onclick: () => { addingLink = p.id; delLink = null; render() } }, links.length ? "+ Link" : "+ Add a link (website, Instagram, files\u2026)"));
-  return links.length || canAdd ? box : null;
+  if (canAdd) {
+    const empty = !links.length && !files.length;
+    box.append(el("button", { class: "linkchip addlink", onclick: () => { addingLink = p.id; delLink = null; render() } }, empty ? "+ Add a link" : "+ Link"));
+    box.append(el("button", { class: "linkchip addlink", onclick: () => pickProjectFiles(p) }, empty ? "+ Add a file or PDF" : "+ File"));
+    if (uploadingTo === p.id) box.append(el("span", { class: "label", id: "projupload" }, uploadMsg));
+  }
+  return links.length || files.length || canAdd ? box : null;
+}
+
+/* ----- project files (PDFs, docs, photos…), stored like chat files ----- */
+
+let uploadingTo = null, uploadMsg = "", delFile = null;
+const filesOf = p => Object.values(p.files || {}).filter(f => f && f.id && f.parts).sort((a, b) => (a.at || 0) - (b.at || 0));
+function pickProjectFiles(p) {
+  const inp = el("input", { type: "file", multiple: true, hidden: true });
+  inp.addEventListener("change", () => { addProjectFiles(p, [...inp.files]); inp.remove() });
+  document.body.append(inp); inp.click();
+}
+async function addProjectFiles(p, list) {
+  if (!list.length || uploadingTo) return;
+  await fbReady;
+  uploadingTo = p.id;
+  let added = 0;
+  for (const f of list) {
+    const isImg = /^image\/(jpeg|png|webp|heic|heif|bmp)$/.test(f.type);
+    if (f.size > (isImg ? MAX_IMAGE_IN : MAX_FILE)) { toast(`${f.name} is too big. The limit is 5 MB per file.`); continue }
+    const msg = t => { uploadMsg = t; const n = document.getElementById("projupload"); if (n) n.textContent = t; else render() };
+    try {
+      msg(`Uploading ${f.name}\u2026`);
+      const file = await uploadFile(await prepareFile(f), pct => msg(`Uploading ${f.name}\u2026 ${pct}%`));
+      await upd(p.id, { ["files." + file.id]: { ...file, by: me, at: Date.now() } });
+      added++;
+    } catch (e) {
+      toast(e.code === "permission-denied" ? "Uploading isn't allowed yet. Ask Mohammed to update the database rules." : e.message === "too big" ? `${f.name} is too big, even after shrinking it.` : `${f.name} didn't upload. Check your connection and try again.`);
+    }
+  }
+  uploadingTo = null; uploadMsg = ""; render();
+  if (added) toast(added > 1 ? `${added} files added` : "File added");
+}
+function fileChip(p, f, editable) {
+  const open = () => (f.thumb || playable(f)) ? openViewer(f) : downloadFile(f);
+  const chip = el("button", { class: "linkchip filechip", title: `${f.name} \u00b7 ${fmtSize(f.size)}`, onclick: open },
+    f.thumb ? el("img", { src: f.thumb, alt: "", class: "fthumb" }) : el("span", { class: "fext" }, extOf(f.name)),
+    el("span", {}, f.name));
+  const mine = editable && (f.by === me || canPlan(p));
+  if (!mine) return chip;
+  return el("span", { class: "linkwrap" }, chip,
+    delFile === f.id
+      ? el("button", { class: "linkdel sure", "aria-label": "Confirm remove " + f.name, onclick: () => { delFile = null; write(() => deleteProjectFile(p, f), "File removed") } }, "Remove?")
+      : el("button", { class: "linkdel", "aria-label": "Remove " + f.name, onclick: () => { delFile = f.id; render() } }, "\u2715"));
+}
+async function deleteProjectFile(p, f) {
+  await upd(p.id, { ["files." + f.id]: DEL() });
+  if (f.by === me || isAdmin) for (let n = 0; n < f.parts; n++) deleteDoc(doc(db, "fileparts", `${f.id}_${n}`)).catch(() => {});
 }
 
 function projCard(p, n) {
@@ -1112,7 +1168,8 @@ function projCard(p, n) {
     el("button", { class: "cardlink", onclick: open, "aria-label": "Open " + p.title },
       el("div", { class: "row", style: "gap:8px" }, n ? el("span", { class: "rank" }, "#" + n) : null, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), p.priority === "urgent" || p.priority === "high" ? prioChip(p) : null),
       tasks.length ? line(progressOf(tasks), "tasks") : el("span", { class: "label" }, canPlan(p) ? "No plan yet. Tap to make one" : "No plan yet")),
-    linksOf(p).length ? el("div", { class: "links" }, linksOf(p).slice(0, 3).map(l => linkChip(p, l, false))) : null,
+    linksOf(p).length || filesOf(p).length ? el("div", { class: "links" }, linksOf(p).slice(0, 3).map(l => linkChip(p, l, false)),
+      filesOf(p).length ? el("span", { class: "label" }, `${filesOf(p).length} file${filesOf(p).length > 1 ? "s" : ""}`) : null) : null,
     isActive(p)
       ? el("div", { class: "row" }, el("span", { class: "stack" }, team.slice(0, 6).map(av)), el("span", { class: "spacer" }), el("span", { class: "now-sub" }, left ? `${left} of your tasks left` : ""))
       : el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p)));
@@ -2067,6 +2124,7 @@ function buildAlerts() {
     const g = (p.goals || {})[wk];
     if (g && g.text && g.by !== me) add("goal:" + p.id + ":" + wk + ":" + g.at, g.at, g.by, `New goal this week in ${p.title}: ${g.text}`, "build-" + p.id);
     for (const [u, c] of Object.entries((p.checkins || {})[wk] || {})) if (u !== me && c && c.blockers) add("blk:" + p.id + ":" + u + ":" + c.at, c.at, u, `${name(u)} is blocked in ${p.title}: ${c.blockers}`, "build-" + p.id);
+    for (const f of filesOf(p)) if (f.by !== me) add("file:" + f.id, f.at, f.by, `${name(f.by)} added a file to ${p.title}: ${f.name}`, "project-" + p.id);
     for (const [lid, l] of Object.entries(p.links || {})) if (l && l.by !== me) add("link:" + lid, l.at, l.by, `${name(l.by)} added a link to ${p.title}: ${l.label || hostOf(l.url)}`, "project-" + p.id);
     for (const [mid, m] of Object.entries(p.meetings || {})) if (m && m.by !== me) add("meet:" + mid, m.at, m.by, `${name(m.by)} added meeting notes in ${p.title}${m.title ? ": " + m.title : ""}`, "build-" + p.id);
   }
