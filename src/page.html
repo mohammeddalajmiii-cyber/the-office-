@@ -7,7 +7,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<meta name="theme-color" content="#4656D6">
+<meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://firestore.googleapis.com">
@@ -17,23 +17,20 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
 <style>
-:root{color-scheme:light}
+:root{color-scheme:dark}
 body{margin:0}
 [hidden]{display:none!important}
 
-/* Layout: compact top bar, bottom tab bar on phones (top on wide screens), one calm column of cards */
+/* Layout: compact top bar, bottom tab bar on phones (top on wide screens), one calm column of cards.
+   Look: one fixed black-and-purple theme ("Pure Black Neon"), the same on every device. */
 :root{
-  --bg:#F2F4F7; --surface:#FFFFFF; --ink:#1F2631; --muted:#677284; --line:#E2E7ED; --hero:#E8EBFD;
-  --accent:#4656D6; --accent-soft:#ECEFFE; --on-accent:#FFFFFF; --keep:#1D7F52; --keep-soft:#DDF2E7; --drop:#B83A26; --drop-soft:#F8E1DC; --warn:#A35F00; --warn-soft:#FBEBD2;
+  --bg:#000000; --surface:#0F0F12; --ink:#F4F2F8; --muted:#9B98A6; --line:#24222B; --hero:#170A2B;
+  --accent:#B14CFF; --accent-soft:#2A1145; --on-accent:#FFFFFF;
+  --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; --warn:#F0B35A; --warn-soft:#3A2A10;
   --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
   --body:"Instrument Sans",ui-sans-serif,system-ui,sans-serif;
+  color-scheme:dark;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#14181D; --surface:#1C2128; --ink:#E3E7ED; --muted:#98A2AF; --line:#2A3039; --hero:#242A45;
-  --accent:#97A3FF; --accent-soft:#272D4C; --on-accent:#10142B; --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; --warn:#F0B35A; --warn-soft:#3A2A10; color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#14181D; --surface:#1C2128; --ink:#E3E7ED; --muted:#98A2AF; --line:#2A3039; --hero:#242A45;
-  --accent:#97A3FF; --accent-soft:#272D4C; --on-accent:#10142B; --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; --warn:#F0B35A; --warn-soft:#3A2A10; color-scheme:dark}
 
 body{background:var(--bg);color:var(--ink);font:15.5px/1.6 var(--body);-webkit-font-smoothing:antialiased}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
@@ -175,7 +172,7 @@ details.removed .idea{opacity:.75}
 .catbar{display:flex;gap:6px;flex-wrap:wrap;margin-top:18px}
 .catbar:empty{display:none}
 .cat{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600;color:var(--muted)}
-.cat[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.cat[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .catchip{font:500 11px/1 var(--body);padding:5px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
 .notes{grid-column:2/4;display:grid;gap:6px;justify-items:start}
 .note{display:flex;gap:8px;align-items:flex-start;font-size:14px;background:var(--bg);border-radius:8px;padding:8px 10px;width:100%;box-sizing:border-box}
@@ -198,7 +195,7 @@ details.removed .idea{opacity:.75}
 .msg.mine{align-self:flex-end}
 .msg .av{margin:0}
 .av-space{width:22px;flex:none}
-.bubble{background:var(--bg);border-radius:14px;padding:7px 11px;overflow-wrap:anywhere;white-space:pre-wrap;min-width:0}
+.bubble{background:var(--line);border-radius:14px;padding:7px 11px;overflow-wrap:anywhere;white-space:pre-wrap;min-width:0}
 .msg.mine .bubble{background:var(--accent);color:var(--on-accent)}
 .msg-time{font:500 10px/1 var(--body);opacity:.6;margin-left:8px;white-space:nowrap}
 .bubble{cursor:pointer;display:grid;gap:4px}
@@ -259,7 +256,7 @@ details.removed .idea{opacity:.75}
 .focus .prio{background:transparent;color:inherit}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:var(--surface)}
 .seg button{border:0;background:none;border-radius:999px;padding:6px 12px;font-weight:600;font-size:13px;color:var(--muted)}
-.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
 .due{font:500 11px/1 var(--body);color:var(--muted)}
 .due.late{color:var(--drop)}
 .due.soon{color:var(--warn)}
@@ -347,7 +344,7 @@ details.removed .idea{opacity:.75}
 .pchip{display:inline-flex;align-items:center;gap:6px;flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px 4px 4px;font-size:13.5px;font-weight:600;color:var(--ink)}
 .pchip:first-child{padding-left:12px}
 .pchip .av{width:24px;height:24px;border:0}
-.pchip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.pchip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .pcount{font-weight:500;opacity:.7;font-variant-numeric:tabular-nums}
 .padd{display:grid;gap:8px;margin-bottom:12px}
 .padd .addtask input{background:var(--surface)}
