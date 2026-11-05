@@ -329,7 +329,8 @@ function renderProjectPage(p) {
     p.pitch ? el("p", { class: "pitch" }, p.pitch) : null,
     !done && goal && goal.text ? el("div", { class: "goal-line" + (goal.reached ? " reached" : "") }, el("span", { class: "tlabel" }, goal.reached ? "This week's goal \u2713 reached" : "This week's goal"), el("span", {}, goal.text)) : null,
     tasks.length ? line(progressOf(tasks), "tasks") : null,
-    mineLeft ? el("div", { class: "now-sub" }, `${mineLeft} of these are yours`) : null);
+    mineLeft ? el("div", { class: "now-sub" }, `${mineLeft} of these are yours`) : null,
+    linksBlock(p));
   const actions = el("div", { class: "row", style: "gap:8px" });
   if (!done && !isActive(p)) actions.append(voteButton(p));
   if (!done && !joined) actions.append(el("button", { class: "btn", onclick: () => write(() => upd(p.id, { ["members." + me]: true }), "You joined the team") }, "Join the team"));
@@ -581,6 +582,50 @@ function renderProjects(all) {
     box.append(el("div", { class: "list", style: "margin-top:0" }, next.map(p => projCard(p, rank[p.id]))));
   }
 }
+/* ----- project links (website, socials, files…) ----- */
+
+let addingLink = null, delLink = null;
+const linksOf = p => Object.entries(p.links || {}).filter(([, l]) => l && l.url).map(([id, l]) => ({ id, ...l })).sort((a, b) => (a.at || 0) - (b.at || 0));
+function cleanUrl(raw) {
+  let v = (raw || "").trim(); if (!v) return null;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) v = "https://" + v;
+  try { const u = new URL(v); return /^https?:$/.test(u.protocol) && u.hostname.includes(".") ? u.href : null } catch { return null }
+}
+const hostOf = url => { try { return new URL(url).hostname.replace(/^www\./, "") } catch { return url } };
+function linkChip(p, l, editable) {
+  const mine = editable && (l.by === me || canPlan(p));
+  const a = el("a", { class: "linkchip", href: l.url, target: "_blank", rel: "noopener noreferrer", title: l.url },
+    el("img", { src: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostOf(l.url))}&sz=32`, alt: "", width: "16", height: "16", loading: "lazy", onerror: e => { e.target.remove() } }),
+    el("span", {}, l.label || hostOf(l.url)));
+  if (!mine) return a;
+  return el("span", { class: "linkwrap" }, a,
+    delLink === l.id
+      ? el("button", { class: "linkdel sure", "aria-label": "Confirm remove " + (l.label || l.url), onclick: () => { delLink = null; write(() => upd(p.id, { ["links." + l.id]: DEL() }), "Link removed") } }, "Remove?")
+      : el("button", { class: "linkdel", "aria-label": "Remove " + (l.label || l.url), onclick: () => { delLink = l.id; render() } }, "\u2715"));
+}
+function linksBlock(p) {
+  const links = linksOf(p);
+  const canAdd = p.status !== "completed" || canPlan(p);
+  const box = el("div", { class: "links" }, links.map(l => linkChip(p, l, true)));
+  if (addingLink === p.id) {
+    const url = el("input", { id: "link-url-" + p.id, class: "noteinput", type: "url", inputmode: "url", placeholder: "Paste a link, e.g. instagram.com/ourpage", maxlength: "500" });
+    const label = el("input", { id: "link-label-" + p.id, class: "noteinput", maxlength: "40", placeholder: "Name (optional), e.g. Instagram" });
+    const save = () => {
+      const u = cleanUrl(url.value);
+      if (!u) { toast("That doesn't look like a web link. Try something like ourshop.com"); url.focus(); return }
+      addingLink = null;
+      write(() => upd(p.id, { ["links." + uid()]: { url: u, label: label.value.trim(), by: me, at: Date.now() } }), "Link added");
+    };
+    for (const i of [url, label]) i.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } if (e.key === "Escape") { addingLink = null; render() } });
+    setTimeout(() => { if (!url.value) url.focus() }, 0);
+    return el("div", { class: "linkform" }, box,
+      el("div", { class: "linkfields" }, url, label),
+      el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => { addingLink = null; render() } }, "Cancel"), el("button", { class: "btn primary small", onclick: save }, "Add link")));
+  }
+  if (canAdd) box.append(el("button", { class: "linkchip addlink", onclick: () => { addingLink = p.id; delLink = null; render() } }, links.length ? "+ Link" : "+ Add a link (website, Instagram, files\u2026)"));
+  return links.length || canAdd ? box : null;
+}
+
 function projCard(p, n) {
   const tasks = tasksOf(p), team = teamOf(p), left = tasks.filter(t => isAssignee(t, me) && !t.done).length;
   const open = () => { location.hash = "project-" + p.id };
@@ -588,6 +633,7 @@ function projCard(p, n) {
     el("button", { class: "cardlink", onclick: open, "aria-label": "Open " + p.title },
       el("div", { class: "row", style: "gap:8px" }, n ? el("span", { class: "rank" }, "#" + n) : null, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), p.priority === "urgent" || p.priority === "high" ? prioChip(p) : null),
       tasks.length ? line(progressOf(tasks), "tasks") : el("span", { class: "label" }, canPlan(p) ? "No plan yet. Tap to make one" : "No plan yet")),
+    linksOf(p).length ? el("div", { class: "links" }, linksOf(p).slice(0, 3).map(l => linkChip(p, l, false))) : null,
     isActive(p)
       ? el("div", { class: "row" }, el("span", { class: "stack" }, team.slice(0, 6).map(av)), el("span", { class: "spacer" }), el("span", { class: "now-sub" }, left ? `${left} of your tasks left` : ""))
       : el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p)));
@@ -1542,6 +1588,7 @@ function buildAlerts() {
     const g = (p.goals || {})[wk];
     if (g && g.text && g.by !== me) add("goal:" + p.id + ":" + wk + ":" + g.at, g.at, g.by, `New goal this week in ${p.title}: ${g.text}`, "build-" + p.id);
     for (const [u, c] of Object.entries((p.checkins || {})[wk] || {})) if (u !== me && c && c.blockers) add("blk:" + p.id + ":" + u + ":" + c.at, c.at, u, `${name(u)} is blocked in ${p.title}: ${c.blockers}`, "build-" + p.id);
+    for (const [lid, l] of Object.entries(p.links || {})) if (l && l.by !== me) add("link:" + lid, l.at, l.by, `${name(l.by)} added a link to ${p.title}: ${l.label || hostOf(l.url)}`, "project-" + p.id);
     for (const [mid, m] of Object.entries(p.meetings || {})) if (m && m.by !== me) add("meet:" + mid, m.at, m.by, `${name(m.by)} added meeting notes in ${p.title}${m.title ? ": " + m.title : ""}`, "build-" + p.id);
   }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
