@@ -348,6 +348,7 @@ function renderProjectPage(p) {
     if (isAdmin && isActive(p)) btns.append(el("button", { class: "btn", onclick: () => pauseBuilding(p) }, "Pause"));
     if (planner) btns.append(done ? el("button", { class: "btn", onclick: () => reopenProject(p) }, "Reopen") : completeButton(p));
     set.append(btns);
+    if (isAdmin || p.author === me) set.append(deleteBlock(p));
     box.append(set);
   }
 
@@ -367,6 +368,35 @@ function renderProjectPage(p) {
       ...team.map(u => { const list = tasks.filter(t => isAssignee(t, u)); return chip(u, u === me ? "You" : name(u).split(" ")[0], `${list.filter(t => t.done).length}/${list.length}`) })));
   }
   box.append(planBody(p, { filter: f }));
+}
+
+// Deleting a whole project. Only the admin and the person who pitched it can do this.
+let confirmDelProject = null;
+function deleteBlock(p) {
+  const box = el("div", { class: "danger" });
+  if (confirmDelProject !== p.id) {
+    box.append(el("div", { class: "row" }, el("span", { class: "label" }, "Delete this project for everyone"), el("span", { class: "spacer" }),
+      el("button", { class: "btn danger-btn small", onclick: () => { confirmDelProject = p.id; render() } }, "Delete project")));
+    return box;
+  }
+  const t = tasksOf(p).length, f = filesOf(p).length, l = linksOf(p).length, m = Object.keys(p.meetings || {}).length;
+  const parts = [t && `${t} task${t > 1 ? "s" : ""}`, f && `${f} file${f > 1 ? "s" : ""}`, l && `${l} link${l > 1 ? "s" : ""}`, m && `${m} meeting note${m > 1 ? "s" : ""}`].filter(Boolean);
+  box.append(el("p", { class: "danger-text" }, `Delete \u201c${p.title}\u201d? ` + (parts.length ? `This also deletes its ${parts.join(", ")}, plus all notes and check-ins. ` : "") + "This can't be undone."),
+    el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
+      el("button", { class: "btn quiet", onclick: () => { confirmDelProject = null; render() } }, "Cancel"),
+      el("button", { class: "btn danger-btn", onclick: () => deleteProject(p) }, "Yes, delete it forever")));
+  return box;
+}
+function deleteProject(p) {
+  confirmDelProject = null; showSettings = null;
+  const title = p.title;
+  location.hash = p.status === "completed" ? "projects-done" : "projects";
+  write(async () => {
+    // remove its files' stored pieces where allowed, then the project itself
+    for (const f of filesOf(p)) if (f.by === me || isAdmin) for (let n = 0; n < f.parts; n++) deleteDoc(doc(db, "fileparts", `${f.id}_${n}`)).catch(() => {});
+    if (isAdmin && (activeMap[p.id] || focusId === p.id)) await updateDoc(doc(db, "meta", "focus"), { ["active." + p.id]: DEL(), ...(focusId === p.id ? { projectId: null } : {}) }).catch(() => {});
+    await deleteDoc(doc(db, "ideas", p.id));
+  }, `\u201c${title}\u201d was deleted`);
 }
 
 // Name and description, editable by the project's planners.

@@ -373,6 +373,10 @@ details.removed .idea{opacity:.75}
 .filechip{cursor:pointer;font:inherit;font-size:13.5px;font-weight:600}
 .fext{flex:none;font-size:9.5px;font-weight:800;letter-spacing:.02em;color:var(--accent);background:var(--accent-soft);border-radius:4px;padding:3px 4px}
 .fthumb{width:20px;height:20px;object-fit:cover;border-radius:4px}
+.danger{display:grid;gap:8px;margin-top:6px;padding-top:12px;border-top:1px solid var(--line)}
+.danger-btn{color:var(--drop);border-color:var(--drop)}
+.btn.danger-btn:hover{background:var(--drop-soft);border-color:var(--drop)}
+.danger-text{margin:0;color:var(--drop)!important;font-weight:500}
 .pill{font:500 11px/1 var(--body);padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;z-index:30;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));max-width:calc(100% - 32px);box-sizing:border-box;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -812,6 +816,7 @@ function renderProjectPage(p) {
     if (isAdmin && isActive(p)) btns.append(el("button", { class: "btn", onclick: () => pauseBuilding(p) }, "Pause"));
     if (planner) btns.append(done ? el("button", { class: "btn", onclick: () => reopenProject(p) }, "Reopen") : completeButton(p));
     set.append(btns);
+    if (isAdmin || p.author === me) set.append(deleteBlock(p));
     box.append(set);
   }
 
@@ -831,6 +836,35 @@ function renderProjectPage(p) {
       ...team.map(u => { const list = tasks.filter(t => isAssignee(t, u)); return chip(u, u === me ? "You" : name(u).split(" ")[0], `${list.filter(t => t.done).length}/${list.length}`) })));
   }
   box.append(planBody(p, { filter: f }));
+}
+
+// Deleting a whole project. Only the admin and the person who pitched it can do this.
+let confirmDelProject = null;
+function deleteBlock(p) {
+  const box = el("div", { class: "danger" });
+  if (confirmDelProject !== p.id) {
+    box.append(el("div", { class: "row" }, el("span", { class: "label" }, "Delete this project for everyone"), el("span", { class: "spacer" }),
+      el("button", { class: "btn danger-btn small", onclick: () => { confirmDelProject = p.id; render() } }, "Delete project")));
+    return box;
+  }
+  const t = tasksOf(p).length, f = filesOf(p).length, l = linksOf(p).length, m = Object.keys(p.meetings || {}).length;
+  const parts = [t && `${t} task${t > 1 ? "s" : ""}`, f && `${f} file${f > 1 ? "s" : ""}`, l && `${l} link${l > 1 ? "s" : ""}`, m && `${m} meeting note${m > 1 ? "s" : ""}`].filter(Boolean);
+  box.append(el("p", { class: "danger-text" }, `Delete \u201c${p.title}\u201d? ` + (parts.length ? `This also deletes its ${parts.join(", ")}, plus all notes and check-ins. ` : "") + "This can't be undone."),
+    el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
+      el("button", { class: "btn quiet", onclick: () => { confirmDelProject = null; render() } }, "Cancel"),
+      el("button", { class: "btn danger-btn", onclick: () => deleteProject(p) }, "Yes, delete it forever")));
+  return box;
+}
+function deleteProject(p) {
+  confirmDelProject = null; showSettings = null;
+  const title = p.title;
+  location.hash = p.status === "completed" ? "projects-done" : "projects";
+  write(async () => {
+    // remove its files' stored pieces where allowed, then the project itself
+    for (const f of filesOf(p)) if (f.by === me || isAdmin) for (let n = 0; n < f.parts; n++) deleteDoc(doc(db, "fileparts", `${f.id}_${n}`)).catch(() => {});
+    if (isAdmin && (activeMap[p.id] || focusId === p.id)) await updateDoc(doc(db, "meta", "focus"), { ["active." + p.id]: DEL(), ...(focusId === p.id ? { projectId: null } : {}) }).catch(() => {});
+    await deleteDoc(doc(db, "ideas", p.id));
+  }, `\u201c${title}\u201d was deleted`);
 }
 
 // Name and description, editable by the project's planners.
