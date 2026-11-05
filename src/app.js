@@ -341,7 +341,7 @@ function renderProjectPage(p) {
 
   if (settingsOpen) {
     const set = el("section", { class: "idea settings" }, el("h3", {}, "Project settings"));
-    if (planner) set.append(catSelect(p), prioControl(p), plannersRow(p));
+    if (planner) set.append(renameBlock(p), catSelect(p), prioControl(p), plannersRow(p));
     const btns = el("div", { class: "row", style: "gap:8px" });
     if (joined) btns.append(el("button", { class: "btn quiet", onclick: () => write(() => upd(p.id, { ["members." + me]: DEL() }), "You left the team") }, "Leave the team"));
     btns.append(el("span", { class: "spacer" }));
@@ -367,6 +367,24 @@ function renderProjectPage(p) {
       ...team.map(u => { const list = tasks.filter(t => isAssignee(t, u)); return chip(u, u === me ? "You" : name(u).split(" ")[0], `${list.filter(t => t.done).length}/${list.length}`) })));
   }
   box.append(planBody(p, { filter: f }));
+}
+
+// Name and description, editable by the project's planners.
+function renameBlock(p) {
+  const title = el("input", { id: "rn-title-" + p.id, class: "noteinput", maxlength: "80", "aria-label": "Project name" });
+  const pitch = el("textarea", { id: "rn-pitch-" + p.id, class: "noteinput", rows: "3", maxlength: "600", "aria-label": "Description", placeholder: "What is it, who's it for?" });
+  title.value = p.title || ""; pitch.value = p.pitch || "";
+  const save = () => {
+    const t = title.value.trim(), d = pitch.value.trim();
+    if (!t) { toast("The project needs a name"); title.focus(); return }
+    if (t === p.title && d === (p.pitch || "")) { toast("Nothing changed"); return }
+    write(() => upd(p.id, { title: t, pitch: d }), "Saved");
+  };
+  title.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } });
+  return el("div", { class: "renameblock" },
+    el("label", { class: "tlabel", for: title.id }, "Name"), title,
+    el("label", { class: "tlabel", for: pitch.id }, "Description"), pitch,
+    el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary small", onclick: save }, "Save name and description")));
 }
 
 /* this week: goal + check-ins */
