@@ -397,42 +397,50 @@ input,select,textarea{background-color:rgba(0,0,0,.55)}
 <div id="sky" aria-hidden="true"></div>
 <canvas id="stars" aria-hidden="true"></canvas>
 <script>
-// Shooting stars: every few seconds a meteor streaks across the galaxy. Nothing is drawn between them,
-// it pauses when the page is hidden, and it stays off for people who turn off motion in their settings.
+// Shooting stars: meteors streak across the galaxy every second or two, sometimes a few at once.
+// The drawing loop only runs while a meteor is flying, pauses when the page is hidden,
+// and stays off for people who turn off motion in their settings.
 (function () {
-  var c = document.getElementById("stars"), x = c.getContext("2d"), W = 0, H = 0, d = 1, m = null, timer = null;
+  var c = document.getElementById("stars"), x = c.getContext("2d"), W = 0, H = 0, d = 1, list = [], running = false, timer = null;
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   function size() { W = innerWidth; H = innerHeight; d = Math.min(devicePixelRatio || 1, 2); c.width = W * d; c.height = H * d; x.setTransform(d, 0, 0, d, 0, 0) }
-  function launch() {
-    if (document.hidden) return schedule();
-    // start near the top, fly down and across, roughly along the purple band
-    var fromLeft = Math.random() < 0.6, ang = (fromLeft ? 25 : 155) + (Math.random() * 16 - 8);
-    var rad = ang * Math.PI / 180, speed = Math.hypot(W, H) * (0.38 + Math.random() * 0.17);
-    m = { x: fromLeft ? Math.random() * W * 0.5 : W * 0.5 + Math.random() * W * 0.5, y: Math.random() * H * 0.35,
-          dx: Math.cos(rad), dy: Math.sin(rad), speed: speed, len: 150 + Math.random() * 90, t0: performance.now(), life: 1100 + Math.random() * 500 };
-    requestAnimationFrame(frame);
+  function add(delay) {
+    var fromLeft = Math.random() < 0.6, rad = ((fromLeft ? 25 : 155) + (Math.random() * 20 - 10)) * Math.PI / 180;
+    var big = Math.random() < 0.25;
+    list.push({ x: fromLeft ? Math.random() * W * 0.6 : W * 0.4 + Math.random() * W * 0.6, y: Math.random() * H * 0.55,
+      dx: Math.cos(rad), dy: Math.sin(rad), speed: Math.hypot(W, H) * (0.38 + Math.random() * 0.2),
+      len: (big ? 180 : 110) + Math.random() * 80, w: big ? 2.8 : 1.8, t0: performance.now() + (delay || 0), life: 1000 + Math.random() * 600 });
+    if (!running) { running = true; requestAnimationFrame(frame) }
   }
   function frame(now) {
     x.clearRect(0, 0, W, H);
-    if (!m) return;
-    var p = (now - m.t0) / m.life;
-    if (p >= 1) { m = null; x.clearRect(0, 0, W, H); return schedule() }
-    var dist = m.speed * (now - m.t0) / 1000, hx = m.x + m.dx * dist, hy = m.y + m.dy * dist;
-    var fade = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85, tl = m.len * (0.6 + 0.4 * Math.min(1, p * 3));
-    var tx = hx - m.dx * tl, ty = hy - m.dy * tl;
-    var g = x.createLinearGradient(tx, ty, hx, hy);
-    g.addColorStop(0, "rgba(177,76,255,0)"); g.addColorStop(0.6, "rgba(214,170,255," + 0.75 * fade + ")"); g.addColorStop(1, "rgba(255,255,255," + fade + ")");
-    x.strokeStyle = g; x.lineWidth = 2.6; x.lineCap = "round";
-    x.beginPath(); x.moveTo(tx, ty); x.lineTo(hx, hy); x.stroke();
-    var glow = x.createRadialGradient(hx, hy, 0, hx, hy, 10);
-    glow.addColorStop(0, "rgba(255,255,255," + fade + ")"); glow.addColorStop(1, "rgba(200,140,255,0)");
-    x.fillStyle = glow; x.beginPath(); x.arc(hx, hy, 10, 0, 7); x.fill();
-    requestAnimationFrame(frame);
+    list = list.filter(function (m) { return now - m.t0 < m.life });
+    list.forEach(function (m) {
+      if (now < m.t0) return;
+      var p = (now - m.t0) / m.life, dist = m.speed * (now - m.t0) / 1000;
+      var hx = m.x + m.dx * dist, hy = m.y + m.dy * dist;
+      var fade = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85, tl = m.len * (0.6 + 0.4 * Math.min(1, p * 3));
+      var tx = hx - m.dx * tl, ty = hy - m.dy * tl;
+      var g = x.createLinearGradient(tx, ty, hx, hy);
+      g.addColorStop(0, "rgba(177,76,255,0)"); g.addColorStop(0.6, "rgba(214,170,255," + 0.75 * fade + ")"); g.addColorStop(1, "rgba(255,255,255," + fade + ")");
+      x.strokeStyle = g; x.lineWidth = m.w; x.lineCap = "round";
+      x.beginPath(); x.moveTo(tx, ty); x.lineTo(hx, hy); x.stroke();
+      var r = m.w * 3.6, glow = x.createRadialGradient(hx, hy, 0, hx, hy, r);
+      glow.addColorStop(0, "rgba(255,255,255," + fade + ")"); glow.addColorStop(1, "rgba(200,140,255,0)");
+      x.fillStyle = glow; x.beginPath(); x.arc(hx, hy, r, 0, 7); x.fill();
+    });
+    if (list.length) requestAnimationFrame(frame); else { running = false; x.clearRect(0, 0, W, H) }
   }
-  function schedule() { clearTimeout(timer); timer = setTimeout(launch, 2500 + Math.random() * 4500) }
+  function tick() {
+    if (!document.hidden) {
+      add(0);
+      if (Math.random() < 0.35) add(150 + Math.random() * 400);          // sometimes a second one right after
+      if (Math.random() < 0.08) { add(250); add(500); }                  // and now and then a little shower
+    }
+    timer = setTimeout(tick, 700 + Math.random() * 1500);
+  }
   size(); addEventListener("resize", function () { clearTimeout(size.t); size.t = setTimeout(size, 200) });
-  document.addEventListener("visibilitychange", function () { if (!document.hidden && !m) schedule() });
-  setTimeout(launch, 1200);
+  setTimeout(tick, 600);
 })();
 </script>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="brandg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D08BFF"/><stop offset="1" stop-color="#7B2CFF"/></linearGradient></defs></svg>
