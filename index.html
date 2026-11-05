@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>The Office Pitch Room</title>
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon-192.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -47,7 +48,10 @@ button{cursor:pointer}
 
 /* top bar */
 .topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);margin:0 calc(-1 * max(16px,env(safe-area-inset-left,0px))) 10px;padding:10px max(16px,env(safe-area-inset-left,0px));display:flex;align-items:center;gap:10px}
-.brand{background:none;border:0;padding:0;font:800 21px/1 var(--display);letter-spacing:-.02em;color:var(--ink)}
+.brand{display:flex;align-items:center;gap:9px;background:none;border:0;padding:0;font:800 21px/1 var(--display);letter-spacing:-.02em;color:var(--ink)}
+.mark{width:30px;height:30px;flex:none}
+.mark-lg{width:84px;height:84px;margin-bottom:4px}
+.brand-accent{color:var(--accent)}
 .me-btn{border:0;background:none;padding:0;border-radius:50%}
 .me-btn .av{width:34px;height:34px;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line)}
 .status{font-size:13px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -381,18 +385,21 @@ details.removed .idea{opacity:.75}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="brandg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D08BFF"/><stop offset="1" stop-color="#7B2CFF"/></linearGradient></defs></svg>
 <div class="wrap gate" id="boot">
-  <h1>Pitch Room</h1>
+  <svg class="mark mark-lg" viewBox="0 0 120 120" aria-hidden="true"><path d="M14 112V58a46 46 0 0 1 92 0v54" fill="none" stroke="#5B21B6" stroke-width="11" stroke-linecap="round"/><path d="M32 112V62a28 28 0 0 1 56 0v50" fill="none" stroke="url(#brandg)" stroke-width="13" stroke-linecap="round"/><path d="M60 46l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#F4F2F8"/></svg>
+  <h1>Pitch <span class="brand-accent">Room</span></h1>
   <p>Loading…</p>
 </div>
 <div class="wrap gate" id="gate" hidden>
-  <h1>Pitch Room</h1>
+  <svg class="mark mark-lg" viewBox="0 0 120 120" aria-hidden="true"><path d="M14 112V58a46 46 0 0 1 92 0v54" fill="none" stroke="#5B21B6" stroke-width="11" stroke-linecap="round"/><path d="M32 112V62a28 28 0 0 1 56 0v50" fill="none" stroke="url(#brandg)" stroke-width="13" stroke-linecap="round"/><path d="M60 46l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#F4F2F8"/></svg>
+  <h1>Pitch <span class="brand-accent">Room</span></h1>
   <p id="gate-msg">Sign in with your Google account to see the board.</p>
   <button class="btn primary" id="signin">Sign in with Google</button>
 </div>
 <div class="wrap" id="app" hidden>
   <header class="topbar">
-    <button class="brand" id="brand">Pitch Room</button>
+    <button class="brand" id="brand" aria-label="Pitch Room home"><svg class="mark" viewBox="0 0 120 120" aria-hidden="true"><path d="M14 112V58a46 46 0 0 1 92 0v54" fill="none" stroke="#5B21B6" stroke-width="11" stroke-linecap="round"/><path d="M32 112V62a28 28 0 0 1 56 0v50" fill="none" stroke="url(#brandg)" stroke-width="13" stroke-linecap="round"/><path d="M60 46l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#F4F2F8"/></svg><span>Pitch <span class="brand-accent">Room</span></span></button>
     <span class="spacer"></span>
     <span class="status" id="status"></span>
     <button class="bell" id="bell" aria-label="Alerts"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="count" id="c-alerts" hidden>0</span></button>
