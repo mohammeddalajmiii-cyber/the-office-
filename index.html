@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261106093527">
+<meta name="build" content="20261106093538">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg?v=2" type="image/svg+xml">
 <link rel="icon" href="icon-192.png?v=2" type="image/png" sizes="192x192">
@@ -701,7 +701,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261106093527";
+const BUILD_ID = "20261106093538";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -3323,6 +3323,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-dm-1", date: "2026-11-06", icon: "🔒", title: "Private messages",
+    text: "Open Chat and tap someone's name at the top to message them privately. Only you two can see it.", go: "chat" },
   { id: "f-ideas-1", date: "2026-11-06", icon: "✺", title: "Get help with ideas",
     text: "Tap ✦ Help me think when pitching, or ✦ Make it stronger on any idea. The assistant brainstorms fresh ideas, and each one has a Use this idea button. You can also add a client, brand or company to an idea (optional).", go: "ideas" },
   { id: "f-templates-1", date: "2026-11-06", icon: "☀", title: "Assistant templates and Morning brief",

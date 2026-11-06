@@ -2471,6 +2471,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-dm-1", date: "2026-11-06", icon: "🔒", title: "Private messages",
+    text: "Open Chat and tap someone's name at the top to message them privately. Only you two can see it.", go: "chat" },
   { id: "f-ideas-1", date: "2026-11-06", icon: "✺", title: "Get help with ideas",
     text: "Tap ✦ Help me think when pitching, or ✦ Make it stronger on any idea. The assistant brainstorms fresh ideas, and each one has a Use this idea button. You can also add a client, brand or company to an idea (optional).", go: "ideas" },
   { id: "f-templates-1", date: "2026-11-06", icon: "☀", title: "Assistant templates and Morning brief",
