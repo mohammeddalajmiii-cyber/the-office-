@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>The Office Pitch Room</title>
-<meta name="build" content="20261106074927">
+<meta name="build" content="20261106082222">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="icon" href="icon-192.png" type="image/png">
@@ -495,6 +495,7 @@ input,select,textarea{background-color:var(--field)}
 .goalrow{display:grid;gap:6px;padding:6px 0}
 .rules{margin:0;padding-left:20px;display:grid;gap:6px;font-size:14.5px}
 .planner.agreed{border-color:var(--keep)}
+.finders{display:grid;gap:6px;padding-left:4px}
 .pill{font:500 11px/1 var(--body);padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;z-index:30;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));max-width:calc(100% - 32px);box-sizing:border-box;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -660,7 +661,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261106074927";
+const BUILD_ID = "20261106082222";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -672,7 +673,7 @@ const BUILD_ID = "20261106074927";
    One-time projects: costs are paid back as money arrives, but the profit is only split
    once the client has fully paid. Monthly and installment deals split every payment. */
 
-const MONEY_DEFAULTS = { fundPct: 15, findPct: 5, finderMonths: 3, pauseAfterLate: 2 };
+const MONEY_DEFAULTS = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 3, version: 2 };
 const toP = x => Math.round((Number(x) || 0) * 100);
 const monthOf = d => (d || "").slice(0, 7);
 function addMonths(ym, n) { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` }
@@ -693,14 +694,17 @@ function splitByShares(amount, shares) {
 
 function computeMoney(p, todayStr, rules) {
   const m = p.money || {}, R = { ...MONEY_DEFAULTS, ...(rules || {}) };
-  const fundPct = m.fundPct != null ? Number(m.fundPct) : R.fundPct;
-  const findPct = m.finder ? (m.findPct != null ? Number(m.findPct) : R.findPct) : 0;
+  const fundPct = m.fundCustom && m.fundPct != null ? Number(m.fundPct) : R.fundPct;
+  // who brought the client: one or several people share the finder's fee; "the team" puts it in the fund
+  const finders = m.finderTeam ? [] : (Array.isArray(m.finders) ? m.finders : (m.finder ? [m.finder] : [])).filter(Boolean);
+  const hasFinder = m.finderTeam || finders.length > 0;
+  const findPct = hasFinder ? (m.findCustom && m.findPct != null ? Number(m.findPct) : R.findPct) : 0;
   const type = m.type || "one";
   const list = o => Object.entries(o || {}).filter(([, v]) => v && v.amount != null).map(([id, v]) => ({ id, ...v }))
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.at || 0) - (b.at || 0));
   const payments = list(p.payments), costs = list(p.costs), payouts = list(p.payouts), ads = list(p.ads);
 
-  const res = { type, fundPct, findPct, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0,
+  const res = { type, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0,
     people: {}, unassigned: 0, pending: false, held: 0, preview: null, schedule: [], late: [], monthsUnpaid: 0, ads: { in: 0, spent: 0, held: 0 } };
   const person = u => res.people[u] || (res.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
 
@@ -713,11 +717,12 @@ function computeMoney(p, todayStr, rules) {
   };
   const splitProfit = (amt, shares, withFinder, into) => {
     const t = into || res; if (amt <= 0) return;
-    const fund = Math.round(amt * fundPct / 100), find = withFinder && m.finder ? Math.round(amt * findPct / 100) : 0;
+    const fund = Math.round(amt * fundPct / 100), find = withFinder && hasFinder ? Math.round(amt * findPct / 100) : 0;
     t.fund += fund; t.finderAmt += find;
     const rest = amt - fund - find, parts = splitByShares(rest, shares);
     const pp = u => (into ? (into.people[u] || (into.people[u] = { earned: 0 })) : person(u));
-    if (find) pp(m.finder).earned += find;
+    if (find && m.finderTeam) t.fund += find;
+    else if (find) for (const [u, v] of Object.entries(splitByShares(find, Object.fromEntries(finders.map(u => [u, 1]))))) pp(u).earned += v;
     let given = 0; for (const [u, v] of Object.entries(parts)) { pp(u).earned += v; given += v }
     if (rest - given > 0) t.unassigned += rest - given;   // no shares set yet
   };
@@ -974,7 +979,7 @@ function onAuth(u) {
     render();
   }, () => {}));
   unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); render() }, () => {}));
-  unsubs.push(onSnapshot(doc(db, "meta", "money"), s => { moneyRules = s.exists() ? s.data() : null; render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "money"), s => { moneyRules = s.exists() ? s.data() : null; ensureMoneyRules(); render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
   teamLoaded = false; teamDoc = null;
   if (isAdmin) unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
@@ -2658,6 +2663,7 @@ function buildAlerts() {
     if (!canPlan(p) || p.status !== "approved") continue;
     for (const s of moneyOf(p).late) add("late:" + p.id + ":" + s.label + ":" + today, dayStart(), null, `Late payment: ${p.title}${p.money.client ? " (" + p.money.client + ")" : ""}, ${s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label}`, "project-" + p.id);
   }
+  if (isAdmin && moneyRules && moneyRules.reviewAt && moneyRules.reviewAt <= today) add("review:" + moneyRules.reviewAt, dayStart(), null, `Time to review the team fund: it's ${rulesNow().fundPct}% since ${fmtDate(ymd(new Date(moneyRules.setAt || Date.now())))}. Keep it or change it on the Money page.`, "money");
   if (isAdmin && fundDoc) for (const [sid, sb] of Object.entries(fundDoc.subs || {})) if (sb && sb.nextDue && sb.nextDue <= tomorrow) add("sub:" + sid + ":" + sb.nextDue, dayStart(), null, `${sb.name} subscription is due ${sb.nextDue < today ? "(overdue)" : sb.nextDue === today ? "today" : "tomorrow"}`, "money");
   { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, "Please read and agree to the team's money rules", "money") }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
@@ -3142,7 +3148,7 @@ function renderMoney(box, p) {
 
   /* who gets what */
   const split = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "Who gets what"), el("span", { class: "spacer" }),
-    el("span", { class: "label" }, `Team fund ${r.fundPct}%` + (m.finder ? ` · finder ${r.findPct}% to ${firstName(m.finder)}` : ""))));
+    el("span", { class: "label" }, `Team fund ${r.fundPct}%` + (r.finderTeam ? ` \u00b7 finder ${r.findPct}% to the team fund` : r.finders.length ? ` \u00b7 finder ${r.findPct}% to ${r.finders.map(firstName).join(" & ")}` : ""))));
   if (r.pending) {
     split.append(el("p", { style: "margin:0;font-size:14px" }, "Split happens when the client has fully paid. If nothing else is spent, it will be:"));
     const pv = r.preview;
@@ -3303,19 +3309,29 @@ function dealForm(p) {
   let mshares = null;
   if (type === "monthly") { box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "Who runs it each month (monthly fee shares)")); mshares = sharesEditor("msh-" + p.id, p, m.monthlyShares || m.shares, false); box.append(mshares, el("p", { class: "label", style: "margin:0" }, "You can change this for a single month later with “Who worked?”.")) }
 
-  const finder = personSelect("deal-finder", m.finder, p, "Nobody / we found it");
-  box.append(fieldRow("Who brought the client?", finder, el("span", { class: "label" }, `gets ${m.findPct != null ? m.findPct : R.findPct}%` + (type === "monthly" ? ` (first ${R.finderMonths} months)` : ""))));
+  const curFinders = new Set(m.finderTeam ? [] : (Array.isArray(m.finders) ? m.finders : (m.finder ? [m.finder] : [])));
+  const fMode = el("select", { class: "mini", id: "deal-fmode" }, el("option", { value: "people" }, "These people"), el("option", { value: "team" }, "The team in general (fee goes to the fund)"), el("option", { value: "none" }, "Nobody"));
+  fMode.value = m.finderTeam ? "team" : curFinders.size ? "people" : (m.type ? "none" : "people");
+  const fBoxes = el("div", { class: "finders" }, teamChoices(p).map(u => el("label", { class: "share" }, el("input", { type: "checkbox", id: "deal-f-" + u, value: u, checked: curFinders.has(u) }), av(u), el("span", { class: "mname" }, realName(u) || "Someone"))));
+  const syncF = () => { fBoxes.hidden = fMode.value !== "people" }; fMode.addEventListener("change", syncF); syncF();
+  box.append(fieldRow("Who brought the client?", fMode), fBoxes,
+    el("p", { class: "label", style: "margin:0" }, `Finder's fee ${m.findCustom && m.findPct != null ? m.findPct : R.findPct}%` + (type === "monthly" ? ` on the setup fee and first ${R.finderMonths} months` : "") + ". If several people brought it in, they share it equally."));
   let fundIn = null, findIn = null;
-  if (isAdmin) { fundIn = el("input", { id: "deal-fundpct", class: "mini pct", type: "number", min: "0", max: "50", step: "1", value: m.fundPct != null ? m.fundPct : R.fundPct }); findIn = el("input", { id: "deal-findpct", class: "mini pct", type: "number", min: "0", max: "30", step: "1", value: m.findPct != null ? m.findPct : R.findPct });
+  if (isAdmin) { fundIn = el("input", { id: "deal-fundpct", class: "mini pct", type: "number", min: "0", max: "80", step: "1", value: m.fundCustom && m.fundPct != null ? m.fundPct : R.fundPct }); findIn = el("input", { id: "deal-findpct", class: "mini pct", type: "number", min: "0", max: "30", step: "1", value: m.findCustom && m.findPct != null ? m.findPct : R.findPct });
     box.append(fieldRow("Team fund %", fundIn, el("span", { class: "label" }, "team rule: " + R.fundPct + "%")), fieldRow("Finder %", findIn, el("span", { class: "label" }, "team rule: " + R.findPct + "%"))) }
-  else box.append(el("p", { class: "label", style: "margin:0" }, `Team fund ${m.fundPct != null ? m.fundPct : R.fundPct}% · finder ${m.findPct != null ? m.findPct : R.findPct}% (set by ${ADMIN_NAME})`));
+  else box.append(el("p", { class: "label", style: "margin:0" }, `Team fund ${m.fundCustom && m.fundPct != null ? m.fundPct : R.fundPct}% \u00b7 finder ${m.findCustom && m.findPct != null ? m.findPct : R.findPct}% (set by ${ADMIN_NAME})`));
 
   const save = () => {
     const s = shares.read(); if (s.total !== 100) { toast("The shares need to add up to 100%"); return }
     let ms = null; if (mshares) { ms = mshares.read(); if (ms.total !== 100) { toast("The monthly shares need to add up to 100%"); return } }
     const n = x => Math.round((Number(x.value) || 0) * 100) / 100;
-    const data = { type, client: client.value.trim(), stage: stage.value, shares: s.shares, finder: finder.value || null,
-      fundPct: fundIn ? Number(fundIn.value) : (m.fundPct != null ? m.fundPct : R.fundPct), findPct: findIn ? Number(findIn.value) : (m.findPct != null ? m.findPct : R.findPct),
+    const finders = fMode.value === "people" ? [...fBoxes.querySelectorAll("input:checked")].map(i => i.value) : [];
+    if (fMode.value === "people" && !finders.length) { toast("Tick who brought the client, or choose Nobody"); return }
+    // a deal only keeps its own % if the admin set one different from the team rule
+    const fundV = fundIn ? Number(fundIn.value) : null, findV = findIn ? Number(findIn.value) : null;
+    const data = { type, client: client.value.trim(), stage: stage.value, shares: s.shares, finder: null, finders, finderTeam: fMode.value === "team",
+      fundCustom: fundIn ? fundV !== R.fundPct : !!m.fundCustom, fundPct: fundIn ? fundV : (m.fundPct != null ? m.fundPct : null),
+      findCustom: findIn ? findV !== R.findPct : !!m.findCustom, findPct: findIn ? findV : (m.findPct != null ? m.findPct : null),
       monthShares: m.monthShares || {}, setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
     if (type === "one") { if (!(n(price) > 0)) { toast("Enter the price"); return } data.price = n(price) }
     if (type === "installments") { if (!(n(price) > 0)) { toast("Enter the total price"); return } Object.assign(data, { price: n(price), installments: Math.max(2, Math.round(Number(months.value) || 3)), startMonth: start.value || thisMonth(), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)) }) }
@@ -3340,6 +3356,16 @@ function monthShareForm(p, month) {
 }
 
 /* ----- money: the team money page (my money, team fund, rules) ----- */
+
+// The team agreed to 40% while we're starting out, reviewed every 3 months. Saved once by the admin.
+function ensureMoneyRules() {
+  if (!isAdmin || (moneyRules && moneyRules.fundPct === 40 && moneyRules.reviewAt) || (moneyRules && moneyRules.agreed40)) return;
+  const now = new Date(), review = new Date(now); review.setMonth(review.getMonth() + 3);
+  const data = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 3, version: Math.max(2, ((moneyRules || {}).version || 1) + (moneyRules ? 1 : 0)),
+    holder: (moneyRules || {}).holder || me, setAt: Date.now(), reviewAt: ymd(review), agreed40: true, updatedAt: Date.now() };
+  moneyRules = { ...(moneyRules || {}), ...data };
+  setDoc(doc(db, "meta", "money"), data, { merge: true }).catch(() => {});
+}
 
 const dealProjects = () => ideas.filter(i => (i.status === "approved" || i.status === "completed") && i.money);
 function allMoney() {
@@ -3371,8 +3397,8 @@ const fundWrite = (data, ok) => write(() => setDoc(doc(db, "meta", "fund"), data
 function moneyRulesText(R) {
   return [
     `Costs come first: anyone who paid for something from their own pocket gets it back first, from the next money that comes in.`,
-    `${R.fundPct}% of each project's profit goes to the team fund (for things like an office and our subscriptions).`,
-    `Whoever brings a client gets a ${R.findPct}% finder's fee. On monthly deals it applies to the setup fee and the first ${R.finderMonths} months.`,
+    `${R.fundPct}% of each project's profit goes to the team fund, to pay our subscriptions and grow (like getting an office). We review this % every ${R.reviewMonths} months.`,
+    `Whoever brings a client gets a ${R.findPct}% finder's fee. If several of us brought it in, we share it equally. If the client came through the team in general, it goes to the team fund. On monthly deals it applies to the setup fee and the first ${R.finderMonths} months.`,
     `The rest is split by the shares agreed when the deal is made. The site suggests shares from who has which tasks.`,
     `One-time projects: the deposit pays back costs; the profit is split once the client has fully paid.`,
     `Monthly deals and payments over several months: split every time a payment arrives.`,
@@ -3472,7 +3498,7 @@ function renderMoneyPage() {
 
   /* money rules */
   const ver = R.version || 1;
-  const rules = el("section", { class: "idea", id: "rules", style: "margin-top:18px" }, el("div", { class: "row" }, el("h3", {}, "Our money rules"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Version " + ver)),
+  const rules = el("section", { class: "idea", id: "rules", style: "margin-top:18px" }, el("div", { class: "row" }, el("h3", {}, "Our money rules"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Version " + ver + ((moneyRules || {}).reviewAt ? " \u00b7 review on " + fmtDate(moneyRules.reviewAt) : ""))),
     el("ol", { class: "rules" }, moneyRulesText(R).map(t => el("li", {}, t))));
   const signed = teamIds().map(u => ({ u, ok: ((people[u] || {}).moneyAgreed || {}).version === ver }));
   rules.append(el("div", { class: "row", style: "gap:6px" }, signed.map(({ u, ok }) => el("span", { class: "planner" + (ok ? " agreed" : "") }, av(u), name(u), ok ? " ✓" : " …"))));
@@ -3486,7 +3512,7 @@ function renderMoneyPage() {
       rules.append(el("div", { class: "mform", style: "display:grid;gap:8px" }, fieldRow("Team fund %", fp), fieldRow("Finder %", fd), fieldRow("Finder months (monthly deals)", fm), fieldRow("Pause after months late", pa), fieldRow("Who holds the fund", holder),
         el("p", { class: "label", style: "margin:0" }, "Saving creates a new version, and everyone is asked to agree again. Deals already set up keep their own %."),
         el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: () => { editRules = false; render() } }, "Cancel"),
-          el("button", { class: "btn primary", onclick: () => { editRules = false; write(() => setDoc(doc(db, "meta", "money"), { fundPct: Number(fp.value) || 0, findPct: Number(fd.value) || 0, finderMonths: Number(fm.value) || 0, pauseAfterLate: Number(pa.value) || 2, holder: holder.value || me, version: ver + 1, updatedAt: Date.now() }, { merge: true }), "Rules updated. Everyone will be asked to agree again") } }, "Save rules"))));
+          el("button", { class: "btn primary", onclick: () => { editRules = false; write(() => setDoc(doc(db, "meta", "money"), { fundPct: Number(fp.value) || 0, findPct: Number(fd.value) || 0, finderMonths: Number(fm.value) || 0, pauseAfterLate: Number(pa.value) || 2, holder: holder.value || me, version: ver + 1, setAt: Date.now(), reviewAt: (() => { const d = new Date(); d.setMonth(d.getMonth() + (rulesNow().reviewMonths || 3)); return ymd(d) })(), updatedAt: Date.now() }, { merge: true }), "Rules updated. Everyone will be asked to agree again") } }, "Save rules"))));
     }
   }
   box.append(rules);

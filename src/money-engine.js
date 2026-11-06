@@ -9,7 +9,7 @@
    One-time projects: costs are paid back as money arrives, but the profit is only split
    once the client has fully paid. Monthly and installment deals split every payment. */
 
-const MONEY_DEFAULTS = { fundPct: 15, findPct: 5, finderMonths: 3, pauseAfterLate: 2 };
+const MONEY_DEFAULTS = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 3, version: 2 };
 const toP = x => Math.round((Number(x) || 0) * 100);
 const monthOf = d => (d || "").slice(0, 7);
 function addMonths(ym, n) { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` }
@@ -30,14 +30,17 @@ function splitByShares(amount, shares) {
 
 function computeMoney(p, todayStr, rules) {
   const m = p.money || {}, R = { ...MONEY_DEFAULTS, ...(rules || {}) };
-  const fundPct = m.fundPct != null ? Number(m.fundPct) : R.fundPct;
-  const findPct = m.finder ? (m.findPct != null ? Number(m.findPct) : R.findPct) : 0;
+  const fundPct = m.fundCustom && m.fundPct != null ? Number(m.fundPct) : R.fundPct;
+  // who brought the client: one or several people share the finder's fee; "the team" puts it in the fund
+  const finders = m.finderTeam ? [] : (Array.isArray(m.finders) ? m.finders : (m.finder ? [m.finder] : [])).filter(Boolean);
+  const hasFinder = m.finderTeam || finders.length > 0;
+  const findPct = hasFinder ? (m.findCustom && m.findPct != null ? Number(m.findPct) : R.findPct) : 0;
   const type = m.type || "one";
   const list = o => Object.entries(o || {}).filter(([, v]) => v && v.amount != null).map(([id, v]) => ({ id, ...v }))
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.at || 0) - (b.at || 0));
   const payments = list(p.payments), costs = list(p.costs), payouts = list(p.payouts), ads = list(p.ads);
 
-  const res = { type, fundPct, findPct, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0,
+  const res = { type, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0,
     people: {}, unassigned: 0, pending: false, held: 0, preview: null, schedule: [], late: [], monthsUnpaid: 0, ads: { in: 0, spent: 0, held: 0 } };
   const person = u => res.people[u] || (res.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
 
@@ -50,11 +53,12 @@ function computeMoney(p, todayStr, rules) {
   };
   const splitProfit = (amt, shares, withFinder, into) => {
     const t = into || res; if (amt <= 0) return;
-    const fund = Math.round(amt * fundPct / 100), find = withFinder && m.finder ? Math.round(amt * findPct / 100) : 0;
+    const fund = Math.round(amt * fundPct / 100), find = withFinder && hasFinder ? Math.round(amt * findPct / 100) : 0;
     t.fund += fund; t.finderAmt += find;
     const rest = amt - fund - find, parts = splitByShares(rest, shares);
     const pp = u => (into ? (into.people[u] || (into.people[u] = { earned: 0 })) : person(u));
-    if (find) pp(m.finder).earned += find;
+    if (find && m.finderTeam) t.fund += find;
+    else if (find) for (const [u, v] of Object.entries(splitByShares(find, Object.fromEntries(finders.map(u => [u, 1]))))) pp(u).earned += v;
     let given = 0; for (const [u, v] of Object.entries(parts)) { pp(u).earned += v; given += v }
     if (rest - given > 0) t.unassigned += rest - given;   // no shares set yet
   };
