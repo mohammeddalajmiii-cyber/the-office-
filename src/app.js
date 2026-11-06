@@ -2217,6 +2217,24 @@ function renderAssistant() {
   log.scrollTop = log.scrollHeight;
 }
 
+/* ----- new versions: tell people when the site has been updated ----- */
+
+let updateShown = false;
+async function checkForUpdate() {
+  if (updateShown || typeof BUILD_ID === "undefined") return;
+  try {
+    const html = await (await fetch(location.pathname + "?check=" + Date.now(), { cache: "no-store" })).text();
+    const m = html.match(/<meta name="build" content="(\d+)"/);
+    if (m && m[1] > BUILD_ID) {
+      updateShown = true;
+      document.body.append(el("button", { class: "update-bar", onclick: () => location.replace(location.pathname + "?v=" + m[1] + location.hash) }, "New version available \u00b7 tap to update"));
+    }
+  } catch { }
+}
+setTimeout(checkForUpdate, 4000);
+setInterval(checkForUpdate, 5 * 60 * 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkForUpdate() });
+
 /* ----- shared bits ----- */
 
 function phaseBar(p, tasks) {
