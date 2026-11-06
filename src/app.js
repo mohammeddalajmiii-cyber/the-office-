@@ -102,7 +102,7 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 
 /* ---------- routing ---------- */
 
-const VIEWS = ["me", "ideas", "projects", "chat", "skills", "project"];
+const VIEWS = ["me", "ideas", "projects", "chat", "skills", "settings", "project"];
 function route() {
   const h = location.hash.slice(1);
   for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
@@ -111,7 +111,7 @@ function route() {
   return { view: VIEWS.includes(h) && h !== "project" ? h : "me" };
 }
 function show() {
-  const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" ? "me" : r.view;
+  const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "settings" ? "me" : r.view;
   for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
   render();
@@ -148,7 +148,7 @@ function onAuth(u) {
   myProfile = { name: u.displayName || u.email, email: u.email, photo: u.photoURL || "" };
   $("#gate").hidden = true; $("#app").hidden = false;
   if (!ideas.length) status("Loading\u2026");
-  setDoc(doc(db, "users", me), { name: myProfile.name, photo: myProfile.photo }, { merge: true }).catch(() => {});
+  setDoc(doc(db, "users", me), { name: myProfile.name, photo: myProfile.photo, email: (u.email || "").toLowerCase() }, { merge: true }).catch(() => {});
   const denied = e => {
     if (e.code === "permission-denied") {
       signOut(auth); clearCache();
@@ -166,7 +166,9 @@ function onAuth(u) {
     if (before && newest && newest.at > before && newest.by !== me && route().view !== "chat") toast(`${firstName(newest.by)}: ${msgSummary(newest).slice(0, 60)}`);
     render();
   }, () => {}));
-  unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); render() }, () => {}));
+  unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); render() }, () => {}));
+  teamLoaded = false; teamDoc = null;
+  if (isAdmin) unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
   subscribePrivate();
   show();
 }
@@ -217,9 +219,11 @@ const upd = (id, data) => updateDoc(doc(db, "ideas", id), data);
 
 /* ---------- derived data ---------- */
 
-const name = id => id === me ? "You" : ((people[id] || {}).name || "A friend");
-const firstName = id => id === me ? "you" : (((people[id] || {}).name || "a friend").split(" ")[0]);
-const av = id => el("img", { class: "av", src: (people[id] || {}).photo || AV, alt: name(id), title: name(id), referrerpolicy: "no-referrer" });
+const realName = id => { const p = people[id] || {}; return p.nick || p.name || "" };
+const name = id => id === me ? "You" : (realName(id) || "A friend");
+const firstName = id => id === me ? "you" : ((realName(id) || "a friend").split(" ")[0]);
+const photoOf = id => { const p = people[id] || {}; return p.pic || p.photo || AV };
+const av = id => el("img", { class: "av", src: photoOf(id), alt: name(id), title: name(id), referrerpolicy: "no-referrer" });
 const tally = i => { let k = 0, d = 0; for (const v of Object.values(i.votes || {})) { if (v === "keep") k++; else if (v === "drop") d++ } return { k, d } };
 const voters = (i, kind) => Object.entries(i.votes || {}).filter(([, v]) => v === kind).map(([u]) => u);
 
@@ -289,10 +293,11 @@ function renderAll() {
   if (r.view === "projects") renderProjects(projects);
   if (r.view === "project") renderProjectPage(ideas.find(p => p.id === r.id && (p.status === "approved" || p.status === "completed")));
   if (r.view === "skills") renderSkills();
+  if (r.view === "settings") renderSettings();
   if (r.view === "me") renderMe();
   const open = myTasks().filter(x => !x.t.done && !x.closed).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
   renderAlerts();
-  const meAv = $("#me-av"); const src = (myProfile && myProfile.photo) || (people[me] || {}).photo || AV; if (meAv.getAttribute("src") !== src) meAv.src = src;
+  const meAv = $("#me-av"); const src = (people[me] || {}).pic || (myProfile && myProfile.photo) || (people[me] || {}).photo || AV; if (meAv.getAttribute("src") !== src) meAv.src = src;
   saveCache();
   renderChat();
 }
@@ -1763,7 +1768,7 @@ function greeting() { const h = new Date().getHours(); return h < 5 ? "Up late" 
 function renderMe() {
   const box = $("#me"); box.replaceChildren();
   const prof = people[me] || {}, tops = topSkills(me);
-  const fullName = (myProfile && myProfile.name) || prof.name || "";
+  const fullName = prof.nick || (myProfile && myProfile.name) || prof.name || "";
   const all = myTasks(), open = all.filter(x => !x.t.done && !x.closed), today = todayStr();
   const overdue = open.filter(x => x.t.due && x.t.due < today).length;
   const weekAgo = Date.now() - 7 * 864e5;
@@ -1771,7 +1776,7 @@ function renderMe() {
   const building = activeProjects();
 
   box.append(el("section", { class: "profile" },
-    el("img", { class: "av av-lg", src: (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
+    el("img", { class: "av av-lg", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
     el("div", { class: "profile-main" },
       el("div", { class: "hello" }, greeting() + ","),
       el("h1", {}, fullName.split(" ")[0] || "you"),
@@ -1804,8 +1809,127 @@ function renderMe() {
   box.append(el("div", { class: "me-foot" },
     el("button", { class: "btn", onclick: () => { location.hash = "skills" } }, prof.skills ? "Skills & team" : "Skills quiz"),
     el("span", { class: "spacer" }),
-    el("span", { class: "me-email" }, (myProfile && myProfile.email) || ""),
-    el("button", { class: "btn", onclick: doSignOut }, "Sign out")));
+    el("button", { class: "btn", onclick: () => { location.hash = "settings" } }, isAdmin ? "Settings & team" : "Settings")));
+}
+
+/* ----- account settings (everyone) and team access (admin only) ----- */
+
+// Look: "dark" (galaxy), "light", or "system" (match the phone or computer). Saved on this device and on your account.
+const THEMES = [["dark", "Dark"], ["light", "Light"], ["system", "Match my device"]];
+function getTheme() { try { return localStorage.getItem("theme") || "dark" } catch { return "dark" } }
+function getMeteors() { try { return localStorage.getItem("meteors") !== "off" } catch { return true } }
+function applyLook(theme, meteors) {
+  try { localStorage.setItem("theme", theme); localStorage.setItem("meteors", meteors ? "on" : "off") } catch { }
+  window.applyTheme && window.applyTheme();
+}
+let lookSynced = false;
+function syncLookFromAccount() {
+  // the first time your account loads on a device, use the look you picked elsewhere
+  const prof = people[me]; if (lookSynced || !prof) return;
+  lookSynced = true;
+  if (prof.theme && prof.theme !== getTheme()) applyLook(prof.theme, prof.meteors !== false);
+}
+
+// Profile photo: shrunk to a small square so it loads fast everywhere.
+async function pickProfilePhoto() {
+  const inp = el("input", { type: "file", accept: "image/*", hidden: true });
+  inp.addEventListener("change", async () => {
+    const f = inp.files[0]; inp.remove(); if (!f) return;
+    try {
+      const img = await createImageBitmap(f), s = Math.min(img.width, img.height);
+      const c = document.createElement("canvas"); c.width = c.height = 192;
+      c.getContext("2d").drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 192, 192);
+      const pic = c.toDataURL("image/jpeg", 0.82);
+      write(() => setDoc(doc(db, "users", me), { pic }, { merge: true }), "Photo updated");
+    } catch { toast("That picture couldn't be read. Try a JPG or PNG.") }
+  });
+  document.body.append(inp); inp.click();
+}
+
+let teamDoc = null, teamLoaded = false, delEmail = null;
+const emailOk = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+function teamEmails() { return (teamDoc && Array.isArray(teamDoc.emails) ? teamDoc.emails : []).map(e => String(e).toLowerCase()) }
+// The first time the admin opens the site, the team list is created from the people already allowed in.
+const STARTING_TEAM = ["mohammedd.alajmiii@gmail.com", "omar.ayman122y@gmail.com", "sheta7760@gmail.com"];
+function ensureTeamDoc() {
+  if (!isAdmin || !teamLoaded || teamDoc) return;
+  teamDoc = { emails: STARTING_TEAM };
+  setDoc(doc(db, "meta", "team"), { emails: STARTING_TEAM, updatedAt: Date.now(), updatedBy: me }).catch(() => {});
+}
+function saveTeam(emails, ok) {
+  const list = [...new Set(emails.map(e => e.trim().toLowerCase()).filter(Boolean))];
+  teamDoc = { ...(teamDoc || {}), emails: list }; render();
+  write(() => setDoc(doc(db, "meta", "team"), { emails: list, updatedAt: Date.now(), updatedBy: me }, { merge: true }), ok);
+}
+
+function renderSettings() {
+  const box = $("#settings"); box.replaceChildren();
+  const prof = people[me] || {}, theme = getTheme(), meteors = getMeteors();
+  box.append(el("button", { class: "back", onclick: () => { location.hash = "me" } }, "← Me"), el("h2", { class: "sec-h", style: "margin-top:0" }, "Settings"));
+
+  /* profile */
+  const nick = el("input", { id: "set-name", class: "noteinput", maxlength: "40", placeholder: (myProfile && myProfile.name) || "Your name" });
+  if (!nick.value) nick.value = prof.nick || "";
+  const saveName = () => { const v = nick.value.trim(); write(() => setDoc(doc(db, "users", me), { nick: v }, { merge: true }), v ? "Name saved" : "Using your Google name again") };
+  nick.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); saveName() } });
+  box.append(el("section", { class: "idea" }, el("h3", {}, "Profile"),
+    el("div", { class: "row", style: "gap:14px" },
+      el("img", { class: "av av-lg", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
+      el("div", { class: "row", style: "gap:8px" },
+        el("button", { class: "btn small", onclick: pickProfilePhoto }, "Change photo"),
+        prof.pic ? el("button", { class: "btn quiet small", onclick: () => write(() => setDoc(doc(db, "users", me), { pic: DEL() }, { merge: true }), "Back to your Google photo") }, "Use Google photo") : null)),
+    el("label", { class: "tlabel", for: "set-name" }, "Name the team sees"),
+    el("div", { class: "addtask", style: "margin:0" }, nick, el("button", { class: "btn primary", onclick: saveName }, "Save")),
+    el("p", { style: "margin:0;font-size:13px" }, "Leave it empty to use your Google name.")));
+
+  /* look */
+  const setLook = (t, m) => { applyLook(t, m); render(); write(() => setDoc(doc(db, "users", me), { theme: t, meteors: m }, { merge: true })) };
+  box.append(el("section", { class: "idea" }, el("h3", {}, "Look"),
+    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Theme" }, THEMES.map(([v, l]) => el("button", { "aria-pressed": String(theme === v), onclick: () => setLook(v, meteors) }, l))),
+    el("div", { class: "row" }, el("span", {}, "Shooting stars"), el("span", { class: "spacer" }),
+      el("div", { class: "seg seg-sm", role: "group", "aria-label": "Shooting stars" },
+        el("button", { "aria-pressed": String(meteors), onclick: () => setLook(theme, true) }, "On"),
+        el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off")))));
+
+  /* alerts */
+  const perm = "Notification" in window ? Notification.permission : "unsupported";
+  box.append(el("section", { class: "idea" }, el("h3", {}, "Alerts on this device"),
+    el("div", { class: "row" },
+      el("span", { style: "flex:1 1 220px" }, perm === "granted" ? "On. You get pop-ups while the site is open." : perm === "denied" ? "Blocked in your browser settings. Allow notifications for this site there to turn them on." : perm === "unsupported" ? "This browser can't show pop-up alerts. The bell still works." : "Off. Turn on to get pop-ups while the site is open."),
+      perm === "default" ? el("button", { class: "btn primary small", onclick: enableDeviceAlerts }, "Turn on") : null)));
+
+  /* team access (admin) */
+  if (isAdmin) {
+    const list = teamEmails();
+    const joinedEmails = new Set(Object.values(people).map(p => (p.email || "").toLowerCase()).filter(Boolean));
+    const inp = el("input", { id: "team-add", class: "noteinput", type: "email", inputmode: "email", placeholder: "friend@gmail.com", maxlength: "120" });
+    const add = () => {
+      const v = inp.value.trim().toLowerCase();
+      if (!emailOk(v)) { toast("That doesn't look like an email address"); inp.focus(); return }
+      if (list.includes(v)) { toast("Already on the team"); return }
+      inp.value = ""; saveTeam([...list, v], `${v} can now sign in`);
+    };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
+    const sec = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "Team access"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Only you see this")),
+      el("p", { style: "margin:0;font-size:14px" }, "Only these emails can sign in. They sign in with Google using exactly this email."),
+      el("div", { class: "addtask", style: "margin:0" }, inp, el("button", { class: "btn primary", onclick: add }, "Add")));
+    if (!teamLoaded) sec.append(el("p", { class: "label" }, "Loading the team list…"));
+    for (const e of list) {
+      const isMe = ADMINS.includes(e);
+      sec.append(el("div", { class: "teamrow" },
+        el("span", { class: "teammail" }, e),
+        el("span", { class: joinedEmails.has(e) ? "done-badge" : "label" }, isMe ? "Admin" : joinedEmails.has(e) ? "Joined" : "Hasn't signed in yet"),
+        isMe ? null : delEmail === e
+          ? el("button", { class: "linkdel sure", onclick: () => { delEmail = null; saveTeam(list.filter(x => x !== e), `${e} can't sign in anymore`) } }, "Remove?")
+          : el("button", { class: "linkdel", "aria-label": "Remove " + e, onclick: () => { delEmail = e; render() } }, "✕")));
+    }
+    box.append(sec);
+  }
+
+  /* account */
+  box.append(el("section", { class: "idea" }, el("h3", {}, "Account"),
+    el("div", { class: "row" }, el("span", { class: "me-email" }, "Signed in as " + ((myProfile && myProfile.email) || "")), el("span", { class: "spacer" }),
+      el("button", { class: "btn", onclick: doSignOut }, "Sign out"))));
 }
 
 /* ----- shared bits ----- */
