@@ -413,6 +413,30 @@ input,select,textarea{background-color:var(--field)}
 .teamrow{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);min-width:0}
 .teammail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 :root[data-theme="light"] .lightbox .lb-bar .btn{color:var(--ink)}
+.asst-btn span{font-size:20px;line-height:1;color:var(--accent)}
+.asst{position:fixed;z-index:26;right:max(12px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 58px);bottom:calc(84px + env(safe-area-inset-bottom,0px));width:min(440px,calc(100vw - 24px));background:var(--solid);border:1px solid var(--line);border-radius:20px;box-shadow:0 16px 50px rgba(0,0,0,.35);padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+@media (min-width:760px){.asst{bottom:24px}}
+.asst-head h3{font-size:17px}
+.asst-head .x{border:0;background:none;color:var(--muted);font-size:16px;padding:4px 6px}
+.asst-ico{color:var(--accent);font-size:18px}
+.asst-log{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:2px}
+.asst-hint{color:var(--muted);margin:0;font-size:14px}
+.asst-hint.small{font-size:12.5px}
+.asst-msg{max-width:92%;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14.5px;line-height:1.5;border-radius:14px;padding:9px 12px}
+.asst-msg.mine{align-self:flex-end;background:var(--accent);color:var(--on-accent)}
+.asst-msg.ai{align-self:flex-start;background:var(--accent-soft);color:var(--ink)}
+.asst-msg.err{background:var(--warn-soft);color:var(--warn)}
+.asst-msg.typing{opacity:.7}
+.asst-chips{display:flex;gap:6px;flex-wrap:wrap}
+.asst-chips .pchip{padding:5px 11px;font-size:13px}
+.asst .chatform textarea{resize:none;max-height:120px}
+.importbox{gap:10px;border-color:var(--accent)}
+.importbox .x{border:0;background:none;color:var(--muted);font-size:16px}
+.fmt{white-space:pre-wrap;overflow-x:auto;font:12.5px/1.5 ui-monospace,Menlo,monospace;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}
+.preview{display:grid;gap:4px;max-height:340px;overflow-y:auto;padding:8px;border:1px solid var(--line);border-radius:12px}
+.pv-phase{font-weight:700;margin-top:6px}
+.pv-task{display:grid;padding-left:12px;font-size:14px}
+.pv-meta{font-size:12.5px;color:var(--muted)}
 .pill{font:500 11px/1 var(--body);padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;z-index:30;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));max-width:calc(100% - 32px);box-sizing:border-box;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -503,10 +527,12 @@ input,select,textarea{background-color:var(--field)}
     <button class="brand" id="brand" aria-label="Pitch Room home"><svg class="mark" viewBox="0 0 120 120" aria-hidden="true"><path d="M14 112V58a46 46 0 0 1 92 0v54" fill="none" stroke="#5B21B6" stroke-width="11" stroke-linecap="round"/><path d="M32 112V62a28 28 0 0 1 56 0v50" fill="none" stroke="url(#brandg)" stroke-width="13" stroke-linecap="round"/><path d="M60 46l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#F4F2F8"/></svg><span>Pitch <span class="brand-accent">Room</span></span></button>
     <span class="spacer"></span>
     <span class="status" id="status"></span>
+    <button class="bell asst-btn" id="asst-btn" aria-label="Assistant" title="Assistant"><span aria-hidden="true">✦</span></button>
     <button class="bell" id="bell" aria-label="Alerts"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="count" id="c-alerts" hidden>0</span></button>
     <button class="me-btn" id="me-btn" aria-label="My space"><img class="av" id="me-av" alt="" referrerpolicy="no-referrer"></button>
   </header>
   <div class="alerts" id="alerts" hidden></div>
+  <div class="asst" id="asst" hidden role="dialog" aria-label="Assistant"></div>
   <nav class="nav" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" data-view="me"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="4"/></svg></span>Me <span class="count" id="c-mine" hidden>0</span></button>
     <button class="tab" role="tab" data-view="ideas"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg></span>Ideas <span class="count" id="c-ideas" hidden>0</span></button>
@@ -873,6 +899,7 @@ function renderAll() {
   if (r.view === "me") renderMe();
   const open = myTasks().filter(x => !x.t.done && !x.closed).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
   renderAlerts();
+  renderAssistant();
   const meAv = $("#me-av"); const src = (people[me] || {}).pic || (myProfile && myProfile.photo) || (people[me] || {}).photo || AV; if (meAv.getAttribute("src") !== src) meAv.src = src;
   saveCache();
   renderChat();
@@ -998,6 +1025,132 @@ function renameBlock(p) {
     el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary small", onclick: save }, "Save name and description")));
 }
 
+/* ----- import a plan (pasted from Claude or written by the assistant) ----- */
+
+const PLAN_FORMAT = `PHASE: Research
+- Visit 3 shops and note their prices | Omar | due 2026-11-20
+- Ask 10 people what they'd pay | Sheta | due 2026-11-20
+PHASE: Setup
+- Buy the starter kit | Mohammed | due 2026-11-25 | high | skill: Organizer
+- Make the Instagram page | Omar | skill: Creator | steps: pick a name; design the logo; first 3 posts`;
+const importState = {};   // project id -> { open, text, preview }
+
+function ymdOk(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s + "T12:00").getTime()) }
+function toYmd(raw) {
+  const v = raw.trim(); if (ymdOk(v)) return v;
+  const t = Date.parse(v + (/\d{4}/.test(v) ? "" : " " + new Date().getFullYear()));
+  return isNaN(t) ? null : ymd(new Date(t));
+}
+function matchPerson(raw) {
+  const q = raw.trim().toLowerCase().replace(/^@/, ""); if (!q || q === "-" || q === "nobody" || q === "anyone" || q === "unassigned") return { id: null };
+  if (q === "me" || q === "i" || q === "myself") return { id: me };
+  const ids = teamIds();
+  const full = id => realName(id).toLowerCase(), first = id => full(id).split(" ")[0], mail = id => ((people[id] || {}).email || "").toLowerCase();
+  const hit = ids.find(id => full(id) === q) || ids.find(id => first(id) === q) || ids.find(id => mail(id) === q || mail(id).split("@")[0] === q)
+    || ids.find(id => full(id).includes(q) || (q.length >= 3 && q.includes(first(id))));
+  return hit ? { id: hit } : { id: null, unknown: raw.trim() };
+}
+function matchSkill(raw) {
+  const q = raw.trim().toLowerCase();
+  return SKILL_IDS.find(s => s === q || SKILLS[s].name.toLowerCase() === q || q.startsWith(SKILLS[s].name.toLowerCase().slice(0, 5))) || null;
+}
+function parsePlan(text, p) {
+  const phases = [], warnings = [], existing = getPhases(p);
+  let cur = null, last = null;
+  // If the plan uses "PHASE:" lines, other lines ending in ":" (like "Here is a plan:") are just talk, not phases.
+  const strict = /^\s*(?:#{1,6}\s*)?(?:phase|stage)\b/im.test(text);
+  const phaseNamed = nm => {
+    const ex = existing.find(x => x.name.toLowerCase() === nm.toLowerCase());
+    let ph = phases.find(x => x.name.toLowerCase() === nm.toLowerCase());
+    if (!ph) { ph = { name: nm.slice(0, 40), existingId: ex ? ex.id : null, tasks: [] }; phases.push(ph) }
+    return ph;
+  };
+  for (const rawLine of text.replace(/\r/g, "").split("\n")) {
+    const line = rawLine.replace(/\*\*/g, "").trimEnd(); const t = line.trim();
+    if (!t || t.startsWith("```")) continue;
+    let m;
+    if ((m = t.match(/^(?:#{1,6}\s*)?(?:phase|stage|step)\s*\d*\s*[:.\-–—]\s*(.+)$/i)) || (m = t.match(/^#{1,6}\s+(.+)$/)) || (!strict && !/^[-*•]|^\d+[.)]/.test(t) && (m = t.match(/^(.{2,40}):$/)))) {
+      cur = phaseNamed(m[1].trim().replace(/:$/, "")); last = null; continue;
+    }
+    if ((m = t.match(/^(?:[-*•]|\d+[.)]|\[ ?\])\s+(.+)$/))) {
+      // an indented bullet under a task becomes a checklist step
+      if (last && /^\s{2,}/.test(line) && !m[1].includes("|")) { last.steps.push(m[1].trim().slice(0, 120)); continue }
+      const parts = m[1].split("|").map(x => x.trim()).filter(Boolean);
+      const task = { text: parts[0].replace(/^\[ ?\]\s*/, "").slice(0, 140), owner: null, due: null, priority: "medium", skill: null, steps: [] };
+      for (const part of parts.slice(1)) {
+        const low = part.toLowerCase(); let mm;
+        if ((mm = part.match(/^due[:\s]+(.+)$/i)) || ymdOk(part)) { const d = toYmd(mm ? mm[1] : part); if (d) task.due = d; else warnings.push(`"${task.text}": couldn't read the date "${part}"`) }
+        else if ((mm = low.match(/^(?:priority[:\s]+)?(urgent|high|medium|low)(?:\s+priority)?$/))) task.priority = mm[1];
+        else if ((mm = part.match(/^skill[:\s]+(.+)$/i))) { task.skill = matchSkill(mm[1]); if (!task.skill) warnings.push(`"${task.text}": unknown skill "${mm[1]}"`) }
+        else if ((mm = part.match(/^(?:steps?|checklist)[:\s]+(.+)$/i))) task.steps.push(...mm[1].split(/[;,]/).map(x => x.trim()).filter(Boolean).map(x => x.slice(0, 120)));
+        else { const who = matchPerson(part.replace(/^(?:who|owner|person|by)[:\s]+/i, "")); if (who.id) task.owner = who.id; else if (who.unknown) warnings.push(`"${task.text}": no one called "${who.unknown}" on the team, so it'll be unassigned`) }
+      }
+      if (!cur) cur = phaseNamed(existing[0] ? existing[0].name : "Plan");
+      cur.tasks.push(task); last = task; continue;
+    }
+  }
+  return { phases: phases.filter(ph => ph.tasks.length || !ph.existingId), warnings };
+}
+function applyPlan(p, plan) {
+  const nPh = plan.phases.filter(x => !x.existingId).length, nT = plan.phases.reduce((n, x) => n + x.tasks.length, 0);
+  write(async () => {
+    const data = {}, now = Date.now();
+    let order = Math.max(0, ...getPhases(p).map(x => x.order || 0));
+    let i = 0;
+    for (const ph of plan.phases) {
+      const pid = ph.existingId || uid() + (i++);
+      if (!ph.existingId) data["phases." + pid] = { name: ph.name, order: ++order, due: null };
+      for (const t of ph.tasks) {
+        const check = {}; t.steps.forEach((s, k) => check[uid() + k] = { text: s, done: false, order: now + k });
+        data["tasks." + uid() + (i++)] = { text: t.text, phase: pid, owner: t.owner, assignedBy: t.owner ? me : null, assignedAt: t.owner ? now : null,
+          due: t.due, priority: t.priority, skill: t.skill, done: false, order: now + i, check };
+      }
+    }
+    await phaseWrite(p, data);
+  }, `Added ${nPh ? nPh + " phase" + (nPh > 1 ? "s" : "") + " and " : ""}${nT} task${nT === 1 ? "" : "s"} to the plan`);
+  importState[p.id] = { open: false, text: "", preview: null };
+}
+function importPanel(p) {
+  const st = importState[p.id] || (importState[p.id] = { open: true, text: "", preview: null });
+  const ta = el("textarea", { id: "imp-" + p.id, class: "noteinput", rows: "9", placeholder: "Paste the plan here…", spellcheck: "false" });
+  if (!ta.value) ta.value = st.text || "";
+  ta.addEventListener("input", () => { st.text = ta.value; if (st.preview) { st.preview = null; render() } });
+  const box = el("section", { class: "idea importbox" },
+    el("div", { class: "row" }, el("h3", {}, "Import a plan"), el("span", { class: "spacer" }), el("button", { class: "x", "aria-label": "Close", onclick: () => { st.open = false; render() } }, "✕")),
+    el("p", { style: "margin:0;font-size:14px" }, "Paste a plan from Claude or the assistant. Each phase starts with PHASE:, each task starts with a dash. Who, due date, priority, skill and steps are optional, separated by |."),
+    el("details", {}, el("summary", { class: "linkbtn" }, "Show an example"),
+      el("pre", { class: "fmt" }, PLAN_FORMAT),
+      el("button", { class: "btn small", onclick: async e => { try { await navigator.clipboard.writeText(PLAN_FORMAT); toast("Example copied") } catch { toast("Select the example and copy it") } } }, "Copy example")),
+    ta);
+  if (!st.preview) {
+    box.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: () => {
+      st.text = ta.value; const plan = parsePlan(st.text, p);
+      if (!plan.phases.some(x => x.tasks.length) && !plan.phases.length) { toast("I couldn't find any phases or tasks. Check the example format."); return }
+      st.preview = plan; render();
+    } }, "Preview")));
+    return box;
+  }
+  const plan = st.preview, nT = plan.phases.reduce((n, x) => n + x.tasks.length, 0);
+  const pv = el("div", { class: "preview" }, el("div", { class: "tlabel" }, `This will add ${plan.phases.filter(x => !x.existingId).length} new phase(s) and ${nT} task(s):`));
+  for (const ph of plan.phases) {
+    pv.append(el("div", { class: "pv-phase" }, ph.name, ph.existingId ? el("span", { class: "label" }, " (already in the plan, tasks are added to it)") : el("span", { class: "chip", style: "margin-left:6px" }, "new")));
+    for (const t of ph.tasks) pv.append(el("div", { class: "pv-task" },
+      el("span", {}, t.text),
+      el("span", { class: "pv-meta" }, t.owner ? name(t.owner) : "Unassigned", t.due ? " · due " + fmtDate(t.due) : "", t.priority !== "medium" ? " · " + t.priority : "", t.skill ? " · " + SKILLS[t.skill].name : "", t.steps.length ? ` · ${t.steps.length} steps` : "")));
+  }
+  if (plan.warnings.length) pv.append(el("div", { class: "notice", style: "margin-top:6px" }, plan.warnings.slice(0, 6).map(w => el("div", {}, w))));
+  box.append(pv, el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
+    el("button", { class: "btn quiet", onclick: () => { st.preview = null; render() } }, "Edit text"),
+    el("button", { class: "btn primary", disabled: !nT && !plan.phases.length, onclick: () => applyPlan(p, plan) }, "Add to plan")));
+  return box;
+}
+function openImport(p, text) {
+  importState[p.id] = { open: true, text: text || (importState[p.id] || {}).text || "", preview: null };
+  if (text) importState[p.id].preview = parsePlan(text, p);
+  projTab = "tasks"; taskFilter[p.id] = null;
+  if (location.hash !== "#project-" + p.id) location.hash = "project-" + p.id; else render();
+}
+
 /* this week: goal + check-ins */
 let editGoal = null, editCheckin = null;
 function renderWeek(box, p, members) {
@@ -1026,7 +1179,8 @@ function renderWeek(box, p, members) {
   if (!mine || editCheckin === p.id) {
     const f = id => el("textarea", { id: `ci-${id}-${p.id}`, class: "noteinput", rows: "2", maxlength: "800" });
     const did = f("did"), next = f("next"), blk = f("blk");
-    if (mine && !did.value) { did.value = mine.did || ""; next.value = mine.next || ""; blk.value = mine.blockers || "" }
+    if (checkinDraft && checkinDraft.pid === p.id && !did.value) { did.value = checkinDraft.did; next.value = checkinDraft.next; blk.value = checkinDraft.blockers }
+    else if (mine && !did.value) { did.value = mine.did || ""; next.value = mine.next || ""; blk.value = mine.blockers || "" }
     box.append(el("section", { class: "idea checkin-form" },
       el("p", { style: "margin:0" }, "Takes a minute. Helps everyone know where things are."),
       el("label", { class: "tlabel", for: did.id }, "What did I do this week?"), did,
@@ -1036,7 +1190,7 @@ function renderWeek(box, p, members) {
         mine ? el("button", { class: "btn quiet", onclick: () => { editCheckin = null; render() } }, "Cancel") : null,
         el("button", { class: "btn primary", onclick: () => {
           if (!did.value.trim() && !next.value.trim()) return toast("Write at least what you did or what's next");
-          editCheckin = null;
+          editCheckin = null; checkinDraft = null;
           write(() => upd(p.id, { [`checkins.${wk}.${me}`]: { did: did.value.trim(), next: next.value.trim(), blockers: blk.value.trim(), at: Date.now() } }), "Check-in saved");
         } }, "Save check-in"))));
   }
@@ -1448,7 +1602,9 @@ function planBody(p, opts = {}) {
       el("p", {}, "Split the project into phases, the big stages it goes through. Then add tasks inside each phase and give each one to someone. Start from scratch, or use one of these as a starting point and change anything:"),
       el("div", { class: "row", style: "gap:8px" }, PLAN_TEMPLATES.map(tp => el("button", { class: "btn" + (tp === suggested ? " primary" : ""), title: tp.phases.join(" → "), onclick: () => usePlanTemplate(p, tp) }, tp.name))),
       el("p", { style: "font-size:13px" }, "Each one only adds phase names, like " + suggested.phases.join(" → ") + ". You add the tasks."),
-      addPhaseRow(p, phases, "Or type your first phase, e.g. Brainstorm"));
+      addPhaseRow(p, phases, "Or type your first phase, e.g. Brainstorm"),
+      el("div", { class: "row", style: "gap:8px" }, el("span", { class: "label" }, "Planned it with Claude or the assistant?"), el("button", { class: "btn small", onclick: () => openImport(p) }, "Import a plan")));
+    if ((importState[p.id] || {}).open) wrap.append(importPanel(p));
     wrap.append(card);
     return wrap;
   }
@@ -1459,7 +1615,9 @@ function planBody(p, opts = {}) {
     unassigned ? el("span", { style: "color:var(--muted);font-size:14px" }, `${unassigned} not assigned`) : null,
     el("span", { class: "spacer" }),
     unassigned ? el("button", { class: "btn small", onclick: () => runSuggest(p) }, "Suggest who does what") : null,
+    el("button", { class: "btn small", onclick: () => openImport(p) }, "Import plan"),
     el("button", { class: "btn small" + (editing ? " primary" : ""), onclick: () => { planEdit = editing ? null : p.id; render() } }, editing ? "Done editing" : "Edit phases")));
+  if (planner && (importState[p.id] || {}).open) wrap.append(importPanel(p));
   if (suggestions[p.id]) wrap.append(suggestPanel(p));
 
   const show = t => !opts.filter || isAssignee(t, opts.filter);
@@ -2508,6 +2666,137 @@ function renderSettings() {
       el("button", { class: "btn", onclick: doSignOut }, "Sign out"))));
 }
 
+/* ----- assistant (Gemini through Firebase AI Logic) -----
+   Loaded separately, only when someone opens it, so the rest of the site never depends on it.
+   It only ever suggests: people review and tap to add or save anything. */
+
+const AI_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
+const AI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];   // free-tier models, tried in order
+let asstOpen = false, asstBusy = false, asstMsgs = [], aiP = null, checkinDraft = null;
+
+function loadAI() {
+  if (!aiP) aiP = (async () => {
+    const [appM, aiM] = await Promise.all([import(AI_SDK + "firebase-app.js"), import(AI_SDK + "firebase-ai.js")]);
+    const app = appM.getApps().find(a => a.name === "assistant") || appM.initializeApp(firebaseConfig, "assistant");
+    return { aiM, ai: aiM.getAI(app, { backend: new aiM.GoogleAIBackend() }) };
+  })().catch(e => { aiP = null; throw e });
+  return aiP;
+}
+async function askAI(prompt, system) {
+  const { aiM, ai } = await loadAI();
+  let last;
+  for (const m of AI_MODELS) {
+    try {
+      const model = aiM.getGenerativeModel(ai, { model: m, systemInstruction: system });
+      const r = await model.generateContent(prompt);
+      return r.response.text();
+    } catch (e) { last = e; if (!/not.?found|404|unsupported|is not available/i.test(String(e && (e.message || e)))) throw e }
+  }
+  throw last;
+}
+function aiErrorText(e) {
+  const t = String(e && (e.message || e.code || e));
+  if (/api.?not.?enabled|has not been used|PERMISSION_DENIED|403|ai-logic|firebaseml|not enabled|API key/i.test(t))
+    return isAdmin ? "The assistant isn't switched on yet. In Firebase, open AI Logic and turn on the Gemini Developer API (I gave you the steps in the chat)." : `The assistant isn't switched on yet. Ask ${ADMIN_NAME} to turn it on.`;
+  if (/429|quota|RESOURCE_EXHAUSTED|rate/i.test(t)) return "The assistant is busy right now (the free plan has a limit). Try again in a minute.";
+  if (/Failed to fetch|NetworkError|network|load/i.test(t)) return "Couldn't reach the assistant. Check your connection and try again.";
+  return "Something went wrong with the assistant. Try again in a moment.";
+}
+
+// What the assistant is told about the board: only what it needs, never private notes.
+function boardContext(p) {
+  const today = new Date(), L = [];
+  const short = (s, n = 110) => (s || "").replace(/\s+/g, " ").slice(0, n);
+  const tline = (t, proj) => `- ${short(t.text)}${proj ? " [" + proj + "]" : ""} | ${assignees(t).map(u => realName(u) || "someone").join(", ") || "unassigned"} | ${t.done ? "done" : t.status === "doing" ? "in progress" : "not started"}${t.due ? " | due " + t.due : ""}${t.priority && t.priority !== "medium" ? " | " + t.priority : ""}`;
+  L.push(`Today is ${ymd(today)} (${today.toLocaleDateString("en", { weekday: "long" })}).`);
+  L.push(`You are talking to ${realName(me) || "a team member"}${isAdmin ? " (the team's admin)" : ""}.`);
+  L.push("Team: " + teamIds().map(u => { const s = topSkills(u).map(k => SKILLS[k].name).join(" + "); return realName(u) + (s ? ` (strengths: ${s})` : "") }).join("; "));
+  const mine = myTasks().filter(x => !x.closed);
+  L.push(`\nMy tasks (${mine.filter(x => !x.t.done).length} open):`);
+  mine.slice(0, 60).forEach(x => L.push(x.personal ? `- ${short(x.t.text)} [private]${x.t.done ? " | done" : ""}${x.t.due ? " | due " + x.t.due : ""}` : tline(x.t, x.p.title)));
+  const act = activeProjects();
+  if (act.length) { L.push("\nProjects being built now:"); act.forEach(a => { const pr = progressOf(tasksOf(a)); L.push(`- ${a.title} (${prioOf(a).name} priority, ${pr.done}/${pr.total} tasks done)`) }) }
+  if (p) {
+    L.push(`\nTHE PROJECT WE'RE LOOKING AT: "${p.title}"${p.category ? " (" + p.category + ")" : ""}, ${prioOf(p).name} priority, ${p.status === "completed" ? "completed" : isActive(p) ? "being built now" : "not started yet"}.`);
+    if (p.pitch) L.push("Description: " + short(p.pitch, 500));
+    const g = (p.goals || {})[weekKey()]; if (g && g.text) L.push(`This week's goal: ${g.text}${g.reached ? " (reached)" : ""}`);
+    L.push("Team on this project: " + (teamOf(p).map(u => realName(u)).join(", ") || "nobody yet"));
+    const phases = getPhases(p), tasks = tasksOf(p);
+    if (!phases.length) L.push("It has no plan yet.");
+    phases.forEach(ph => { L.push(`PHASE: ${ph.name}${ph.due ? " (finish by " + ph.due + ")" : ""}`); tasks.filter(t => t.phase === ph.id).slice(0, 40).forEach(t => L.push(tline(t))) });
+    const ci = (p.checkins || {})[weekKey()] || {};
+    if (Object.keys(ci).length) { L.push("This week's check-ins:"); for (const [u, c] of Object.entries(ci)) L.push(`- ${realName(u)}: did "${short(c.did)}", next "${short(c.next)}"${c.blockers ? `, blocked by "${short(c.blockers)}"` : ""}`) }
+    const meets = Object.values(p.meetings || {}).filter(Boolean).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
+    if (meets.length) { L.push("Latest meeting notes:"); meets.forEach(m => L.push(`- ${m.date}: ${short(m.title, 60)} — ${short(m.text, 300)}`)) }
+  }
+  return L.join("\n");
+}
+const ASSISTANT_RULES = `You are the assistant inside "Pitch Room", where a small team of friends in Egypt pitch ideas and turn them into real projects that build experience and make money.
+Be friendly, practical and short. Use people's first names. Base everything on the board data you are given; if something isn't on the board, say so instead of guessing. Never claim a task is done unless the board says so.
+Plain text only: no markdown headings, no bold, no tables. Short lines and simple dashes are fine.
+When you suggest phases or tasks, write them ONLY in this exact format so they can be imported (one task per line):
+PHASE: <phase name>
+- <task> | <first name of who should do it, or leave out> | due <YYYY-MM-DD> | <urgent, high, medium or low> | skill: <Builder, Designer, Organizer, Writer, Talker, Researcher or Creator> | steps: <step one; step two>
+Only use team members' real first names. Due dates must be after today and realistic for friends with school or jobs and little money. Match tasks to people's strengths and spread the work fairly.`;
+
+async function runAssistant(userText, opts = {}) {
+  const p = currentProject();
+  asstMsgs.push({ role: "me", text: userText });
+  asstBusy = true; render();
+  const history = asstMsgs.slice(-7, -1).map(m => (m.role === "me" ? "Team member: " : "Assistant: ") + m.text).join("\n");
+  const prompt = `BOARD DATA\n${boardContext(p)}\n\n${history ? "EARLIER IN THIS CHAT\n" + history + "\n\n" : ""}REQUEST\n${opts.prompt || userText}`;
+  try {
+    const text = (await askAI(prompt, ASSISTANT_RULES)).trim();
+    if (opts.checkin && p) {
+      const j = JSON.parse(text.replace(/^```(?:json)?|```$/g, "").trim());
+      checkinDraft = { pid: p.id, did: String(j.did || ""), next: String(j.next || ""), blockers: String(j.blockers || "") };
+      asstMsgs.push({ role: "ai", text: "I drafted your check-in from the board. It's filled in on the project's “This week” tab. Check it, change anything, and tap Save." });
+      editCheckin = p.id; projTab = "week"; asstOpen = false;
+    } else asstMsgs.push({ role: "ai", text, plan: /^\s*PHASE:/im.test(text) && /^\s*-\s+/m.test(text) });
+  } catch (e) { asstMsgs.push({ role: "ai", error: true, text: e instanceof SyntaxError ? "I couldn't draft the check-in this time. Try again." : aiErrorText(e) }) }
+  asstBusy = false; render();
+  const log = document.getElementById("asst-log"); if (log) log.scrollTop = log.scrollHeight;
+}
+function currentProject() { const r = route(); return r.view === "project" ? ideas.find(i => i.id === r.id) : null }
+
+function renderAssistant() {
+  const panel = $("#asst"); panel.hidden = !asstOpen; if (!asstOpen) return;
+  panel.replaceChildren();
+  const p = currentProject(), planner = p && canPlan(p), onTeam = p && (teamOf(p).includes(me) || canPlan(p));
+  const chips = [["What's my status?", "Give me a short status update: what I finished recently, what I'm working on, what's overdue, and what's due soon. Group by project."],
+                 ["What should I do next?", "Pick the one task I should do next and say why in one or two lines, then list the next two after it."]];
+  if (p) chips.push(["Sum up this project", `Summarize "${p.title}": how far along it is, what's going well, what's stuck or overdue, and the next 3 most important steps.`]);
+  if (p && planner && p.status !== "completed") chips.push([getPhases(p).length ? "Suggest more tasks" : "Plan this project", getPhases(p).length
+    ? `Suggest the missing tasks for "${p.title}" so the plan reaches the finish line. Use existing phase names where they fit. Don't repeat tasks already on the board.`
+    : `Make a complete step-by-step plan for "${p.title}" from start to launch: 4 to 6 phases, 3 to 6 tasks each, with who does what, due dates and priorities.`]);
+  if (p && onTeam && p.status !== "completed") chips.push(["Draft my weekly check-in", "check-in"]);
+
+  panel.append(el("div", { class: "row asst-head" }, el("span", { class: "asst-ico" }, "✦"), el("h3", {}, "Assistant"), el("span", { class: "spacer" }),
+    asstMsgs.length ? el("button", { class: "btn quiet small", onclick: () => { asstMsgs = []; render() } }, "Clear") : null,
+    el("button", { class: "x", "aria-label": "Close assistant", onclick: () => { asstOpen = false; render() } }, "✕")));
+  const log = el("div", { class: "asst-log", id: "asst-log" });
+  if (!asstMsgs.length) log.append(el("p", { class: "asst-hint" }, p ? `Ask about your tasks, or about “${p.title}”.` : "Ask about your tasks and projects. Open a project first to plan it."),
+    el("p", { class: "asst-hint small" }, "Powered by Google Gemini. It only suggests: nothing changes until you tap to add or save. Don't put secrets here."));
+  for (const m of asstMsgs) {
+    const b = el("div", { class: "asst-msg " + (m.role === "me" ? "mine" : "ai") + (m.error ? " err" : "") }, m.text);
+    log.append(b);
+    if (m.plan && planner) log.append(el("div", { class: "row", style: "justify-content:flex-start;gap:8px" },
+      el("button", { class: "btn primary small", onclick: () => { asstOpen = false; openImport(p, m.text) } }, "Preview and add to plan"),
+      el("button", { class: "btn quiet small", onclick: async () => { try { await navigator.clipboard.writeText(m.text); toast("Copied") } catch { toast("Couldn't copy") } } }, "Copy")));
+  }
+  if (asstBusy) log.append(el("div", { class: "asst-msg ai typing" }, "Thinking…"));
+  panel.append(log);
+  if (!asstBusy) panel.append(el("div", { class: "asst-chips" }, chips.map(([label, prompt]) => el("button", { class: "pchip", onclick: () => {
+    if (prompt === "check-in") runAssistant(label, { checkin: true, prompt: `Draft MY weekly check-in for "${p.title}" based only on the board (tasks I finished or started this week, what's next for me, anything overdue or blocked). Reply with ONLY JSON like {"did":"...","next":"...","blockers":""}. Write in first person, short and plain.` });
+    else runAssistant(label, { prompt });
+  } }, label))));
+  const inp = el("textarea", { id: "asst-input", class: "noteinput", rows: "1", maxlength: "1500", placeholder: "Ask anything about the board…" });
+  const send = () => { const v = inp.value.trim(); if (!v || asstBusy) return; inp.value = ""; runAssistant(v) };
+  inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send() } });
+  panel.append(el("div", { class: "chatform" }, inp, el("button", { class: "btn primary", disabled: asstBusy, onclick: send }, "Ask")));
+  log.scrollTop = log.scrollHeight;
+}
+
 /* ----- shared bits ----- */
 
 function phaseBar(p, tasks) {
@@ -2528,6 +2817,7 @@ function line(pr, unit) {
 
 $("#me-btn").onclick = () => { location.hash = "me" };
 $("#bell").onclick = e => { e.stopPropagation(); toggleAlerts() };
+$("#asst-btn").onclick = () => { asstOpen = !asstOpen; alertsOpen = false; render(); if (asstOpen) setTimeout(() => { const i = document.getElementById("asst-input"); if (i && matchMedia("(min-width:760px)").matches) i.focus() }, 0) };
 $("#brand").onclick = () => { location.hash = "me" };
 if (loadCache()) show();
 
