@@ -3,12 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>The Office Pitch Room</title>
+<title>Pitch Room</title>
+<meta name="description" content="Pitch ideas. Build them together.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Pitch Room">
+<meta property="og:title" content="Pitch Room">
+<meta property="og:description" content="Pitch ideas. Build them together.">
+<meta property="og:url" content="https://mohammeddalajmiii-cyber.github.io/the-office-/">
+<meta property="og:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png">
+<meta name="apple-mobile-web-app-title" content="Pitch Room">
 <meta name="build" content="__BUILD_ID__">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="icon" href="icon-192.png" type="image/png">
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="icon-192.png?v=2" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=2" sizes="180x180">
 <meta name="theme-color" content="#000000">
 <script>
   // Dark (galaxy), light, or match the device. Chosen in Settings and kept on this device.
@@ -217,8 +229,8 @@ details.removed .idea{opacity:.75}
 .steps li{padding:8px 0;border-top:1px solid var(--line)}
 .steps li:first-child{border-top:0}
 .steps label{line-height:1.45}
-.chatbox{display:grid;gap:10px}
-.chatlog{height:clamp(300px,calc(100dvh - 290px),640px);overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:3px}
+.chatbox{display:grid;gap:8px}
+.chatlog{height:clamp(280px,calc(100dvh - 370px),620px);overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:3px}
 .day{align-self:center;font:500 11px/1 var(--body);color:var(--muted);margin:12px 0 6px}
 .msg-name{font-size:12px;color:var(--muted);margin:8px 0 2px 32px}
 .msg{display:flex;gap:8px;align-items:flex-end;max-width:85%}
@@ -441,6 +453,12 @@ input,select,textarea{background-color:var(--field)}
 .idea-sugs{display:grid;gap:8px}
 .idea-sug{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:10px 12px;display:grid;gap:6px}
 .idea-sug p{margin:0;font-size:13.5px;color:var(--muted)}
+.chat-head{display:grid;gap:2px;padding:2px 2px 0}
+.chat-people{padding-bottom:6px;margin-bottom:0}
+.chat-people .count{position:static;margin-left:2px}
+.chat-who{font-size:12.5px;color:var(--muted);display:flex;gap:6px;align-items:center;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-who>span:last-child{overflow:hidden;text-overflow:ellipsis}
+.chat-who b{color:var(--ink)}
 .tpl-list{display:grid;gap:6px;margin-top:4px}
 .tpl-g{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:6px}
 .tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
@@ -652,6 +670,7 @@ input,select,textarea{background-color:var(--field)}
 
   <section id="view-chat" hidden>
     <div class="chatbox">
+      <div class="chat-head" id="chat-head"></div>
       <div class="chatlog" id="chatlog" aria-live="polite"></div>
       <div class="chat-context" id="chat-context" hidden></div>
       <div class="attach-list" id="attach-list" hidden></div>

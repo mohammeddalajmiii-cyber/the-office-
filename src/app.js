@@ -1,11 +1,11 @@
 // Firebase is loaded in the background so the page can draw right away from the last saved copy.
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
-let auth, db, GoogleAuthProvider, signInWithPopup, signOut, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes;
+let auth, db, GoogleAuthProvider, signInWithPopup, signOut, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes, where;
 const fbReady = (async () => {
   const [appM, authM, fsM] = await Promise.all([import(FB + "firebase-app.js"), import(FB + "firebase-auth.js"), import(FB + "firebase-firestore.js")]);
   const fb = appM.initializeApp(firebaseConfig);
   ({ GoogleAuthProvider, signInWithPopup, signOut } = authM);
-  ({ collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes } = fsM);
+  ({ collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes, where } = fsM);
   auth = authM.getAuth(fb);
   db = fsM.initializeFirestore(fb, { localCache: fsM.persistentLocalCache({ tabManager: fsM.persistentMultipleTabManager() }) });
   authM.onAuthStateChanged(auth, onAuth);
@@ -108,6 +108,7 @@ function route() {
   for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
   if (h === "projects-done" || h === "current") return { view: "projects" };
   if (h === "mine" || h === "notes") return { view: "me" };
+  if (h.startsWith("dm-")) return { view: "chat", dm: h.slice(3) };
   return { view: VIEWS.includes(h) && h !== "project" ? h : "me" };
 }
 function show() {
@@ -142,7 +143,7 @@ function onAuth(u) {
   $("#boot").hidden = true;
   if (!u) { me = null; live = false; remember(false); clearCache(); $("#gate").hidden = false; $("#app").hidden = true; return }
   remember(true);
-  if (me && me !== u.uid) { ideas = []; people = {}; chat = []; personal = []; myNotes = []; focusId = null; activeMap = {} }
+  if (me && me !== u.uid) { ideas = []; people = {}; chat = []; dmThreads = []; dmMsgs = {}; personal = []; myNotes = []; focusId = null; activeMap = {} }
   me = u.uid;
   isAdmin = ADMINS.includes((u.email || "").toLowerCase());
   myProfile = { name: u.displayName || u.email, email: u.email, photo: u.photoURL || "" };
@@ -166,6 +167,14 @@ function onAuth(u) {
     if (before && newest && newest.at > before && newest.by !== me && route().view !== "chat") toast(`${firstName(newest.by)}: ${msgSummary(newest).slice(0, 60)}`);
     render();
   }, () => {}));
+  // private messages: the conversations I'm in
+  unsubs.push(onSnapshot(query(collection(db, "dms"), where("members", "array-contains", me)), s => {
+    const before = Object.fromEntries(dmThreads.map(t => [t.id, t.lastAt || 0]));
+    dmThreads = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    for (const t of dmThreads) if (t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id] && route().dm !== otherOf(t))
+      toast(`${firstName(t.lastBy)} (private): ${(t.lastText || "").slice(0, 60)}`);
+    render();
+  }, () => { dmOff = true; render() }));
   unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "money"), s => { moneyRules = s.exists() ? s.data() : null; ensureMoneyRules(); render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
@@ -1443,6 +1452,30 @@ function ago(at) {
 
 /* ----- chat ----- */
 
+// Private messages live in dms/{a_b}/msgs, where a_b are the two people's ids in order. Only those two can read them.
+let dmThreads = [], dmMsgs = {}, dmSubFor = null, dmSubStop = null, dmOff = false;
+const dmId = u => [me, u].sort().join("_");
+const otherOf = t => (t.members || []).find(x => x !== me) || me;
+const chatWith = () => route().dm || null;                    // the person I'm messaging, or null for the team chat
+const curList = () => chatWith() ? (dmMsgs[dmId(chatWith())] || []) : chat;
+const msgRef = id => chatWith() ? doc(db, "dms", dmId(chatWith()), "msgs", id) : doc(db, "chat", id);
+const dmUnread = t => t.lastBy && t.lastBy !== me && (t.lastAt || 0) > ((t.seen || {})[me] || 0);
+function watchDm(u) {
+  const tid = u ? dmId(u) : null;
+  if (tid === dmSubFor) return;
+  if (dmSubStop) { dmSubStop(); dmSubStop = null }
+  dmSubFor = tid; if (!tid || !db) return;
+  dmSubStop = onSnapshot(query(collection(db, "dms", tid, "msgs"), orderBy("at"), limitToLast(300)),
+    s => { dmMsgs[tid] = s.docs.map(d => ({ id: d.id, ...d.data() })); render() },
+    () => { dmOff = true; render() });
+}
+// after sending or deleting in a private chat, keep the conversation's summary up to date
+function touchThread(u, last) {
+  const tid = dmId(u), members = [me, u].sort();
+  const data = { members, ...(last ? { lastAt: last.at, lastBy: me, lastText: msgSummary(last).slice(0, 120) } : {}), seen: { [me]: Date.now() } };
+  return setDoc(doc(db, "dms", tid), data, { merge: true });
+}
+
 let chat = [];
 let chatSel = null;      // message whose actions are showing
 let chatReply = null;    // message being replied to
@@ -1451,7 +1484,7 @@ let chatDel = null;      // own message waiting for delete confirmation
 const seenKey = () => "chatSeen:" + me;
 const getSeen = () => { try { return +localStorage.getItem(seenKey()) || 0 } catch { return 0 } };
 const setSeen = v => { try { localStorage.setItem(seenKey(), String(v)) } catch { } };
-const msgById = id => chat.find(m => m.id === id);
+const msgById = id => curList().find(m => m.id === id);
 const snippet = t => (t || "").replace(/\s+/g, " ").slice(0, 90) + ((t || "").length > 90 ? "…" : "");
 
 $("#chatform").addEventListener("submit", e => { e.preventDefault(); sendChat() });
@@ -1472,7 +1505,7 @@ async function sendChat() {
     inp.value = "";
     const id = chatEdit; chatEdit = null;
     const old = msgById(id);
-    if (old && old.text !== text) write(() => updateDoc(doc(db, "chat", id), { text, edited: Date.now() }), "Message edited");
+    if (old && old.text !== text) write(() => updateDoc(msgRef(id), { text, edited: Date.now() }), "Message edited");
     else render();
     return;
   }
@@ -1482,6 +1515,7 @@ async function sendChat() {
   let replyTo = chatReply && msgById(chatReply) ? chatReply : null;
   chatReply = null;
   const files = pending.splice(0); renderAttach();
+  const dmTo = chatWith(); let last = null;
   if (files.length) {
     sending = true; $("#chat-send").disabled = true;
     try {
@@ -1490,7 +1524,7 @@ async function sendChat() {
         const file = await uploadFile(await prepareFile(files[i].f), pct => setUploadStatus(`Sending ${files[i].f.name}\u2026 ${pct}%`));
         const data = { by: me, text: "", at: Date.now(), file };
         if (replyTo) { data.replyTo = replyTo; replyTo = null }
-        await setDoc(doc(db, "chat", uid()), data);
+        await setDoc(msgRef(uid()), data); last = data;
       }
     } catch (e) {
       status(e.code === "permission-denied" ? "Sending files isn't allowed yet. Ask Mohammed to update the database rules." : "A file didn't send. Check your connection and try again.", true);
@@ -1500,8 +1534,10 @@ async function sendChat() {
   if (text) {
     const data = { by: me, text, at: Date.now() };
     if (replyTo) data.replyTo = replyTo;
-    write(() => setDoc(doc(db, "chat", uid()), data));
+    last = data;
+    write(() => setDoc(msgRef(uid()), data));
   }
+  if (dmTo && last) write(() => touchThread(dmTo, last));
   render();
 }
 
@@ -1598,7 +1634,7 @@ async function downloadFile(f) {
   } catch { toast("That file couldn't be loaded. It may have been deleted.") }
 }
 function deleteMessage(m) {
-  const jobs = [deleteDoc(doc(db, "chat", m.id))];
+  const jobs = [deleteDoc(msgRef(m.id))];
   if (m.file && m.by === me) for (let n = 0; n < m.file.parts; n++) jobs.push(deleteDoc(doc(db, "fileparts", `${m.file.id}_${n}`)).catch(() => {}));
   return Promise.all(jobs);
 }
@@ -1638,11 +1674,32 @@ function jumpTo(id) {
 
 function renderChat() {
   const latest = chat.length ? chat[chat.length - 1].at : 0;
-  const onChat = route().view === "chat";
-  if (onChat && latest > getSeen()) setSeen(latest);
-  const unread = chat.filter(m => m.at > getSeen() && m.by !== me).length;
+  const onChat = route().view === "chat", dm = onChat ? chatWith() : null;
+  if (onChat && !dm && latest > getSeen()) setSeen(latest);
+  const teamUnread = chat.filter(m => m.at > getSeen() && m.by !== me).length;
+  const dmCount = dmThreads.filter(t => dmUnread(t) && !(dm && otherOf(t) === dm)).length;
+  const unread = teamUnread + dmCount;
   const badge = $("#c-chat"); badge.hidden = !unread; badge.textContent = unread;
+  watchDm(dm);
   if (!onChat) return;
+  if (dm === me) { location.hash = "chat"; return }
+  // mark a private conversation as read
+  if (dm) { const t = dmThreads.find(x => x.id === dmId(dm)); if (t && dmUnread(t)) { t.seen = { ...(t.seen || {}), [me]: Date.now() }; setDoc(doc(db, "dms", t.id), { seen: { [me]: Date.now() } }, { merge: true }).catch(() => {}) } }
+
+  /* who you're talking to: the team, or one person privately */
+  const head = $("#chat-head"); head.replaceChildren();
+  const others = teamIds().filter(u => u !== me && people[u]);
+  if (dm && !others.includes(dm)) others.push(dm);
+  const lastWith = u => (dmThreads.find(t => t.id === dmId(u)) || {}).lastAt || 0;
+  others.sort((a, b) => lastWith(b) - lastWith(a) || realName(a).localeCompare(realName(b)));
+  head.append(el("div", { class: "pchips chat-people", role: "tablist", "aria-label": "Chats" },
+    el("button", { class: "pchip", role: "tab", "aria-pressed": String(!dm), onclick: () => { location.hash = "chat" } }, "Team", teamUnread && dm ? el("span", { class: "count" }, teamUnread) : null),
+    others.map(u => { const t = dmThreads.find(x => x.id === dmId(u)); const n = t && dmUnread(t) && dm !== u;
+      return el("button", { class: "pchip", role: "tab", "aria-pressed": String(dm === u), title: "Private chat with " + realName(u), onclick: () => { location.hash = "dm-" + u } }, av(u), firstName(u), n ? el("span", { class: "count" }, "1") : null) })));
+  head.append(el("div", { class: "chat-who" }, dm
+    ? [el("span", { class: "lock", "aria-hidden": "true" }, "🔒"), el("span", {}, "Private with ", el("b", {}, firstName(dm)), " · only you two see this")]
+    : el("span", {}, "Team chat · tap a name to talk privately")));
+  $("#chat-input").placeholder = dm ? "Message " + firstName(dm) + " privately" : "Message the team";
 
   /* reply / edit bar above the input */
   if (chatReply && !msgById(chatReply)) chatReply = null;
@@ -1657,13 +1714,16 @@ function renderChat() {
     el("button", { type: "button", class: "x", title: "Cancel", "aria-label": "Cancel", onclick: cancelChatMode }, "✕"));
   $("#chat-send").textContent = chatEdit ? "Save" : "Send";
 
+  const list = curList();
   const log = $("#chatlog");
+  if (log.dataset.chan !== (dm || "team")) { log.dataset.chan = dm || "team"; log.scrollTop = 0; chatSel = null; chatReply = null; chatDel = null; if (chatEdit) { chatEdit = null; $("#chat-input").value = "" } }
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
   const prevTop = log.scrollTop;
   log.replaceChildren();
-  if (!chat.length) log.append(el("div", { class: "empty", style: "margin:auto" }, "No messages yet. Say hi to the team."));
+  if (dm && dmOff) log.append(el("div", { class: "empty", style: "margin:auto" }, isAdmin ? "Private chats need an update to the database rules in Firebase before they work." : `Private chats aren't switched on yet. Ask ${ADMIN_NAME} to update the database rules.`));
+  else if (!list.length) log.append(el("div", { class: "empty", style: "margin:auto" }, dm ? `No messages with ${firstName(dm)} yet. Say hi, only you two will see it.` : "No messages yet. Say hi to the team."));
   let lastDay = "", lastBy = "", lastAt = 0;
-  for (const m of chat) {
+  for (const m of list) {
     const day = new Date(m.at).toDateString();
     if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
     const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60 * 1000 && !m.replyTo;
@@ -1873,6 +1933,7 @@ function buildAlerts() {
   for (const n of unseenNews()) add("news:" + n.id, n.at || new Date(n.date + "T09:00").getTime(), n.by || null, (n.by ? `${firstName(n.by)} posted: ` : "New in Pitch Room: ") + n.title, "me");
   { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, "Please read and agree to the team's money rules", "money") }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
+  for (const t of dmThreads) if (dmUnread(t)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, t.lastBy, `${name(t.lastBy)} sent you a private message: ${(t.lastText || "").slice(0, 60)}`, "dm-" + t.lastBy);
   for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
   return out.sort((a, b) => b.at - a.at).slice(0, 50);
 }
