@@ -9,7 +9,7 @@
    One-time projects: costs are paid back as money arrives, but the profit is only split
    once the client has fully paid. Monthly and installment deals split every payment. */
 
-const MONEY_DEFAULTS = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 3, version: 2 };
+const MONEY_DEFAULTS = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 2, version: 2 };
 const toP = x => Math.round((Number(x) || 0) * 100);
 const monthOf = d => (d || "").slice(0, 7);
 function addMonths(ym, n) { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` }

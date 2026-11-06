@@ -2545,13 +2545,22 @@ function monthShareForm(p, month) {
 
 /* ----- money: the team money page (my money, team fund, rules) ----- */
 
-// The team agreed to 40% while we're starting out, reviewed every 3 months. Saved once by the admin.
+// The team agreed to 40% while we're starting out, reviewed every 2 months. Saved by the admin.
 function ensureMoneyRules() {
-  if (!isAdmin || (moneyRules && moneyRules.fundPct === 40 && moneyRules.reviewAt) || (moneyRules && moneyRules.agreed40)) return;
-  const now = new Date(), review = new Date(now); review.setMonth(review.getMonth() + 3);
-  const data = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 3, version: Math.max(2, ((moneyRules || {}).version || 1) + (moneyRules ? 1 : 0)),
-    holder: (moneyRules || {}).holder || me, setAt: Date.now(), reviewAt: ymd(review), agreed40: true, updatedAt: Date.now() };
-  moneyRules = { ...(moneyRules || {}), ...data };
+  if (!isAdmin) return;
+  const r = moneyRules || {};
+  const plus = (t, n) => { const d = new Date(t); d.setMonth(d.getMonth() + n); return ymd(d) };
+  if (r.agreed40 && r.reviewAt) {
+    // the review cycle changed from 3 to 2 months: move the next review date (no need to agree again)
+    if (r.reviewMonths !== 2 && !r.review2) {
+      const data = { reviewMonths: 2, reviewAt: plus(r.setAt || Date.now(), 2), review2: true };
+      moneyRules = { ...r, ...data }; setDoc(doc(db, "meta", "money"), data, { merge: true }).catch(() => {});
+    }
+    return;
+  }
+  const data = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 2, version: Math.max(2, (r.version || 1) + (moneyRules ? 1 : 0)),
+    holder: r.holder || me, setAt: Date.now(), reviewAt: plus(Date.now(), 2), agreed40: true, review2: true, updatedAt: Date.now() };
+  moneyRules = { ...r, ...data };
   setDoc(doc(db, "meta", "money"), data, { merge: true }).catch(() => {});
 }
 
@@ -2700,7 +2709,7 @@ function renderMoneyPage() {
       rules.append(el("div", { class: "mform", style: "display:grid;gap:8px" }, fieldRow("Team fund %", fp), fieldRow("Finder %", fd), fieldRow("Finder months (monthly deals)", fm), fieldRow("Pause after months late", pa), fieldRow("Who holds the fund", holder),
         el("p", { class: "label", style: "margin:0" }, "Saving creates a new version, and everyone is asked to agree again. Deals already set up keep their own %."),
         el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: () => { editRules = false; render() } }, "Cancel"),
-          el("button", { class: "btn primary", onclick: () => { editRules = false; write(() => setDoc(doc(db, "meta", "money"), { fundPct: Number(fp.value) || 0, findPct: Number(fd.value) || 0, finderMonths: Number(fm.value) || 0, pauseAfterLate: Number(pa.value) || 2, holder: holder.value || me, version: ver + 1, setAt: Date.now(), reviewAt: (() => { const d = new Date(); d.setMonth(d.getMonth() + (rulesNow().reviewMonths || 3)); return ymd(d) })(), updatedAt: Date.now() }, { merge: true }), "Rules updated. Everyone will be asked to agree again") } }, "Save rules"))));
+          el("button", { class: "btn primary", onclick: () => { editRules = false; write(() => setDoc(doc(db, "meta", "money"), { fundPct: Number(fp.value) || 0, findPct: Number(fd.value) || 0, finderMonths: Number(fm.value) || 0, pauseAfterLate: Number(pa.value) || 2, holder: holder.value || me, version: ver + 1, setAt: Date.now(), reviewAt: (() => { const d = new Date(); d.setMonth(d.getMonth() + (rulesNow().reviewMonths || 2)); return ymd(d) })(), updatedAt: Date.now() }, { merge: true }), "Rules updated. Everyone will be asked to agree again") } }, "Save rules"))));
     }
   }
   box.append(rules);
