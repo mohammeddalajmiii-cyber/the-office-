@@ -169,6 +169,7 @@ function onAuth(u) {
   unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "money"), s => { moneyRules = s.exists() ? s.data() : null; ensureMoneyRules(); render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "news"), s => { newsDoc = s.exists() ? s.data() : null; render() }, () => {}));
   teamLoaded = false; teamDoc = null;
   if (isAdmin) unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
   subscribePrivate();
@@ -1869,6 +1870,7 @@ function buildAlerts() {
   }
   if (isAdmin && moneyRules && moneyRules.reviewAt && moneyRules.reviewAt <= today) add("review:" + moneyRules.reviewAt, dayStart(), null, `Time to review the team fund: it's ${rulesNow().fundPct}% since ${fmtDate(ymd(new Date(moneyRules.setAt || Date.now())))}. Keep it or change it on the Money page.`, "money");
   if (isAdmin && fundDoc) for (const [sid, sb] of Object.entries(fundDoc.subs || {})) if (sb && sb.nextDue && sb.nextDue <= tomorrow) add("sub:" + sid + ":" + sb.nextDue, dayStart(), null, `${sb.name} subscription is due ${sb.nextDue < today ? "(overdue)" : sb.nextDue === today ? "today" : "tomorrow"}`, "money");
+  for (const n of unseenNews()) add("news:" + n.id, n.at || new Date(n.date + "T09:00").getTime(), n.by || null, (n.by ? `${firstName(n.by)} posted: ` : "New in Pitch Room: ") + n.title, "me");
   { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, "Please read and agree to the team's money rules", "money") }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
   for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
@@ -1938,16 +1940,17 @@ function renderMe() {
   box.append(el("section", { class: "profile" },
     el("img", { class: "av av-lg", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
     el("div", { class: "profile-main" },
-      el("div", { class: "row", style: "gap:8px;align-items:center" }, el("div", { class: "hello" }, greeting() + ","), el("span", { class: "spacer" }),
-        el("button", { class: "btn quiet small brief-btn", onclick: () => { asstOpen = true; alertsOpen = false; useTemplate(ASST_TEMPLATES[0], null) } }, "☀ Morning brief")),
+      el("div", { class: "hello" }, greeting() + ","),
       el("h1", {}, fullName.split(" ")[0] || "you"),
       el("div", { class: "row", style: "gap:6px;margin-top:8px" },
-        tops.length ? tops.map(s => el("span", { class: "chip" }, SKILLS[s].name)) : el("button", { class: "linkbtn", onclick: () => { location.hash = "skills" } }, "Take the skills quiz \u2192")))),
+        tops.length ? tops.map(s => el("span", { class: "chip" }, SKILLS[s].name)) : el("button", { class: "linkbtn", onclick: () => { location.hash = "skills" } }, "Take the skills quiz \u2192")),
+      el("button", { class: "btn small brief-btn", style: "margin-top:10px", onclick: () => { asstOpen = true; alertsOpen = false; useTemplate(ASST_TEMPLATES[0], null) } }, "☀ Morning brief"))),
     el("div", { class: "stats" },
       el("div", { class: "stat" }, el("b", {}, open.length), el("span", {}, "to do")),
       el("div", { class: "stat" + (overdue ? " late" : "") }, el("b", {}, overdue), el("span", {}, "overdue")),
       el("div", { class: "stat" }, el("b", {}, doneWeek), el("span", {}, "done this week"))));
 
+  { const nc = newsCard(); if (nc) box.append(nc) }
   if (dealProjects().length || isAdmin) {
     const all = allMoney();
     box.append(el("button", { class: "nowcard moneycard", onclick: () => { location.hash = "money" } },
@@ -2093,6 +2096,8 @@ function renderSettings() {
     }
     box.append(sec);
   }
+
+  box.append(newsSettings());
 
   /* account */
   box.append(el("section", { class: "idea" }, el("h3", {}, "Account"),
@@ -2401,6 +2406,85 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) chec
 /* ----- money: each project's Money tab ----- */
 
 let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
+
+/* ----- what's new: tell members about new things (they can turn it off) ----- */
+// Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
+const WHATS_NEW = [
+  { id: "f-ideas-1", date: "2026-11-06", icon: "✺", title: "Get help with ideas",
+    text: "Tap ✦ Help me think when pitching, or ✦ Make it stronger on any idea. The assistant brainstorms fresh ideas, and each one has a Use this idea button. You can also add a client, brand or company to an idea (optional).", go: "ideas" },
+  { id: "f-templates-1", date: "2026-11-06", icon: "☀", title: "Assistant templates and Morning brief",
+    text: "Open ✦ for ready-made templates: Morning brief, End-of-day wrap-up, Plan my week, Team recap, Money brief and more. You can save your own templates too.", go: "me", open: "asst" },
+  { id: "f-money-1", date: "2026-11-05", icon: "£", title: "Money: deals, splits and the team fund",
+    text: "Every project can track its price, payments and who gets what. The Money page shows what you're owed, the team fund and our money rules. Read them and tap I agree.", go: "money" },
+  { id: "f-look-1", date: "2026-11-04", icon: "◐", title: "Light and dark mode, and your own settings",
+    text: "Pick light or dark, turn the shooting stars on or off, set your name and photo, and turn on alerts. It's all in Settings.", go: "settings" },
+];
+let newsDoc = null, newsForm = null, newsIdx = 0;
+function allNews() {
+  const posted = Object.entries((newsDoc || {}).items || {}).filter(([, v]) => v && v.title).map(([id, v]) => ({ id: "post-" + id, pid: id, date: ymd(new Date(v.at || Date.now())), icon: "✉", title: v.title, text: v.text || "", by: v.by, at: v.at }));
+  return [...posted, ...WHATS_NEW].sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.at || 0) - (a.at || 0));
+}
+const newsOff = () => !!(people[me] || {}).newsOff;
+const newsSeen = () => (people[me] || {}).newsSeen || {};
+// only the latest few count as "new", so someone joining later isn't buried
+const unseenNews = () => newsOff() ? [] : allNews().slice(0, 6).filter(n => !newsSeen()[n.id] && !(n.by && n.by === me));
+function markNews(ids) {
+  const add = Object.fromEntries(ids.map(id => [id, true]));
+  people[me] = { ...(people[me] || {}), newsSeen: { ...newsSeen(), ...add } }; render();
+  write(() => setDoc(doc(db, "users", me), { newsSeen: add }, { merge: true }));
+}
+function setNewsOff(off) {
+  people[me] = { ...(people[me] || {}), newsOff: off }; render();
+  write(() => setDoc(doc(db, "users", me), { newsOff: off }, { merge: true }), off ? "OK, no more news about new things. You can turn it back on in Settings" : "You'll hear about new things");
+}
+function showNews(n) {
+  markNews([n.id]);
+  if (n.go && location.hash !== "#" + n.go) location.hash = n.go;
+  if (n.open === "asst") { asstOpen = true; alertsOpen = false; asstTplOpen = !!asstMsgs.length; }
+  render(); window.scrollTo({ top: 0, behavior: "smooth" });
+}
+function newsCard() {
+  const list = unseenNews(); if (!list.length) return null;
+  if (newsIdx >= list.length) newsIdx = 0;
+  const n = list[newsIdx];
+  return el("section", { class: "newscard" },
+    el("div", { class: "row", style: "gap:8px" }, el("span", { class: "news-ico" }, n.icon || "✦"), el("span", { class: "now-label", style: "flex:1 1 auto" }, n.by ? "Update from " + firstName(n.by) : "New in Pitch Room"),
+      list.length > 1 ? el("span", { class: "label" }, `${newsIdx + 1} of ${list.length}`) : null),
+    el("h3", {}, n.title), n.text ? el("p", {}, n.text) : null,
+    el("div", { class: "row", style: "gap:6px" },
+      el("button", { class: "linkbtn", onclick: () => setNewsOff(true) }, "Stop telling me"), el("span", { class: "spacer" }),
+      list.length > 1 ? el("button", { class: "btn quiet small", onclick: () => { markNews(list.map(x => x.id)); toast("All caught up") } }, "Got all") : null,
+      el("button", { class: "btn small", onclick: () => markNews([n.id]) }, "Got it"),
+      n.go ? el("button", { class: "btn primary small", onclick: () => showNews(n) }, "Show me") : null));
+}
+function newsSettings() {
+  const off = newsOff(), sec = el("section", { class: "idea", id: "news" }, el("h3", {}, "What's new"),
+    el("div", { class: "row" }, el("span", { style: "flex:1 1 200px" }, "Tell me about new things on the site"),
+      el("div", { class: "seg seg-sm", role: "group", "aria-label": "Tell me about new things" },
+        el("button", { "aria-pressed": String(!off), onclick: () => setNewsOff(false) }, "On"),
+        el("button", { "aria-pressed": String(off), onclick: () => setNewsOff(true) }, "Off"))));
+  if (isAdmin) {
+    if (newsForm) {
+      const t = el("input", { id: "news-title", class: "noteinput", maxlength: "80", placeholder: "Title, like “Meeting Friday at 8”" });
+      const x = el("textarea", { id: "news-text", class: "noteinput", rows: "3", maxlength: "600", placeholder: "What should everyone know?" });
+      sec.append(el("div", { class: "mform" }, t, x, el("div", { class: "row", style: "gap:6px" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn quiet small", onclick: () => { newsForm = null; render() } }, "Cancel"),
+        el("button", { class: "btn primary small", onclick: () => {
+          const title = t.value.trim(), text = x.value.trim(); if (!title) { toast("Give it a title"); return }
+          newsForm = null; const id = uid();
+          write(() => setDoc(doc(db, "meta", "news"), { items: { [id]: { title, text, by: me, at: Date.now() } } }, { merge: true }), "Posted. Everyone will see it on their Me page and in alerts");
+        } }, "Post to everyone"))));
+    } else sec.append(el("div", { class: "row" }, el("span", { class: "label", style: "flex:1 1 200px" }, "Post an update for the whole team. It shows on everyone's Me page and bell."),
+      el("button", { class: "btn small", onclick: () => { newsForm = {}; render() } }, "+ Post an update")));
+  }
+  const seen = newsSeen();
+  sec.append(el("div", { class: "newslist" }, allNews().slice(0, 12).map(n => el("div", { class: "newsrow" },
+    el("span", { class: "news-ico" }, n.icon || "✦"),
+    el("div", { style: "flex:1 1 auto;min-width:0" }, el("b", {}, n.title, !seen[n.id] && !off && n.by !== me ? el("span", { class: "newdot" }, " New") : null), el("div", { class: "label" }, fmtDate(n.date) + (n.by ? " · " + firstName(n.by) : ""))),
+    n.go ? el("button", { class: "btn quiet small", onclick: () => showNews(n) }, "Show me") : null,
+    n.pid && isAdmin ? el("button", { class: "x", "aria-label": "Delete update", onclick: () => write(() => setDoc(doc(db, "meta", "news"), { items: { [n.pid]: DEL() } }, { merge: true }), "Update deleted") }, "✕") : null))));
+  return sec;
+}
 const rulesNow = () => ({ ...MONEY_DEFAULTS, ...(moneyRules || {}) });
 const fmtEGP = p => { const v = (p || 0) / 100; return (Math.round(v) === v ? v.toLocaleString("en") : v.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + " EGP" };
 const fmtN = p => fmtEGP(p).replace(" EGP", "");
