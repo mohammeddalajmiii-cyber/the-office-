@@ -94,7 +94,7 @@ const QUIZ_MAX = Object.fromEntries(SKILL_IDS.map(s => [s, QUIZ.filter(x => x.a.
 const $ = s => document.querySelector(s);
 const el = (t, a = {}, ...kids) => { const n = document.createElement(t); for (const [k, v] of Object.entries(a)) { if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else if (k === "value") n.value = v; else if (k === "checked" || k === "selected") n[k] = !!v; else if (v !== false && v != null) n.setAttribute(k, v === true ? "" : v) } for (const c of kids.flat()) { if (c == null || c === false) continue; n.append(c.nodeType ? c : document.createTextNode(String(c))) } return n };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-let toastT; function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2200) }
+let toastT; function toast(m, ms) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, ms || 2200) }
 const status = (m, warn) => { const s = $("#status"); s.textContent = m || ""; s.className = "status" + (warn ? " warn" : "") };
 const DEL = () => deleteField();
 const AV = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Ccircle cx='5' cy='5' r='5' fill='%23999'/%3E%3C/svg%3E";
@@ -214,8 +214,8 @@ function loadCache() {
 }
 
 async function write(fn, ok) {
-  try { await fbReady; await fn(); if (ok) toast(ok) }
-  catch (e) { status(e.code === "permission-denied" ? "You don't have permission to change the board." : "That didn't save. Check your connection and try again.", true) }
+  try { await fbReady; await fn(); if (ok) toast(ok); return true }
+  catch (e) { const m = e && e.code === "permission-denied" ? "That wasn't allowed by the site's security rules." : "That didn't save. Check your connection and try again."; status(m, true); toast(m + (e && e.code ? " (" + e.code + ")" : ""), 6000); return false }
 }
 const upd = (id, data) => updateDoc(doc(db, "ideas", id), data);
 
@@ -2699,7 +2699,12 @@ function renderMoneyPage() {
     el("ol", { class: "rules" }, moneyRulesText(R).map(t => el("li", {}, t))));
   const signed = teamIds().map(u => ({ u, ok: ((people[u] || {}).moneyAgreed || {}).version === ver }));
   rules.append(el("div", { class: "row", style: "gap:6px" }, signed.map(({ u, ok }) => el("span", { class: "planner" + (ok ? " agreed" : "") }, av(u), name(u), ok ? " ✓" : " …"))));
-  if (!agreed) rules.append(el("button", { class: "btn primary", onclick: () => write(() => setDoc(doc(db, "users", me), { moneyAgreed: { version: ver, at: Date.now() } }, { merge: true }), "Thanks, you agreed to the money rules") }, "I agree"));
+  if (!agreed) rules.append(el("button", { class: "btn primary", id: "agree-btn", onclick: () => {
+    // show it straight away; undo if the save is refused
+    const before = (people[me] || {}).moneyAgreed, val = { version: ver, at: Date.now() };
+    people[me] = { ...(people[me] || {}), moneyAgreed: val }; toast("Thanks, you agreed to the money rules"); render();
+    write(() => setDoc(doc(db, "users", me), { moneyAgreed: val }, { merge: true })).then(ok => { if (!ok) { people[me] = { ...(people[me] || {}), moneyAgreed: before }; render() } });
+  } }, "I agree"));
   if (isAdmin) {
     if (!editRules) rules.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => { editRules = true; render() } }, "Change the numbers")));
     else {
