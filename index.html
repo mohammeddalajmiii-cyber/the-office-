@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>The Office Pitch Room</title>
-<meta name="build" content="20261106083925">
+<meta name="build" content="20261106084812">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="icon" href="icon-192.png" type="image/png">
@@ -430,6 +430,11 @@ input,select,textarea{background-color:var(--field)}
 .asst-msg.typing{opacity:.7}
 .asst-detail{margin-top:6px;font:11.5px/1.4 ui-monospace,Menlo,monospace;opacity:.85;user-select:text;-webkit-user-select:text}
 .asst-chips{display:flex;gap:6px;flex-wrap:wrap}
+.clientline{display:flex;gap:8px;align-items:baseline;font-size:14px;margin:2px 0 4px}
+.clientline span:last-child{font-weight:600}
+.idea-sugs{display:grid;gap:8px}
+.idea-sug{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:10px 12px;display:grid;gap:6px}
+.idea-sug p{margin:0;font-size:13.5px;color:var(--muted)}
 .tpl-list{display:grid;gap:6px;margin-top:4px}
 .tpl-g{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:6px}
 .tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
@@ -618,8 +623,9 @@ input,select,textarea{background-color:var(--field)}
       <input id="f-title" maxlength="80" placeholder="Name it — e.g. Shared expense tracker for trips" required>
       <select id="f-cat" class="mini" style="padding:9px 10px;font-size:14px" aria-label="Category" required><option value="">Pick a category…</option></select>
       <input id="f-newcat" maxlength="30" placeholder="Type the new category name" hidden>
+      <input id="f-client" maxlength="80" placeholder="Client, brand or company (optional)" autocomplete="off">
       <textarea id="f-pitch" maxlength="600" placeholder="What is it, who's it for, why would it be fun to build?"></textarea>
-      <div class="row"><span class="spacer"></span><button class="btn primary" id="f-submit">Add to the vote</button></div>
+      <div class="row"><button type="button" class="btn quiet" id="f-help">✦ Help me think</button><span class="spacer"></span><button class="btn primary" id="f-submit">Add to the vote</button></div>
     </form>
     <div class="catbar" id="cat-ideas"></div>
     <div class="list" id="ideas"></div>
@@ -670,7 +676,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261106083925";
+const BUILD_ID = "20261106084812";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -1156,6 +1162,7 @@ function renderProjectPage(p) {
       prioChip(p), p.category ? catChip(p) : null),
     el("div", { class: "row", style: "align-items:flex-start;flex-wrap:nowrap" }, el("h2", { style: "flex:1;min-width:0" }, p.title),
       planner || joined ? el("button", { class: "btn small", "aria-expanded": String(settingsOpen), onclick: () => { showSettings = settingsOpen ? null : p.id; render() } }, settingsOpen ? "Close" : "Settings") : null),
+    clientOf(p) ? clientLine(clientOf(p)) : null,
     p.pitch ? el("p", { class: "pitch" }, p.pitch) : null,
     !done && goal && goal.text ? el("div", { class: "goal-line" + (goal.reached ? " reached" : "") }, el("span", { class: "tlabel" }, goal.reached ? "This week's goal \u2713 reached" : "This week's goal"), el("span", {}, goal.text)) : null,
     tasks.length ? line(progressOf(tasks), "tasks") : null,
@@ -1235,18 +1242,20 @@ function deleteProject(p) {
 function renameBlock(p) {
   const title = el("input", { id: "rn-title-" + p.id, class: "noteinput", maxlength: "80", "aria-label": "Project name" });
   const pitch = el("textarea", { id: "rn-pitch-" + p.id, class: "noteinput", rows: "3", maxlength: "600", "aria-label": "Description", placeholder: "What is it, who's it for?" });
-  title.value = p.title || ""; pitch.value = p.pitch || "";
+  const client = el("input", { id: "rn-client-" + p.id, class: "noteinput", maxlength: "80", "aria-label": "Client", placeholder: "Client, brand or company (optional)" });
+  title.value = p.title || ""; pitch.value = p.pitch || ""; client.value = p.client || "";
   const save = () => {
-    const t = title.value.trim(), d = pitch.value.trim();
+    const t = title.value.trim(), d = pitch.value.trim(), c = client.value.trim().replace(/\s+/g, " ");
     if (!t) { toast("The project needs a name"); title.focus(); return }
-    if (t === p.title && d === (p.pitch || "")) { toast("Nothing changed"); return }
-    write(() => upd(p.id, { title: t, pitch: d }), "Saved");
+    if (t === p.title && d === (p.pitch || "") && c === (p.client || "")) { toast("Nothing changed"); return }
+    write(() => upd(p.id, { title: t, pitch: d, client: c || DEL() }), "Saved");
   };
   title.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } });
   return el("div", { class: "renameblock" },
     el("label", { class: "tlabel", for: title.id }, "Name"), title,
     el("label", { class: "tlabel", for: pitch.id }, "Description"), pitch,
-    el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary small", onclick: save }, "Save name and description")));
+    el("label", { class: "tlabel", for: client.id }, "Client"), client,
+    el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary small", onclick: save }, "Save")));
 }
 
 /* ----- import a plan (pasted from Claude or written by the assistant) ----- */
@@ -1521,15 +1530,26 @@ function cleanCat(raw) {
   return allCats().find(c => c.toLowerCase() === t.toLowerCase()) || t.charAt(0).toUpperCase() + t.slice(1);
 }
 const catChip = i => el("span", { class: "catchip" }, i.category || "No category");
+const clientOf = p => (p && (p.client || (p.money || {}).client)) || "";
+const clientLine = c => el("div", { class: "clientline" }, el("span", { class: "tlabel" }, "Client"), el("span", {}, c));
 
+// "Help me think": improve what you've typed, or brainstorm with you if the form is empty
+$("#f-help").addEventListener("click", () => {
+  const t = $("#f-title").value.trim(), d = $("#f-pitch").value.trim(), c = $("#f-client").value.trim();
+  asstOpen = true; alertsOpen = false; asstTplOpen = false;
+  if (!t && !d) { if (c) { runAssistant(`Ideas for ${c}`, { prompt: `Brainstorm 5 ideas we could pitch to this client (things they'd actually pay for): ${c}\nThink about their customers, what they lose money or time on, and what their competitors don't do yet. ${CREATIVE}\n${IDEA_FORMAT}` }); return }
+    runAssistant("Brainstorm new ideas", { prompt: `Brainstorm 5 fresh project ideas our team could build and sell in Egypt. ${CREATIVE}\n${IDEA_FORMAT}` }); return }
+  askAboutIdea({ title: t || "my idea", pitch: d, client: c });
+});
 $("#compose").addEventListener("submit", ev => {
   ev.preventDefault();
   const title = $("#f-title").value.trim(), pitch = $("#f-pitch").value.trim();
   let category = $("#f-cat").value;
   if (category === NEW) category = cleanCat($("#f-newcat").value);
   if (!title || !category) return;
-  write(() => setDoc(doc(db, "ideas", uid()), { title, pitch, category, author: me, createdAt: Date.now(), status: "voting", votes: { [me]: "keep" }, tasks: {}, backers: {} }), "Idea added to the vote");
-  $("#f-title").value = ""; $("#f-pitch").value = ""; $("#f-cat").value = ""; $("#f-newcat").value = ""; $("#f-newcat").hidden = true; $("#f-newcat").required = false;
+  const client = $("#f-client").value.trim().replace(/\s+/g, " ");
+  write(() => setDoc(doc(db, "ideas", uid()), { title, pitch, category, ...(client ? { client } : {}), author: me, createdAt: Date.now(), status: "voting", votes: { [me]: "keep" }, tasks: {}, backers: {} }), "Idea added to the vote");
+  $("#f-title").value = ""; $("#f-pitch").value = ""; $("#f-client").value = ""; $("#f-cat").value = ""; $("#f-newcat").value = ""; $("#f-newcat").hidden = true; $("#f-newcat").required = false;
 });
 
 function renderIdeas(all, removed) {
@@ -1544,8 +1564,10 @@ function renderIdeas(all, removed) {
     const verdict = k > d ? el("span", { class: "verdict keep" }, "Leaning keep") : d > k ? el("span", { class: "verdict drop" }, "Leaning drop") : el("span", { class: "verdict" }, "Tied");
     box.append(el("article", { class: "idea" },
       el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, i.title), catChip(i)),
+      i.client ? clientLine(i.client) : null,
       i.pitch ? el("p", {}, i.pitch) : null,
-      el("div", { class: "by" }, av(i.author), "Pitched by ", name(i.author)),
+      el("div", { class: "row", style: "gap:8px" }, el("div", { class: "by", style: "flex:1 1 auto" }, av(i.author), "Pitched by ", name(i.author)),
+        el("button", { class: "btn quiet small", onclick: () => askAboutIdea(i) }, "✦ Make it stronger")),
       el("div", { class: "vote" }, vb("keep", "Keep", k), vb("drop", "Drop", d), el("span", { class: "spacer" }), verdict),
       el("div", { class: "row" },
         el("span", { class: "spacer" }),
@@ -2976,6 +2998,7 @@ function boardContext(p) {
   if (p) {
     L.push(`\nTHE PROJECT WE'RE LOOKING AT: "${p.title}"${p.category ? " (" + p.category + ")" : ""}, ${prioOf(p).name} priority, ${p.status === "completed" ? "completed" : isActive(p) ? "being built now" : "not started yet"}.`);
     if (p.pitch) L.push("Description: " + short(p.pitch, 500));
+    if (clientOf(p)) L.push("Client: " + clientOf(p));
     const g = (p.goals || {})[weekKey()]; if (g && g.text) L.push(`This week's goal: ${g.text}${g.reached ? " (reached)" : ""}`);
     L.push("Team on this project: " + (teamOf(p).map(u => realName(u)).join(", ") || "nobody yet"));
     const phases = getPhases(p), tasks = tasksOf(p);
@@ -2993,7 +3016,7 @@ function boardContext(p) {
   if (recent.length) { L.push("\nFinished by the team in the last 7 days:"); recent.slice(0, 30).forEach(({ t, a }) => L.push(`- ${short(t.text, 80)} [${a.title}] by ${assignees(t).map(u => realName(u)).join(", ") || "someone"}, ${ymd(new Date(t.doneAt))}`)) }
   // ideas waiting for votes
   const vot = ideas.filter(i => i.status === "voting");
-  if (vot.length) { L.push("\nIdeas in the vote:"); vot.slice(0, 20).forEach(i => { const { k, d } = tally(i), mine = (i.votes || {})[me]; L.push(`- ${i.title}${i.category ? " (" + i.category + ")" : ""}: ${k} keep, ${d} drop${mine ? "" : ", I haven't voted"} | by ${realName(i.author) || "someone"}${i.pitch ? " | " + short(i.pitch, 160) : ""}`) }) }
+  if (vot.length) { L.push("\nIdeas in the vote:"); vot.slice(0, 20).forEach(i => { const { k, d } = tally(i), mine = (i.votes || {})[me]; L.push(`- ${i.title}${i.category ? " (" + i.category + ")" : ""}${i.client ? " for client " + i.client : ""}: ${k} keep, ${d} drop${mine ? "" : ", I haven't voted"} | by ${realName(i.author) || "someone"}${i.pitch ? " | " + short(i.pitch, 160) : ""}`) }) }
   // money (everyone on the team can see this on the Money page)
   try {
     const all = allMoney(), F = fundState(all);
@@ -3029,13 +3052,41 @@ async function runAssistant(userText, opts = {}) {
       checkinDraft = { pid: p.id, did: String(j.did || ""), next: String(j.next || ""), blockers: String(j.blockers || "") };
       asstMsgs.push({ role: "ai", text: "I drafted your check-in from the board. It's filled in on the project's “This week” tab. Check it, change anything, and tap Save." });
       editCheckin = p.id; projTab = "week"; asstOpen = false;
-    } else asstMsgs.push({ role: "ai", text, plan: /^\s*PHASE:/im.test(text) && /^\s*-\s+/m.test(text) });
+    } else {
+      const found = parseIdeas(text);
+      asstMsgs.push({ role: "ai", text: found.length ? text.split("\n").filter(l => !/^\s*[-*\d.)\s]*IDEA\s*:/i.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim() : text, ideas: found, plan: !found.length && /^\s*PHASE:/im.test(text) && /^\s*-\s+/m.test(text) });
+    }
   } catch (e) {
     try { console.error("Assistant error", e) } catch { }
     asstMsgs.push({ role: "ai", error: true, text: e instanceof SyntaxError ? "I couldn't draft the check-in this time. Try again." : aiErrorText(e), detail: e instanceof SyntaxError ? "" : aiErrorRaw(e) });
   }
   asstBusy = false; render();
   const log = document.getElementById("asst-log"); if (log) log.scrollTop = log.scrollHeight;
+}
+function parseIdeas(text) {
+  const out = [];
+  for (const line of text.split("\n")) {
+    const m = line.match(/^\s*[-*\d.)\s]*IDEA\s*:\s*(.+)$/i); if (!m) continue;
+    const [title, category, pitch, pays] = m[1].split("|").map(x => (x || "").replace(/\*\*/g, "").trim());
+    if (title) out.push({ title: title.slice(0, 80), category: category || "", pitch: [pitch, pays ? "Who pays: " + pays : ""].filter(Boolean).join(" ").slice(0, 600) });
+  }
+  return out.slice(0, 10);
+}
+// Put an idea from the assistant into the "Pitch an idea" form, so you can edit it and add it to the vote.
+function useIdea(x) {
+  asstOpen = false; if (location.hash !== "#ideas") location.hash = "ideas"; else render();
+  setTimeout(() => {
+    $("#f-title").value = x.title; $("#f-pitch").value = x.pitch;
+    const sel = $("#f-cat"), cat = cleanCat(x.category || ""), known = allCats().find(c => c.toLowerCase() === cat.toLowerCase());
+    if (known) { sel.value = known; $("#f-newcat").hidden = true; $("#f-newcat").required = false }
+    else if (cat) { sel.value = NEW; $("#f-newcat").hidden = false; $("#f-newcat").required = true; $("#f-newcat").value = cat }
+    if (x.client) $("#f-client").value = x.client;
+    $("#compose").scrollIntoView({ behavior: "smooth", block: "start" }); toast("Check it, change anything, then tap Add to the vote", 3500);
+  }, 60);
+}
+function askAboutIdea(i) {
+  asstOpen = true; alertsOpen = false; asstTplOpen = false;
+  runAssistant(`Make “${i.title}” stronger`, { prompt: `Help make this idea from our vote stronger and more creative.\nIdea: ${i.title}${i.client ? " (client: " + i.client + ")" : ""}\n${i.pitch || ""}\nGive: 1) the sharpest version of it in two sentences, 2) who exactly pays and how much in EGP, 3) a first small version we could build in 2 weeks, 4) two bold twists that would make it stand out. Then give 2 improved versions as ideas.\n${IDEA_FORMAT}` });
 }
 function currentProject() { const r = route(); return r.view === "project" ? ideas.find(i => i.id === r.id) : null }
 
@@ -3059,15 +3110,26 @@ const ASST_TEMPLATES = [
   { g: "Project", id: "agenda", icon: "☰", label: "Meeting agenda", need: "project", prompt: p => `Write a 20-minute meeting agenda for "${p.title}": quick wins to celebrate, decisions we need to make, blockers to solve, and who owns what next. Short bullet lines.` },
   { g: "Project", id: "checkin", icon: "✓", label: "Draft my weekly check-in", need: "team", checkin: true },
   { g: "Project", id: "update", icon: "✉", label: "Client update message", need: "project", prompt: p => `Write a short, professional WhatsApp message to the client of "${p.title}"${(p.money || {}).client ? " (" + p.money.client + ")" : ""} telling them what we finished and what's next, based on the board. No internal names or money details. Under 80 words.` },
-  { g: "Ideas", id: "rank", icon: "★", label: "Rank our ideas", prompt: "Rank the ideas in the vote from best to worst for our team right now: how fast we could build it, if it can make money, and if we have the skills. One line of reasoning each. Then say which ones I haven't voted on." },
+  { g: "Ideas", id: "brain", icon: "✺", label: "Brainstorm new ideas", prompt: () => `Brainstorm 5 fresh project ideas our team could build and sell in Egypt. ${CREATIVE}\n${IDEA_FORMAT}` },
+  { g: "Ideas", id: "field", icon: "◈", label: "Ideas in a field…", fill: "Brainstorm 5 fresh ideas in this field: ", wrap: v => `${v}\n${CREATIVE}\n${IDEA_FORMAT}` },
+  { g: "Ideas", id: "forclient", icon: "◉", label: "Ideas for a client…", fill: "Brainstorm 5 ideas we could pitch to this client (things they'd actually pay for): ", wrap: v => `${v}\nThink about their customers, what they lose money or time on, and what their competitors don't do yet. ${CREATIVE}\n${IDEA_FORMAT}` },
+  { g: "Ideas", id: "problems", icon: "⌁", label: "Problems people pay to fix", prompt: () => `List 5 everyday problems that people or small businesses in Egypt would happily pay to fix (things that waste their time or money). Turn each problem into a project idea for our team. ${CREATIVE}\n${IDEA_FORMAT}` },
+  { g: "Ideas", id: "remix", icon: "⟲", label: "Remix our ideas", prompt: () => `Take the ideas already in our vote and remix them: combine two into something better, push one to be 10 times bolder, or shrink one into a version we could sell next week. Give 4 new ideas and say which ideas each came from. ${CREATIVE}\n${IDEA_FORMAT}` },
+  { g: "Ideas", id: "trend", icon: "↗", label: "What's trending we could use", prompt: () => `Think about trends young people and small businesses in Egypt care about right now (social media habits, AI tools, payments, delivery, content, side hustles). Give 5 ideas that ride one of those trends. If you're not sure something is current, say so. ${CREATIVE}\n${IDEA_FORMAT}` },
   { g: "Ideas", id: "pitch", icon: "✧", label: "Make my idea stronger", fill: "Make this idea stronger: who it's for, how it makes money, and a first small version we could build in 2 weeks. The idea: " },
-  { g: "Ideas", id: "brain", icon: "✺", label: "Brainstorm new ideas", prompt: "Brainstorm 5 project ideas our team could build and sell in Egypt, based on our strengths and what we already did. For each: one line on what it is, who pays, and a rough price." },
+  { g: "Ideas", id: "test", icon: "⚑", label: "Stress-test an idea", fill: "Be a tough but fair investor. Poke the 5 biggest holes in this idea and how we could fix each one, then give it a score out of 10: " },
+  { g: "Ideas", id: "rank", icon: "★", label: "Rank our ideas", prompt: "Rank the ideas in the vote from best to worst for our team right now: how fast we could build it, if it can make money, and if we have the skills. One line of reasoning each. Then say which ones I haven't voted on." },
   { g: "Money", id: "money", icon: "£", label: "Money brief", prompt: "Give me a money brief: what I'm owed, the team fund and how close we are to our goals, late client payments (and how late), and subscriptions due soon. Then one practical tip. Use EGP." },
   { g: "Money", id: "chase", icon: "⏰", label: "Chase a late payment", prompt: "For each late client payment, write a short, polite but firm WhatsApp reminder I can send to the client. Mention the amount and month, no threats. If nothing is late, say so." },
   { g: "Money", id: "price", icon: "≈", label: "How much should we charge?", fill: "Help us price this work for a client in Egypt (give a low, fair and high price in EGP and why): " },
 ];
 const tplLabel = (t, p) => typeof t.label === "function" ? t.label(p) : t.label;
-let asstTplOpen = false, tplForm = null;
+let asstTplOpen = false, tplForm = null, pendingWrap = null;
+// How the assistant hands over ideas, so each one gets a "Use this idea" button.
+const IDEA_FORMAT = `Write each idea on ONE line in exactly this format so we can add it to our vote:
+IDEA: <short catchy name> | <category, like Web, App, Marketing, Content, Design, Business or Event> | <2 or 3 sentences: what it is, who it's for, why now> | <who pays and a rough price in EGP>
+Before the ideas, one short line. After them, one line saying which idea you'd start with and why.`;
+const CREATIVE = `Be genuinely creative: avoid the obvious ideas everyone has (generic e-commerce stores, to-do apps, food delivery). Use idea tricks: combine two things that don't usually go together, flip a normal habit, take something that works abroad and give it a smart local Egyptian twist, serve a niche nobody serves, or turn a daily annoyance into a product. Mix 2 quick wins (buildable in 2 weeks with little money) with 1 or 2 bold bets. Each idea must be different from the others and from the ideas already on our board. Fit our team's strengths.`;
 function availableTemplates(p) {
   const planner = p && canPlan(p), onTeam = p && (teamOf(p).includes(me) || canPlan(p)), live = p && p.status !== "completed";
   return ASST_TEMPLATES.filter(t => !t.need || (t.need === "project" && p) || (t.need === "plan" && planner && live) || (t.need === "team" && onTeam && live));
@@ -3075,7 +3137,7 @@ function availableTemplates(p) {
 function myTemplates() { return Object.entries((people[me] || {}).asstTemplates || {}).filter(([, v]) => v && v.name).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.at || 0) - (b.at || 0)) }
 function useTemplate(t, p) {
   asstTplOpen = false;
-  if (t.fill) { render(); const i = document.getElementById("asst-input"); if (i) { i.value = t.fill; i.focus(); i.setSelectionRange(i.value.length, i.value.length) } return }
+  if (t.fill) { pendingWrap = t.wrap || null; render(); const i = document.getElementById("asst-input"); if (i) { i.value = t.fill; i.focus(); i.setSelectionRange(i.value.length, i.value.length) } return }
   if (t.checkin) return runAssistant(tplLabel(t, p), { checkin: true, prompt: `Draft MY weekly check-in for "${p.title}" based only on the board (tasks I finished or started this week, what's next for me, anything overdue or blocked). Reply with ONLY JSON like {"did":"...","next":"...","blockers":""}. Write in first person, short and plain.` });
   runAssistant(tplLabel(t, p), { prompt: typeof t.prompt === "function" ? t.prompt(p) : t.prompt });
 }
@@ -3125,6 +3187,10 @@ function renderAssistant() {
     const b = el("div", { class: "asst-msg " + (m.role === "me" ? "mine" : "ai") + (m.error ? " err" : "") }, m.text,
       m.detail ? el("div", { class: "asst-detail" }, "Details: " + m.detail) : null);
     log.append(b);
+    if (m.ideas && m.ideas.length) log.append(el("div", { class: "idea-sugs" }, m.ideas.map(x => el("div", { class: "idea-sug" },
+      el("div", { class: "row", style: "gap:6px" }, el("b", { style: "flex:1 1 auto;min-width:0" }, x.title), x.category ? el("span", { class: "catchip" }, x.category) : null),
+      el("p", {}, x.pitch),
+      el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary small", onclick: () => useIdea(x) }, "Use this idea"))))));
     if (m.plan && planner) log.append(el("div", { class: "row", style: "justify-content:flex-start;gap:8px" },
       el("button", { class: "btn primary small", onclick: () => { asstOpen = false; openImport(p, m.text) } }, "Preview and add to plan"),
       el("button", { class: "btn quiet small", onclick: async () => { try { await navigator.clipboard.writeText(m.text); toast("Copied") } catch { toast("Couldn't copy") } } }, "Copy")));
@@ -3135,7 +3201,7 @@ function renderAssistant() {
     asstTplOpen ? null : quick.map(t => el("button", { class: "pchip", onclick: () => useTemplate(t, p) }, tplLabel(t, p))),
     el("button", { class: "pchip", "aria-pressed": String(asstTplOpen), onclick: () => { asstTplOpen = !asstTplOpen; render() } }, asstTplOpen ? "Back to chat" : "All templates")));
   const inp = el("textarea", { id: "asst-input", class: "noteinput", rows: "1", maxlength: "1500", placeholder: "Ask anything about the board…" });
-  const send = () => { const v = inp.value.trim(); if (!v || asstBusy) return; inp.value = ""; runAssistant(v) };
+  const send = () => { const v = inp.value.trim(); if (!v || asstBusy) return; inp.value = ""; const w = pendingWrap; pendingWrap = null; runAssistant(v, w ? { prompt: w(v) } : {}) };
   inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send() } });
   panel.append(el("div", { class: "chatform" }, inp, el("button", { class: "btn primary", disabled: asstBusy, onclick: send }, "Ask")));
   if (!asstTplOpen && asstMsgs.length) log.scrollTop = log.scrollHeight;
@@ -3382,7 +3448,7 @@ function dealForm(p) {
     el("p", { style: "margin:0;font-size:14px" }, "How the client pays, and how the money is shared. Everyone on the team can see this."));
   box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Deal type" }, DEAL_TYPES.map(([v, l]) => el("button", { type: "button", "aria-pressed": String(type === v), onclick: () => { dealTypeDraft[p.id] = v; render() } }, l))));
   box.append(el("p", { class: "label", style: "margin:0" }, { one: "One price, usually a deposit first and the rest at the end. Split when fully paid.", monthly: "A fee every month (like running Google Ads), plus an optional setup fee. Split every month.", installments: "One total price paid in equal monthly payments. Split as each payment arrives." }[type]));
-  const client = el("input", { id: "deal-client", class: "noteinput", maxlength: "80", placeholder: "Client name (optional)" }); if (!client.value) client.value = m.client || "";
+  const client = el("input", { id: "deal-client", class: "noteinput", maxlength: "80", placeholder: "Client name (optional)" }); if (!client.value) client.value = m.client || p.client || "";
   const stage = el("select", { class: "mini", id: "deal-stage" }, STAGES.map(([v, l]) => el("option", { value: v }, l))); stage.value = m.stage || "agreed";
   box.append(fieldRow("Client", client), fieldRow("Stage", stage));
   const price = moneyInput("deal-price", m.price, "Total price in EGP");

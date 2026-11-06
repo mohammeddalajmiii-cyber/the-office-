@@ -430,6 +430,11 @@ input,select,textarea{background-color:var(--field)}
 .asst-msg.typing{opacity:.7}
 .asst-detail{margin-top:6px;font:11.5px/1.4 ui-monospace,Menlo,monospace;opacity:.85;user-select:text;-webkit-user-select:text}
 .asst-chips{display:flex;gap:6px;flex-wrap:wrap}
+.clientline{display:flex;gap:8px;align-items:baseline;font-size:14px;margin:2px 0 4px}
+.clientline span:last-child{font-weight:600}
+.idea-sugs{display:grid;gap:8px}
+.idea-sug{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:10px 12px;display:grid;gap:6px}
+.idea-sug p{margin:0;font-size:13.5px;color:var(--muted)}
 .tpl-list{display:grid;gap:6px;margin-top:4px}
 .tpl-g{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:6px}
 .tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
@@ -618,8 +623,9 @@ input,select,textarea{background-color:var(--field)}
       <input id="f-title" maxlength="80" placeholder="Name it — e.g. Shared expense tracker for trips" required>
       <select id="f-cat" class="mini" style="padding:9px 10px;font-size:14px" aria-label="Category" required><option value="">Pick a category…</option></select>
       <input id="f-newcat" maxlength="30" placeholder="Type the new category name" hidden>
+      <input id="f-client" maxlength="80" placeholder="Client, brand or company (optional)" autocomplete="off">
       <textarea id="f-pitch" maxlength="600" placeholder="What is it, who's it for, why would it be fun to build?"></textarea>
-      <div class="row"><span class="spacer"></span><button class="btn primary" id="f-submit">Add to the vote</button></div>
+      <div class="row"><button type="button" class="btn quiet" id="f-help">✦ Help me think</button><span class="spacer"></span><button class="btn primary" id="f-submit">Add to the vote</button></div>
     </form>
     <div class="catbar" id="cat-ideas"></div>
     <div class="list" id="ideas"></div>
