@@ -102,7 +102,7 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 
 /* ---------- routing ---------- */
 
-const VIEWS = ["me", "ideas", "projects", "chat", "skills", "settings", "project"];
+const VIEWS = ["me", "ideas", "projects", "chat", "skills", "settings", "money", "project"];
 function route() {
   const h = location.hash.slice(1);
   for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
@@ -111,7 +111,7 @@ function route() {
   return { view: VIEWS.includes(h) && h !== "project" ? h : "me" };
 }
 function show() {
-  const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "settings" ? "me" : r.view;
+  const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "settings" || r.view === "money" ? "me" : r.view;
   for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
   render();
@@ -167,6 +167,8 @@ function onAuth(u) {
     render();
   }, () => {}));
   unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "money"), s => { moneyRules = s.exists() ? s.data() : null; render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
   teamLoaded = false; teamDoc = null;
   if (isAdmin) unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
   subscribePrivate();
@@ -294,6 +296,7 @@ function renderAll() {
   if (r.view === "project") renderProjectPage(ideas.find(p => p.id === r.id && (p.status === "approved" || p.status === "completed")));
   if (r.view === "skills") renderSkills();
   if (r.view === "settings") renderSettings();
+  if (r.view === "money") renderMoneyPage();
   if (r.view === "me") renderMe();
   const open = myTasks().filter(x => !x.t.done && !x.closed).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
   renderAlerts();
@@ -361,10 +364,12 @@ function renderProjectPage(p) {
   const meetings = Object.values(p.meetings || {}).filter(Boolean).length;
   box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin:4px 0 14px" },
     el("button", { "aria-pressed": String(projTab === "tasks"), onclick: () => { projTab = "tasks"; render() } }, "Tasks"),
-    el("button", { "aria-pressed": String(projTab === "week"), onclick: () => { projTab = "week"; render() } }, "This week"),
-    el("button", { "aria-pressed": String(projTab === "meet"), onclick: () => { projTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : ""))));
+    el("button", { "aria-pressed": String(projTab === "week"), onclick: () => { projTab = "week"; render() } }, "Week"),
+    el("button", { "aria-pressed": String(projTab === "meet"), onclick: () => { projTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : "")),
+    el("button", { "aria-pressed": String(projTab === "money"), onclick: () => { projTab = "money"; render() } }, "Money")));
   if (projTab === "week") return renderWeek(box, p, team);
   if (projTab === "meet") return renderMeetings(box, p);
+  if (projTab === "money") return renderMoney(box, p);
 
   // people chips: tap someone to see only their tasks
   const f = taskFilter[p.id] || null;
@@ -1842,6 +1847,12 @@ function buildAlerts() {
     for (const [lid, l] of Object.entries(p.links || {})) if (l && l.by !== me) add("link:" + lid, l.at, l.by, `${name(l.by)} added a link to ${p.title}: ${l.label || hostOf(l.url)}`, "project-" + p.id);
     for (const [mid, m] of Object.entries(p.meetings || {})) if (m && m.by !== me) add("meet:" + mid, m.at, m.by, `${name(m.by)} added meeting notes in ${p.title}${m.title ? ": " + m.title : ""}`, "build-" + p.id);
   }
+  for (const p of dealProjects()) {
+    if (!canPlan(p) || p.status !== "approved") continue;
+    for (const s of moneyOf(p).late) add("late:" + p.id + ":" + s.label + ":" + today, dayStart(), null, `Late payment: ${p.title}${p.money.client ? " (" + p.money.client + ")" : ""}, ${s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label}`, "project-" + p.id);
+  }
+  if (isAdmin && fundDoc) for (const [sid, sb] of Object.entries(fundDoc.subs || {})) if (sb && sb.nextDue && sb.nextDue <= tomorrow) add("sub:" + sid + ":" + sb.nextDue, dayStart(), null, `${sb.name} subscription is due ${sb.nextDue < today ? "(overdue)" : sb.nextDue === today ? "today" : "tomorrow"}`, "money");
+  { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, "Please read and agree to the team's money rules", "money") }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
   for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
   return out.sort((a, b) => b.at - a.at).slice(0, 50);
@@ -1919,6 +1930,13 @@ function renderMe() {
       el("div", { class: "stat" + (overdue ? " late" : "") }, el("b", {}, overdue), el("span", {}, "overdue")),
       el("div", { class: "stat" }, el("b", {}, doneWeek), el("span", {}, "done this week"))));
 
+  if (dealProjects().length || isAdmin) {
+    const all = allMoney();
+    box.append(el("button", { class: "nowcard moneycard", onclick: () => { location.hash = "money" } },
+      el("span", { class: "now-label" }, "Money"),
+      el("span", { class: "now-title" }, all.me.balance > 0 ? `You're owed ${fmtEGP(all.me.balance)}` : `Team fund ${fmtEGP(fundState(all).balance)}`),
+      el("span", { class: "now-sub" }, (all.late.length ? `${all.late.length} late payment${all.late.length > 1 ? "s" : ""} \u00b7 ` : "") + "Open money \u2192")));
+  }
   for (const p of building) {
     const left = tasksOf(p).filter(t => t.owner === me && !t.done).length;
     box.append(el("button", { class: "nowcard", onclick: () => { location.hash = "build-" + p.id } },
@@ -2234,6 +2252,461 @@ async function checkForUpdate() {
 setTimeout(checkForUpdate, 4000);
 setInterval(checkForUpdate, 5 * 60 * 1000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkForUpdate() });
+
+/* ----- money: each project's Money tab ----- */
+
+let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
+const rulesNow = () => ({ ...MONEY_DEFAULTS, ...(moneyRules || {}) });
+const fmtEGP = p => { const v = (p || 0) / 100; return (Math.round(v) === v ? v.toLocaleString("en") : v.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + " EGP" };
+const fmtN = p => fmtEGP(p).replace(" EGP", "");
+const thisMonth = () => todayStr().slice(0, 7);
+const monthLabel = ym => { if (!ym) return ""; const [y, m] = ym.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" }) };
+const DEAL_TYPES = [["one", "One-time"], ["monthly", "Monthly"], ["installments", "Paid over months"]];
+const STAGES = [["proposal", "Proposal sent"], ["agreed", "Deal agreed"], ["ended", "Ended"]];
+const METHODS = ["Cash", "InstaPay", "Vodafone Cash", "Bank transfer", "Other"];
+let editDeal = null, moneyForm = null, delMoney = null, shareMonth = null;
+const moneyOf = p => computeMoney(p, todayStr(), rulesNow());
+const canMoney = p => canPlan(p);
+
+function moneyStatus(p, r) {
+  const m = p.money || {};
+  if (m.stage === "proposal") return ["Proposal sent", "label"];
+  if (m.stage === "ended") return ["Ended", "label"];
+  if (r.monthsUnpaid >= rulesNow().pauseAfterLate) return [`${r.monthsUnpaid} months unpaid`, "late"];
+  if (r.late.length) return ["Payment late", "late"];
+  if (m.type === "one") return r.received >= r.expected && r.expected ? ["Fully paid", "paid"] : r.received ? ["Deposit received", "due"] : ["Waiting for deposit", "due"];
+  if (m.type === "installments") return r.received >= r.expected ? ["Fully paid", "paid"] : ["Being paid", "due"];
+  return ["Active", "paid"];
+}
+
+function renderMoney(box, p) {
+  const m = p.money, can = canMoney(p);
+  if (!m || editDeal === p.id) {
+    if (!can) { box.append(el("div", { class: "empty" }, "No deal set up yet. The project's planners add the money details here.")); return }
+    box.append(dealForm(p)); return;
+  }
+  const r = moneyOf(p), [st, stCls] = moneyStatus(p, r);
+  const typeName = (DEAL_TYPES.find(x => x[0] === m.type) || DEAL_TYPES[0])[1];
+
+  /* summary */
+  const sum = el("section", { class: "idea money-sum" },
+    el("div", { class: "row", style: "gap:6px" }, el("span", { class: "chip" }, typeName), el("span", { class: "mstat " + stCls }, st), m.client ? el("span", { class: "label" }, "Client: " + m.client) : null,
+      el("span", { class: "spacer" }), can ? el("button", { class: "btn small", onclick: () => { editDeal = p.id; render() } }, "Edit deal") : null));
+  if (m.type === "monthly") {
+    sum.append(el("div", { class: "bignum" }, fmtEGP(toP(m.monthlyFee)), el("span", {}, " / month")),
+      el("div", { class: "label" }, [toP(m.setupFee) ? "Setup fee " + fmtEGP(toP(m.setupFee)) : null, "since " + monthLabel(m.startMonth), m.endMonth ? "until " + monthLabel(m.endMonth) : "ongoing", "due by day " + (m.dueDay || 5)].filter(Boolean).join(" · ")),
+      el("div", { class: "label" }, "Received so far: " + fmtEGP(r.received)));
+  } else {
+    sum.append(el("div", { class: "bignum" }, fmtEGP(r.received), el("span", {}, " of " + fmtEGP(r.expected))),
+      line({ total: 100, done: 0, pct: r.expected ? Math.min(100, Math.round(r.received / r.expected * 100)) : 0 }, "x"),
+      el("div", { class: "label" }, r.received >= r.expected ? "Fully paid" : fmtEGP(r.expected - r.received) + " still to come"));
+    sum.querySelectorAll(".pmeta").forEach(n => n.remove());
+  }
+  // schedule
+  if (r.schedule.length > 1 || m.type !== "one") {
+    const sch = el("div", { class: "schedule" });
+    for (const s of r.schedule.slice(-8)) sch.append(el("div", { class: "sched " + s.status },
+      el("span", { class: "sched-l" }, s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label),
+      el("span", {}, s.status === "paid" ? "✓ " + fmtEGP(s.received) : s.received ? `${fmtEGP(s.received)} of ${fmtEGP(s.expected)}` : fmtEGP(s.expected)),
+      el("span", { class: "sched-s" }, { paid: "Paid", late: "Late", due: "Due", upcoming: "Next" }[s.status]),
+      can && m.type === "monthly" && s.label.match(/^\d{4}-\d{2}$/) ? el("button", { class: "linkbtn", onclick: () => { shareMonth = p.id + ":" + s.month; render() } }, "Who worked?") : null));
+    sum.append(sch);
+  }
+  box.append(sum);
+  if (shareMonth && shareMonth.startsWith(p.id + ":")) box.append(monthShareForm(p, shareMonth.split(":")[1]));
+
+  /* warnings */
+  const warn = [];
+  if (r.monthsUnpaid >= rulesNow().pauseAfterLate) warn.push(`The client hasn't paid for ${r.monthsUnpaid} months. Our rule: pause the work until they pay.`);
+  else if (r.late.length) warn.push(`Late: ${r.late.map(s => s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label).join(", ")}. Remind the client.`);
+  if (r.costsUnpaid > 0 && !r.pending) warn.push(`${fmtEGP(r.costsUnpaid)} of costs still needs paying back.` + (m.type === "one" ? " This project lost money, so the team fund should cover it." : " It comes out of the next payment."));
+  if (r.unassigned > 0) warn.push(`${fmtEGP(r.unassigned)} isn't assigned to anyone yet. Set the shares in Edit deal.`);
+  if (warn.length) box.append(el("div", { class: "notice", style: "margin:0 0 12px" }, warn.map(w => el("div", {}, w))));
+
+  /* actions */
+  if (can) {
+    const act = el("div", { class: "row", style: "gap:8px;margin-bottom:12px" },
+      el("button", { class: "btn primary small", onclick: () => { moneyForm = { pid: p.id, kind: "pay" }; render() } }, "+ Payment"),
+      el("button", { class: "btn small", onclick: () => { moneyForm = { pid: p.id, kind: "cost" }; render() } }, "+ Cost"),
+      m.adBudget ? el("button", { class: "btn small", onclick: () => { moneyForm = { pid: p.id, kind: "ads" }; render() } }, "+ Ad money") : null);
+    box.append(act);
+    if (moneyForm && moneyForm.pid === p.id) box.append(moneyEntryForm(p, r));
+  }
+
+  /* who gets what */
+  const split = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "Who gets what"), el("span", { class: "spacer" }),
+    el("span", { class: "label" }, `Team fund ${r.fundPct}%` + (m.finder ? ` · finder ${r.findPct}% to ${firstName(m.finder)}` : ""))));
+  if (r.pending) {
+    split.append(el("p", { style: "margin:0;font-size:14px" }, "Split happens when the client has fully paid. If nothing else is spent, it will be:"));
+    const pv = r.preview;
+    for (const [u, v] of Object.entries(pv.people).sort((a, b) => b[1].earned - a[1].earned)) split.append(el("div", { class: "mrow" }, av(u), el("span", { class: "mname" }, name(u)), el("span", { class: "mval" }, fmtEGP(v.earned))));
+    split.append(el("div", { class: "mrow fundrow" }, el("span", { class: "mname" }, "Team fund"), el("span", { class: "mval" }, fmtEGP(pv.fund))));
+    if (r.held) split.append(el("p", { class: "label", style: "margin:4px 0 0" }, `${fmtEGP(r.held)} received and waiting to be split.`));
+  }
+  const people = Object.entries(r.people).filter(([, v]) => v.earned || v.back || v.paid).sort((a, b) => b[1].balance - a[1].balance);
+  if (people.length) {
+    if (r.pending) split.append(el("div", { class: "tlabel", style: "margin-top:8px" }, "So far"));
+    split.append(el("div", { class: "mhead" }, el("span", {}, "In EGP"), el("span", {}, "Earned"), el("span", {}, "Paid to them"), el("span", {}, "Owed")));
+    for (const [u, v] of people) split.append(el("div", { class: "mrow4" },
+      el("span", { class: "by" }, av(u), el("span", { class: "mname" }, name(u))),
+      el("span", { class: "mval" }, fmtN(v.earned + v.back), v.back ? el("small", {}, ` incl. ${fmtN(v.back)} costs`) : null),
+      el("span", { class: "mval" }, fmtN(v.paid)),
+      el("span", { class: "mval owed" }, fmtN(v.balance), can && v.balance > 0 ? el("button", { class: "linkbtn", onclick: () => { moneyForm = { pid: p.id, kind: "payout", to: u, amount: v.balance / 100 }; render() } }, "Mark paid") : null)));
+  }
+  if (!r.pending) split.append(el("div", { class: "mrow fundrow" }, el("span", { class: "mname" }, "Team fund"), el("span", { class: "mval" }, fmtEGP(r.fund))));
+  const shareTxt = Object.entries(m.shares || {}).filter(([, v]) => Number(v) > 0).map(([u, v]) => `${firstName(u)} ${v}%`).join(" · ");
+  if (shareTxt) split.append(el("p", { class: "label", style: "margin:6px 0 0" }, (m.type === "monthly" ? "Setup shares: " : "Shares: ") + shareTxt));
+  if (m.type === "monthly") { const ms = Object.entries(m.monthlyShares || m.shares || {}).filter(([, v]) => Number(v) > 0).map(([u, v]) => `${firstName(u)} ${v}%`).join(" · "); if (ms) split.append(el("p", { class: "label", style: "margin:2px 0 0" }, "Monthly shares: " + ms)) }
+  box.append(split);
+
+  /* ad money */
+  if (m.adBudget || r.ads.in || r.ads.spent) box.append(el("section", { class: "idea", style: "margin-top:12px" },
+    el("div", { class: "row" }, el("h3", {}, "Client's ad money"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Not our money, never split")),
+    el("div", { class: "adgrid" },
+      el("div", {}, el("b", {}, fmtEGP(r.ads.in)), el("span", {}, "received")),
+      el("div", {}, el("b", {}, fmtEGP(r.ads.spent)), el("span", {}, "spent on ads")),
+      el("div", { class: r.ads.held < 0 ? "late" : "" }, el("b", {}, fmtEGP(r.ads.held)), el("span", {}, r.ads.held < 0 ? "we paid extra" : "left to spend")))));
+
+  /* history */
+  const hist = [];
+  for (const [id, x] of Object.entries(p.payments || {})) if (x) hist.push({ id, coll: "payments", date: x.date, at: x.at, sign: "+", amount: x.amount, text: `${{ deposit: "Deposit", setup: "Setup fee", monthly: "Monthly fee " + monthLabel(x.month), installment: "Installment" }[x.kind] || "Payment"}${x.method ? " · " + x.method : ""}${x.heldBy ? " · with " + firstName(x.heldBy) : ""}`, note: x.note });
+  for (const [id, x] of Object.entries(p.costs || {})) if (x) hist.push({ id, coll: "costs", date: x.date, at: x.at, sign: "−", amount: x.amount, text: `Cost: ${x.what || "spent"}${x.paidBy ? " · paid by " + firstName(x.paidBy) : ""}`, note: x.note });
+  for (const [id, x] of Object.entries(p.payouts || {})) if (x) hist.push({ id, coll: "payouts", date: x.date, at: x.at, sign: "→", amount: x.amount, text: `Paid to ${firstName(x.to)}${x.from ? " by " + firstName(x.from) : ""}`, note: x.note });
+  for (const [id, x] of Object.entries(p.ads || {})) if (x) hist.push({ id, coll: "ads", date: x.date, at: x.at, sign: x.kind === "spent" ? "−" : "+", amount: x.amount, text: x.kind === "spent" ? "Ad money spent on ads" : "Ad money from client", note: x.note, ad: true });
+  hist.sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.at || 0) - (a.at || 0));
+  if (hist.length) box.append(el("details", { class: "removed", open: hist.length <= 6 }, el("summary", {}, `History (${hist.length})`),
+    el("div", { class: "idea", style: "gap:0;margin-top:10px" }, hist.map(h => el("div", { class: "hrow" + (h.ad ? " ad" : "") },
+      el("span", { class: "hsign" }, h.sign), el("div", { class: "hmain" }, el("div", {}, h.text), el("div", { class: "label" }, fmtDate(h.date) + (h.note ? " · " + h.note : ""))),
+      el("span", { class: "hamt" }, fmtEGP(toP(h.amount))),
+      can ? (delMoney === h.id ? el("button", { class: "linkdel sure", onclick: () => { delMoney = null; write(() => upd(p.id, { [h.coll + "." + h.id]: DEL() }), "Removed") } }, "Remove?")
+        : el("button", { class: "linkdel", "aria-label": "Remove", onclick: () => { delMoney = h.id; render() } }, "✕")) : null)))));
+}
+
+function teamChoices(p) { return [...new Set([...teamOf(p), ...teamIds()])] }
+function personSelect(id, value, p, blank) {
+  const s = el("select", { class: "mini", id }, blank ? el("option", { value: "" }, blank) : null, teamChoices(p).map(u => el("option", { value: u }, realName(u) || "Someone")));
+  s.value = value || ""; return s;
+}
+function moneyInput(id, value, ph) { const i = el("input", { id, class: "noteinput", type: "number", inputmode: "decimal", min: "0", step: "any", placeholder: ph || "0" }); if (value != null && value !== "" && !i.value) i.value = value; return i }
+function fieldRow(label, ...kids) { return el("div", { class: "tfield" }, el("span", { class: "tlabel" }, label), el("div", { class: "tval" }, ...kids)) }
+
+function moneyEntryForm(p, r) {
+  const m = p.money, f = moneyForm, today = todayStr();
+  const amount = moneyInput("mf-amount", f.amount != null ? f.amount : (f.kind === "pay" && m.type === "monthly" ? m.monthlyFee : ""), "Amount in EGP");
+  const date = el("input", { id: "mf-date", type: "date", class: "mini", value: today });
+  const note = el("input", { id: "mf-note", class: "noteinput", maxlength: "120", placeholder: "Note (optional)" });
+  const box = el("section", { class: "idea mform" });
+  const close = () => { moneyForm = null; render() };
+  let kindSel, monthSel, method, held, what, paidBy, adKind, to, from;
+  if (f.kind === "pay") {
+    box.append(el("h3", {}, "Payment received"));
+    const kinds = m.type === "monthly" ? [["monthly", "Monthly fee"], ["setup", "Setup fee"]] : m.type === "installments" ? [["installment", "Installment"]] : [["deposit", "Deposit"], ["payment", "Payment"]];
+    kindSel = el("select", { class: "mini", id: "mf-kind" }, kinds.map(([v, l]) => el("option", { value: v }, l)));
+    if (m.type === "one" && r.received > 0) kindSel.value = "payment";
+    if (m.type === "monthly") {
+      const unpaid = r.schedule.filter(s => s.month && s.label.match(/^\d{4}-\d{2}$/) && s.status !== "paid");
+      const opts = [...new Set([...unpaid.map(s => s.month), thisMonth()])].sort();
+      monthSel = el("select", { class: "mini", id: "mf-month" }, opts.map(x => el("option", { value: x }, monthLabel(x))));
+      monthSel.value = unpaid.length ? unpaid[0].month : thisMonth();
+      if (toP(m.setupFee) && !r.schedule.find(s => s.label === "Setup fee" && s.status === "paid") && !f.amount) { kindSel.value = "setup"; amount.value = m.setupFee }
+      kindSel.addEventListener("change", () => { monthSel.parentElement.parentElement.hidden = kindSel.value !== "monthly"; amount.value = kindSel.value === "setup" ? m.setupFee || "" : m.monthlyFee || "" });
+    }
+    method = el("select", { class: "mini", id: "mf-method" }, METHODS.map(x => el("option", { value: x }, x)));
+    held = personSelect("mf-held", me, p);
+    box.append(fieldRow("Amount", amount), fieldRow("Type", kindSel), monthSel ? fieldRow("For month", monthSel) : null, fieldRow("Date", date), fieldRow("How", method), fieldRow("Who has it", held), note);
+    if (monthSel && kindSel.value !== "monthly") monthSel.parentElement.parentElement.hidden = true;
+  } else if (f.kind === "cost") {
+    box.append(el("h3", {}, "Cost"));
+    what = el("input", { id: "mf-what", class: "noteinput", maxlength: "80", placeholder: "What was it? e.g. camera rental" });
+    paidBy = personSelect("mf-paidby", me, p);
+    box.append(fieldRow("Amount", amount), fieldRow("For", what), fieldRow("Paid by", paidBy), fieldRow("Date", date), note,
+      el("p", { class: "label", style: "margin:0" }, "Whoever paid gets it back first, from the next money that comes in."));
+  } else if (f.kind === "ads") {
+    box.append(el("h3", {}, "Client's ad money"));
+    adKind = el("select", { class: "mini", id: "mf-adkind" }, el("option", { value: "in" }, "Received from the client"), el("option", { value: "spent" }, "Spent on ads"));
+    box.append(fieldRow("Amount", amount), fieldRow("Type", adKind), fieldRow("Date", date), note);
+  } else if (f.kind === "payout") {
+    box.append(el("h3", {}, "Money handed over"));
+    to = personSelect("mf-to", f.to, p); from = personSelect("mf-from", me, p, "Not recorded");
+    box.append(fieldRow("To", to), fieldRow("Amount", amount), fieldRow("From", from), fieldRow("Date", date), note);
+  }
+  const save = () => {
+    const a = Number(amount.value);
+    if (!(a > 0)) { toast("Enter an amount bigger than 0"); amount.focus(); return }
+    const base = { amount: Math.round(a * 100) / 100, date: date.value || today, note: note.value.trim(), by: me, at: Date.now() };
+    let coll, data, ok;
+    if (f.kind === "pay") { coll = "payments"; data = { ...base, kind: kindSel.value, method: method.value, heldBy: held.value || null }; if (kindSel.value === "monthly") data.month = monthSel.value; ok = "Payment added" }
+    else if (f.kind === "cost") { coll = "costs"; data = { ...base, what: what.value.trim(), paidBy: paidBy.value || null }; ok = "Cost added" }
+    else if (f.kind === "ads") { coll = "ads"; data = { ...base, kind: adKind.value }; ok = "Ad money added" }
+    else { coll = "payouts"; data = { ...base, to: to.value, from: from.value || null }; ok = `Marked as paid to ${firstName(to.value)}` }
+    moneyForm = null;
+    write(() => upd(p.id, { [coll + "." + uid()]: data }), ok);
+  };
+  box.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("button", { class: "btn primary", onclick: save }, "Save")));
+  setTimeout(() => { if (!amount.value) amount.focus() }, 0);
+  return box;
+}
+
+// share editor: percentages that must add up to 100
+function sharesEditor(prefix, p, current, suggestBtn) {
+  const wrap = el("div", { class: "shares" });
+  const ids = teamChoices(p);
+  const inputs = {};
+  const total = el("span", { class: "label" });
+  const upd8 = () => { const t = ids.reduce((s, u) => s + (Number(inputs[u].value) || 0), 0); total.textContent = `Total ${t}%` + (t === 100 ? " ✓" : " (needs to be 100%)"); total.className = "label" + (t === 100 ? " ok" : " bad") };
+  for (const u of ids) {
+    const i = el("input", { id: `${prefix}-${u}`, class: "mini pct", type: "number", inputmode: "numeric", min: "0", max: "100", step: "1", oninput: upd8 });
+    if (!i.value && current && current[u] != null) i.value = current[u];
+    inputs[u] = i;
+    wrap.append(el("label", { class: "share", for: i.id }, av(u), el("span", { class: "mname" }, realName(u) || "Someone"), i, "%"));
+  }
+  const tools = el("div", { class: "row", style: "gap:8px" }, total, el("span", { class: "spacer" }),
+    suggestBtn ? el("button", { class: "btn small", type: "button", onclick: () => { const sg = suggestShares(tasksOf(p), t => assignees(t)); if (!Object.keys(sg).length) { toast("No one has tasks yet, so there's nothing to go on"); return } for (const u of ids) inputs[u].value = sg[u] || ""; upd8() } }, "Suggest from tasks") : null,
+    el("button", { class: "btn small quiet", type: "button", onclick: () => { const who = ids.filter(u => Number(inputs[u].value) > 0); const list = who.length ? who : teamOf(p).length ? teamOf(p) : ids; const each = Math.floor(100 / list.length); ids.forEach(u => inputs[u].value = ""); list.forEach((u, k) => inputs[u].value = each + (k === 0 ? 100 - each * list.length : 0)); upd8() } }, "Split equally"));
+  wrap.append(tools); upd8();
+  wrap.read = () => { const out = {}; let t = 0; for (const u of ids) { const v = Math.round(Number(inputs[u].value) || 0); if (v > 0) { out[u] = v; t += v } } return { shares: out, total: t } };
+  return wrap;
+}
+
+let dealTypeDraft = {};
+function dealForm(p) {
+  const m = p.money || {}, R = rulesNow();
+  const type = dealTypeDraft[p.id] || m.type || "one";
+  const box = el("section", { class: "idea mform" }, el("h3", {}, m.type ? "Edit the deal" : "Set up the deal"),
+    el("p", { style: "margin:0;font-size:14px" }, "How the client pays, and how the money is shared. Everyone on the team can see this."));
+  box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Deal type" }, DEAL_TYPES.map(([v, l]) => el("button", { type: "button", "aria-pressed": String(type === v), onclick: () => { dealTypeDraft[p.id] = v; render() } }, l))));
+  box.append(el("p", { class: "label", style: "margin:0" }, { one: "One price, usually a deposit first and the rest at the end. Split when fully paid.", monthly: "A fee every month (like running Google Ads), plus an optional setup fee. Split every month.", installments: "One total price paid in equal monthly payments. Split as each payment arrives." }[type]));
+  const client = el("input", { id: "deal-client", class: "noteinput", maxlength: "80", placeholder: "Client name (optional)" }); if (!client.value) client.value = m.client || "";
+  const stage = el("select", { class: "mini", id: "deal-stage" }, STAGES.map(([v, l]) => el("option", { value: v }, l))); stage.value = m.stage || "agreed";
+  box.append(fieldRow("Client", client), fieldRow("Stage", stage));
+  const price = moneyInput("deal-price", m.price, "Total price in EGP");
+  const fee = moneyInput("deal-fee", m.monthlyFee, "Monthly fee in EGP"), setup = moneyInput("deal-setup", m.setupFee, "Setup fee (optional)");
+  const months = el("input", { id: "deal-n", class: "mini", type: "number", min: "2", max: "36", step: "1", value: m.installments || 3 });
+  const start = el("input", { id: "deal-start", class: "mini", type: "month", value: m.startMonth || thisMonth() });
+  const end = el("input", { id: "deal-end", class: "mini", type: "month", value: m.endMonth || "" });
+  const dueDay = el("input", { id: "deal-due", class: "mini", type: "number", min: "1", max: "28", step: "1", value: m.dueDay || 5 });
+  const ads = el("input", { id: "deal-ads", type: "checkbox", checked: !!m.adBudget });
+  if (type === "one") box.append(fieldRow("Price", price));
+  if (type === "installments") box.append(fieldRow("Total price", price), fieldRow("Number of months", months), fieldRow("First payment", start), fieldRow("Due by day", dueDay));
+  if (type === "monthly") box.append(fieldRow("Monthly fee", fee), fieldRow("Setup fee", setup), fieldRow("Starts", start), fieldRow("Ends", end, el("span", { class: "label" }, "leave empty if ongoing")), fieldRow("Due by day", dueDay),
+    el("label", { class: "row", style: "gap:8px;font-size:14px" }, ads, "The client also pays their ad budget through us (tracked separately, never split)"));
+
+  box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, type === "monthly" ? "Who built it (setup fee shares)" : "Who gets what (shares)"));
+  const shares = sharesEditor("sh-" + p.id, p, m.shares, true); box.append(shares);
+  let mshares = null;
+  if (type === "monthly") { box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "Who runs it each month (monthly fee shares)")); mshares = sharesEditor("msh-" + p.id, p, m.monthlyShares || m.shares, false); box.append(mshares, el("p", { class: "label", style: "margin:0" }, "You can change this for a single month later with “Who worked?”.")) }
+
+  const finder = personSelect("deal-finder", m.finder, p, "Nobody / we found it");
+  box.append(fieldRow("Who brought the client?", finder, el("span", { class: "label" }, `gets ${m.findPct != null ? m.findPct : R.findPct}%` + (type === "monthly" ? ` (first ${R.finderMonths} months)` : ""))));
+  let fundIn = null, findIn = null;
+  if (isAdmin) { fundIn = el("input", { id: "deal-fundpct", class: "mini pct", type: "number", min: "0", max: "50", step: "1", value: m.fundPct != null ? m.fundPct : R.fundPct }); findIn = el("input", { id: "deal-findpct", class: "mini pct", type: "number", min: "0", max: "30", step: "1", value: m.findPct != null ? m.findPct : R.findPct });
+    box.append(fieldRow("Team fund %", fundIn, el("span", { class: "label" }, "team rule: " + R.fundPct + "%")), fieldRow("Finder %", findIn, el("span", { class: "label" }, "team rule: " + R.findPct + "%"))) }
+  else box.append(el("p", { class: "label", style: "margin:0" }, `Team fund ${m.fundPct != null ? m.fundPct : R.fundPct}% · finder ${m.findPct != null ? m.findPct : R.findPct}% (set by ${ADMIN_NAME})`));
+
+  const save = () => {
+    const s = shares.read(); if (s.total !== 100) { toast("The shares need to add up to 100%"); return }
+    let ms = null; if (mshares) { ms = mshares.read(); if (ms.total !== 100) { toast("The monthly shares need to add up to 100%"); return } }
+    const n = x => Math.round((Number(x.value) || 0) * 100) / 100;
+    const data = { type, client: client.value.trim(), stage: stage.value, shares: s.shares, finder: finder.value || null,
+      fundPct: fundIn ? Number(fundIn.value) : (m.fundPct != null ? m.fundPct : R.fundPct), findPct: findIn ? Number(findIn.value) : (m.findPct != null ? m.findPct : R.findPct),
+      monthShares: m.monthShares || {}, setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
+    if (type === "one") { if (!(n(price) > 0)) { toast("Enter the price"); return } data.price = n(price) }
+    if (type === "installments") { if (!(n(price) > 0)) { toast("Enter the total price"); return } Object.assign(data, { price: n(price), installments: Math.max(2, Math.round(Number(months.value) || 3)), startMonth: start.value || thisMonth(), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)) }) }
+    if (type === "monthly") { if (!(n(fee) > 0)) { toast("Enter the monthly fee"); return } Object.assign(data, { monthlyFee: n(fee), setupFee: n(setup), startMonth: start.value || thisMonth(), endMonth: end.value || "", dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)), adBudget: ads.checked, monthlyShares: ms.shares }) }
+    editDeal = null; delete dealTypeDraft[p.id];
+    write(() => upd(p.id, { money: data }), "Deal saved");
+  };
+  box.append(el("div", { class: "row" }, el("span", { class: "spacer" }),
+    p.money ? el("button", { class: "btn quiet", onclick: () => { editDeal = null; delete dealTypeDraft[p.id]; render() } }, "Cancel") : null,
+    el("button", { class: "btn primary", onclick: save }, "Save deal")));
+  return box;
+}
+
+function monthShareForm(p, month) {
+  const m = p.money, cur = (m.monthShares || {})[month] || m.monthlyShares || m.shares;
+  const ed = sharesEditor(`ms-${p.id}-${month}`, p, cur, false);
+  return el("section", { class: "idea mform" }, el("h3", {}, `Who worked in ${monthLabel(month)}?`), ed,
+    el("div", { class: "row" }, el("span", { class: "spacer" }),
+      (m.monthShares || {})[month] ? el("button", { class: "btn quiet", onclick: () => { shareMonth = null; write(() => upd(p.id, { [`money.monthShares.${month}`]: DEL() }), "Back to the usual shares") } }, "Use usual shares") : null,
+      el("button", { class: "btn quiet", onclick: () => { shareMonth = null; render() } }, "Cancel"),
+      el("button", { class: "btn primary", onclick: () => { const r = ed.read(); if (r.total !== 100) { toast("Needs to add up to 100%"); return } shareMonth = null; write(() => upd(p.id, { [`money.monthShares.${month}`]: r.shares }), "Saved for " + monthLabel(month)) } }, "Save")));
+}
+
+/* ----- money: the team money page (my money, team fund, rules) ----- */
+
+const dealProjects = () => ideas.filter(i => (i.status === "approved" || i.status === "completed") && i.money);
+function allMoney() {
+  const out = { projects: [], me: { earned: 0, back: 0, paid: 0, balance: 0 }, people: {}, fundIn: 0, month: { expected: 0, received: 0 }, late: [] };
+  const nowM = thisMonth();
+  for (const p of dealProjects()) {
+    const r = moneyOf(p); out.projects.push({ p, r }); out.fundIn += r.fund;
+    for (const [u, v] of Object.entries(r.people)) { const t = out.people[u] || (out.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 }); for (const k of ["earned", "back", "paid", "balance"]) t[k] += v[k] }
+    for (const s of r.schedule) if (s.month === nowM && s.label !== "Total") { out.month.expected += s.expected; out.month.received += s.received }
+    for (const s of r.late) out.late.push({ p, s });
+  }
+  out.me = out.people[me] || out.me;
+  return out;
+}
+function fundState(all) {
+  const f = fundDoc || {};
+  const spends = Object.entries(f.spends || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v })).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const adj = Object.entries(f.adjust || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v }));
+  const spent = spends.reduce((s, x) => s + toP(x.amount), 0), extra = adj.reduce((s, x) => s + toP(x.amount), 0);
+  const goals = Object.entries(f.goals || {}).filter(([, v]) => v && v.name).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.order || 0) - (b.order || 0));
+  const subs = Object.entries(f.subs || {}).filter(([, v]) => v && v.name).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.nextDue || "").localeCompare(b.nextDue || ""));
+  const balance = all.fundIn + extra - spent;
+  return { spends, adj, spent, extra, goals, subs, balance, holder: (moneyRules || {}).holder || null };
+}
+const nextDate = (d, cycle) => { const x = new Date(d + "T12:00"); if (cycle === "year") x.setFullYear(x.getFullYear() + 1); else x.setMonth(x.getMonth() + 1); return ymd(x) };
+let fundForm = null, delFund = null, editRules = false;
+const fundWrite = (data, ok) => write(() => setDoc(doc(db, "meta", "fund"), data, { merge: true }), ok);
+
+function moneyRulesText(R) {
+  return [
+    `Costs come first: anyone who paid for something from their own pocket gets it back first, from the next money that comes in.`,
+    `${R.fundPct}% of each project's profit goes to the team fund (for things like an office and our subscriptions).`,
+    `Whoever brings a client gets a ${R.findPct}% finder's fee. On monthly deals it applies to the setup fee and the first ${R.finderMonths} months.`,
+    `The rest is split by the shares agreed when the deal is made. The site suggests shares from who has which tasks.`,
+    `One-time projects: the deposit pays back costs; the profit is split once the client has fully paid.`,
+    `Monthly deals and payments over several months: split every time a payment arrives.`,
+    `Monthly deals: the setup fee goes to who built it; each month's fee goes to who ran it that month.`,
+    `If a monthly client is ${R.pauseAfterLate} months late, we pause the work until they pay.`,
+    `A client's ad budget is their money, not ours. It's tracked separately and never split.`,
+    `If a project loses money, nobody gets a share from it and the team fund covers what's owed back.`,
+    `Everyone can see all the money. Only ${ADMIN_NAME} and each project's planners can add or change amounts.`,
+  ];
+}
+
+function renderMoneyPage() {
+  const box = $("#money"); box.replaceChildren();
+  const all = allMoney(), F = fundState(all), R = rulesNow();
+  box.append(el("button", { class: "back", onclick: () => { location.hash = "me" } }, "← Me"), el("h2", { class: "sec-h", style: "margin-top:0" }, "Money"));
+
+  /* rules agreement banner */
+  const agreed = ((people[me] || {}).moneyAgreed || {}).version === (R.version || 1);
+  if (!agreed) box.append(el("div", { class: "notice", style: "margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap" },
+    el("span", { style: "flex:1 1 200px" }, "Please read the team's money rules at the bottom of this page and tap “I agree”."),
+    el("button", { class: "btn small", onclick: () => { const n = document.getElementById("rules"); n && n.scrollIntoView({ behavior: "smooth" }) } }, "Read the rules")));
+
+  /* my money */
+  box.append(el("section", { class: "profile money-hero" },
+    el("div", { class: "profile-main", style: "grid-column:1/-1" }, el("div", { class: "hello" }, "You're owed"), el("h1", {}, fmtEGP(all.me.balance))),
+    el("div", { class: "stats" },
+      el("div", { class: "stat" }, el("b", {}, fmtEGP(all.me.earned)), el("span", {}, "earned in total")),
+      el("div", { class: "stat" }, el("b", {}, fmtEGP(all.me.back)), el("span", {}, "costs paid back")),
+      el("div", { class: "stat" }, el("b", {}, fmtEGP(all.me.paid)), el("span", {}, "already handed to you")))));
+  const mine = all.projects.map(({ p, r }) => ({ p, v: r.people[me] })).filter(x => x.v && (x.v.earned || x.v.back || x.v.paid));
+  if (mine.length) box.append(el("section", { class: "idea", style: "margin-top:12px;gap:0" }, el("h3", { style: "margin-bottom:6px" }, "By project"),
+    mine.map(({ p, v }) => el("button", { class: "mlink", onclick: () => { projTab = "money"; location.hash = "project-" + p.id } },
+      el("span", { class: "mname" }, p.title), el("span", { class: "label" }, `earned ${fmtEGP(v.earned + v.back)} · owed ${fmtEGP(v.balance)}`)))));
+
+  /* this month */
+  box.append(el("h2", { class: "sec-h" }, "This month"));
+  box.append(el("section", { class: "idea" },
+    el("div", { class: "adgrid" },
+      el("div", {}, el("b", {}, fmtEGP(all.month.expected)), el("span", {}, "expected from clients")),
+      el("div", {}, el("b", {}, fmtEGP(all.month.received)), el("span", {}, "received")),
+      el("div", { class: all.late.length ? "late" : "" }, el("b", {}, String(all.late.length)), el("span", {}, all.late.length === 1 ? "late payment" : "late payments"))),
+    all.late.length ? el("div", { style: "display:grid;gap:4px" }, all.late.map(({ p, s }) => el("button", { class: "mlink late", onclick: () => { projTab = "money"; location.hash = "project-" + p.id } },
+      el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, (s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label) + " · " + fmtEGP(s.expected - s.received))))) : null,
+    !all.projects.length ? el("p", { style: "margin:0" }, "No deals yet. Set one up on a project's Money tab.") : null));
+
+  /* team fund */
+  box.append(el("h2", { class: "sec-h" }, "Team fund"));
+  const fund = el("section", { class: "idea" },
+    el("div", { class: "row" }, el("div", {}, el("div", { class: "bignum" }, fmtEGP(F.balance)), el("div", { class: "label" }, F.holder ? `Held by ${name(F.holder)}` : `Held by ${ADMIN_NAME}`)), el("span", { class: "spacer" }),
+      isAdmin ? el("button", { class: "btn small", onclick: () => { fundForm = "spend"; render() } }, "Record spending") : null),
+    el("div", { class: "label" }, `${fmtEGP(all.fundIn)} from projects` + (F.extra ? ` · ${fmtEGP(F.extra)} added` : "") + (F.spent ? ` · ${fmtEGP(F.spent)} spent` : "")));
+  box.append(fund);
+  if (isAdmin && fundForm) box.append(fundEntryForm(F));
+
+  /* goals: the balance fills them in order */
+  let left = Math.max(0, F.balance);
+  const goals = el("section", { class: "idea", style: "margin-top:12px" }, el("div", { class: "row" }, el("h3", {}, "Goals"), el("span", { class: "spacer" }), isAdmin ? el("button", { class: "btn small", onclick: () => { fundForm = "goal"; render() } }, "+ Goal") : null));
+  if (!F.goals.length) goals.append(el("p", { style: "margin:0" }, isAdmin ? "Add what you're saving for, like an office." : "No goals yet."));
+  F.goals.forEach((g, k) => {
+    const t = toP(g.target), have = Math.min(left, t); left -= have;
+    goals.append(el("div", { class: "goalrow" },
+      el("div", { class: "row" }, el("span", { class: "mname" }, g.name), el("span", { class: "spacer" }), el("span", { class: "label" }, `${fmtEGP(have)} of ${fmtEGP(t)}`),
+        isAdmin ? (delFund === g.id ? el("button", { class: "linkdel sure", onclick: () => { delFund = null; fundWrite({ goals: { [g.id]: DEL() } }, "Goal removed") } }, "Remove?") : el("button", { class: "linkdel", "aria-label": "Remove goal", onclick: () => { delFund = g.id; render() } }, "✕")) : null),
+      line({ total: 100, done: 0, pct: t ? Math.round(have / t * 100) : 0 }, "x")));
+  });
+  goals.querySelectorAll(".pmeta").forEach(n => n.remove());
+  if (F.goals.length > 1) goals.append(el("p", { class: "label", style: "margin:0" }, "The fund fills the goals in order, top first."));
+  box.append(goals);
+
+  /* subscriptions */
+  const today = todayStr(), soon = ymd(new Date(Date.now() + 30 * 864e5));
+  const dueSoon = F.subs.filter(s => s.nextDue && s.nextDue <= soon).reduce((s, x) => s + toP(x.amount), 0);
+  const subs = el("section", { class: "idea", style: "margin-top:12px" }, el("div", { class: "row" }, el("h3", {}, "Subscriptions"), el("span", { class: "spacer" }), isAdmin ? el("button", { class: "btn small", onclick: () => { fundForm = "sub"; render() } }, "+ Subscription") : null));
+  if (!F.subs.length) subs.append(el("p", { style: "margin:0" }, isAdmin ? "Add the tools the team pays for, and the fund will track them." : "No subscriptions yet."));
+  for (const s of F.subs) subs.append(el("div", { class: "hrow" },
+    el("div", { class: "hmain" }, el("div", { class: "mname" }, s.name), el("div", { class: "due" + (s.nextDue < today ? " late" : s.nextDue <= ymd(new Date(Date.now() + 3 * 864e5)) ? " soon" : "") }, (s.nextDue < today ? "Overdue · " : "Next: ") + fmtDate(s.nextDue))),
+    el("span", { class: "hamt" }, fmtEGP(toP(s.amount)) + (s.cycle === "year" ? "/yr" : "/mo")),
+    isAdmin ? el("button", { class: "btn small", onclick: () => fundWrite({ spends: { [uid()]: { amount: s.amount, date: today, what: s.name + " subscription", sub: s.id, by: me, at: Date.now() } }, subs: { [s.id]: { nextDue: nextDate(s.nextDue || today, s.cycle) } } }, `Paid ${s.name} from the fund`) }, "Paid") : null,
+    isAdmin ? (delFund === s.id ? el("button", { class: "linkdel sure", onclick: () => { delFund = null; fundWrite({ subs: { [s.id]: DEL() } }, "Removed") } }, "Remove?") : el("button", { class: "linkdel", "aria-label": "Remove", onclick: () => { delFund = s.id; render() } }, "✕")) : null));
+  if (dueSoon && dueSoon > F.balance) subs.append(el("div", { class: "notice" }, `Next 30 days of subscriptions: ${fmtEGP(dueSoon)}. The fund only has ${fmtEGP(F.balance)}.`));
+  box.append(subs);
+
+  /* fund history */
+  const hist = [...all.projects.filter(x => x.r.fund).map(({ p, r }) => ({ sign: "+", text: "From " + p.title, amount: r.fund, date: "" })),
+    ...F.adj.map(a => ({ sign: toP(a.amount) < 0 ? "−" : "+", text: a.note || "Added to the fund", amount: Math.abs(toP(a.amount)), date: a.date, id: a.id, coll: "adjust" })),
+    ...F.spends.map(s => ({ sign: "−", text: s.what || "Spent", amount: toP(s.amount), date: s.date, id: s.id, coll: "spends" }))];
+  if (hist.length) box.append(el("details", { class: "removed" }, el("summary", {}, `Fund history (${hist.length})`),
+    el("div", { class: "idea", style: "gap:0;margin-top:10px" }, hist.map(h => el("div", { class: "hrow" }, el("span", { class: "hsign" }, h.sign),
+      el("div", { class: "hmain" }, el("div", {}, h.text), h.date ? el("div", { class: "label" }, fmtDate(h.date)) : null), el("span", { class: "hamt" }, fmtEGP(h.amount)),
+      isAdmin && h.id ? (delFund === h.id ? el("button", { class: "linkdel sure", onclick: () => { delFund = null; fundWrite({ [h.coll]: { [h.id]: DEL() } }, "Removed") } }, "Remove?") : el("button", { class: "linkdel", "aria-label": "Remove", onclick: () => { delFund = h.id; render() } }, "✕")) : null)))));
+
+  /* everyone's balance (open for trust) */
+  const owed = Object.entries(all.people).filter(([, v]) => v.earned || v.back || v.paid).sort((a, b) => b[1].balance - a[1].balance);
+  if (owed.length) box.append(el("h2", { class: "sec-h" }, "Everyone"), el("section", { class: "idea", style: "gap:0" },
+    el("div", { class: "mhead" }, el("span", {}, "In EGP"), el("span", {}, "Earned"), el("span", {}, "Paid to them"), el("span", {}, "Owed")),
+    owed.map(([u, v]) => el("div", { class: "mrow4" }, el("span", { class: "by" }, av(u), el("span", { class: "mname" }, name(u))), el("span", { class: "mval" }, fmtN(v.earned + v.back)), el("span", { class: "mval" }, fmtN(v.paid)), el("span", { class: "mval owed" }, fmtN(v.balance))))));
+
+  /* money rules */
+  const ver = R.version || 1;
+  const rules = el("section", { class: "idea", id: "rules", style: "margin-top:18px" }, el("div", { class: "row" }, el("h3", {}, "Our money rules"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Version " + ver)),
+    el("ol", { class: "rules" }, moneyRulesText(R).map(t => el("li", {}, t))));
+  const signed = teamIds().map(u => ({ u, ok: ((people[u] || {}).moneyAgreed || {}).version === ver }));
+  rules.append(el("div", { class: "row", style: "gap:6px" }, signed.map(({ u, ok }) => el("span", { class: "planner" + (ok ? " agreed" : "") }, av(u), name(u), ok ? " ✓" : " …"))));
+  if (!agreed) rules.append(el("button", { class: "btn primary", onclick: () => write(() => setDoc(doc(db, "users", me), { moneyAgreed: { version: ver, at: Date.now() } }, { merge: true }), "Thanks, you agreed to the money rules") }, "I agree"));
+  if (isAdmin) {
+    if (!editRules) rules.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => { editRules = true; render() } }, "Change the numbers")));
+    else {
+      const fp = el("input", { id: "r-fund", class: "mini pct", type: "number", min: "0", max: "50", value: R.fundPct }), fd = el("input", { id: "r-find", class: "mini pct", type: "number", min: "0", max: "30", value: R.findPct });
+      const fm = el("input", { id: "r-fm", class: "mini pct", type: "number", min: "0", max: "24", value: R.finderMonths }), pa = el("input", { id: "r-pause", class: "mini pct", type: "number", min: "1", max: "6", value: R.pauseAfterLate });
+      const holder = personSelect("r-holder", F.holder || me, { members: {} }, null);
+      rules.append(el("div", { class: "mform", style: "display:grid;gap:8px" }, fieldRow("Team fund %", fp), fieldRow("Finder %", fd), fieldRow("Finder months (monthly deals)", fm), fieldRow("Pause after months late", pa), fieldRow("Who holds the fund", holder),
+        el("p", { class: "label", style: "margin:0" }, "Saving creates a new version, and everyone is asked to agree again. Deals already set up keep their own %."),
+        el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: () => { editRules = false; render() } }, "Cancel"),
+          el("button", { class: "btn primary", onclick: () => { editRules = false; write(() => setDoc(doc(db, "meta", "money"), { fundPct: Number(fp.value) || 0, findPct: Number(fd.value) || 0, finderMonths: Number(fm.value) || 0, pauseAfterLate: Number(pa.value) || 2, holder: holder.value || me, version: ver + 1, updatedAt: Date.now() }, { merge: true }), "Rules updated. Everyone will be asked to agree again") } }, "Save rules"))));
+    }
+  }
+  box.append(rules);
+}
+
+function fundEntryForm(F) {
+  const today = todayStr(), box = el("section", { class: "idea mform", style: "margin-top:12px" }), close = () => { fundForm = null; render() };
+  if (fundForm === "goal") {
+    const nm = el("input", { id: "fg-name", class: "noteinput", maxlength: "60", placeholder: "e.g. Office" }), tg = moneyInput("fg-target", "", "Target in EGP");
+    box.append(el("h3", {}, "New goal"), fieldRow("Name", nm), fieldRow("Target", tg), el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"),
+      el("button", { class: "btn primary", onclick: () => { if (!nm.value.trim() || !(Number(tg.value) > 0)) { toast("Enter a name and a target"); return } fundForm = null; fundWrite({ goals: { [uid()]: { name: nm.value.trim(), target: Number(tg.value), order: Date.now() } } }, "Goal added") } }, "Add goal")));
+  } else if (fundForm === "sub") {
+    const nm = el("input", { id: "fs-name", class: "noteinput", maxlength: "60", placeholder: "e.g. Claude, Canva" }), am = moneyInput("fs-amount", "", "Cost in EGP");
+    const cy = el("select", { class: "mini", id: "fs-cycle" }, el("option", { value: "month" }, "Every month"), el("option", { value: "year" }, "Every year"));
+    const nx = el("input", { id: "fs-next", type: "date", class: "mini", value: today });
+    box.append(el("h3", {}, "New subscription"), fieldRow("Name", nm), fieldRow("Cost", am), fieldRow("How often", cy), fieldRow("Next payment", nx), el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"),
+      el("button", { class: "btn primary", onclick: () => { if (!nm.value.trim() || !(Number(am.value) > 0)) { toast("Enter a name and a cost"); return } fundForm = null; fundWrite({ subs: { [uid()]: { name: nm.value.trim(), amount: Number(am.value), cycle: cy.value, nextDue: nx.value || today } } }, "Subscription added") } }, "Add")));
+  } else {
+    const am = moneyInput("fx-amount", "", "Amount in EGP"), wh = el("input", { id: "fx-what", class: "noteinput", maxlength: "80", placeholder: "What for? e.g. office deposit" });
+    const kd = el("select", { class: "mini", id: "fx-kind" }, el("option", { value: "spend" }, "Money spent from the fund"), el("option", { value: "add" }, "Money added to the fund"));
+    const dt = el("input", { id: "fx-date", type: "date", class: "mini", value: today });
+    box.append(el("h3", {}, "Fund spending or extra money"), fieldRow("Type", kd), fieldRow("Amount", am), fieldRow("For", wh), fieldRow("Date", dt), el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"),
+      el("button", { class: "btn primary", onclick: () => { const a = Number(am.value); if (!(a > 0)) { toast("Enter an amount"); return } fundForm = null;
+        fundWrite(kd.value === "spend" ? { spends: { [uid()]: { amount: a, what: wh.value.trim(), date: dt.value || today, by: me, at: Date.now() } } } : { adjust: { [uid()]: { amount: a, note: wh.value.trim() || "Added to the fund", date: dt.value || today, by: me, at: Date.now() } } }, "Saved") } }, "Save")));
+  }
+  return box;
+}
 
 /* ----- shared bits ----- */
 

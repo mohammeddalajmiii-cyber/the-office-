@@ -440,6 +440,61 @@ input,select,textarea{background-color:var(--field)}
 .pv-task{display:grid;padding-left:12px;font-size:14px}
 .pv-meta{font-size:12.5px;color:var(--muted)}
 .update-bar{position:fixed;z-index:40;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 10px);display:flex;gap:10px;align-items:center;background:var(--accent);color:var(--on-accent);border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.3);cursor:pointer;max-width:calc(100% - 32px)}
+.money-sum{gap:10px}
+.bignum{font:800 26px/1.15 var(--display);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.bignum span{font:500 14px var(--body);color:var(--muted)}
+.mstat{font-size:12.5px;font-weight:700;border-radius:999px;padding:3px 10px;background:var(--accent-soft);color:var(--accent)}
+.mstat.paid{background:var(--keep-soft);color:var(--keep)}
+.mstat.late{background:var(--drop-soft);color:var(--drop)}
+.mstat.due{background:var(--warn-soft);color:var(--warn)}
+.schedule{display:grid;gap:4px}
+.sched{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 10px;align-items:center;font-size:13.5px;padding:6px 10px;border-radius:10px;background:var(--field)}
+.sched .linkbtn{grid-column:1/-1;justify-self:start;font-size:12.5px}
+.sched-l{font-weight:600}
+.sched-s{font-size:12px;font-weight:700}
+.sched.paid .sched-s{color:var(--keep)}
+.sched.late{background:var(--drop-soft)}
+.sched.late .sched-s{color:var(--drop)}
+.sched.due .sched-s{color:var(--warn)}
+.sched.upcoming{opacity:.7}
+.mform{gap:10px}
+.mhead,.mrow4{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:8px;align-items:center}
+.mhead{font-size:12px;color:var(--muted);font-weight:600;padding-bottom:4px}
+.mhead span:not(:first-child),.mrow4 .mval{text-align:right}
+.mrow4{padding:8px 0;border-top:1px solid var(--line)}
+.mrow{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.mrow .mval{margin-left:auto}
+.mname{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mval{font-variant-numeric:tabular-nums;font-size:14px;display:grid;justify-items:end}
+.mval small{font-size:11px;color:var(--muted)}
+.mval.owed{font-weight:700;color:var(--accent)}
+.mval .linkbtn{font-size:12px}
+.fundrow .mname{color:var(--muted)}
+@media (max-width:480px){.mhead,.mrow4{grid-template-columns:minmax(0,1fr) repeat(3,minmax(0,.9fr));font-size:12.5px}.mrow4 .by .av{display:none}}
+.adgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.adgrid>div{display:grid;background:var(--field);border-radius:12px;padding:10px}
+.adgrid b{font:800 17px/1.2 var(--display);font-variant-numeric:tabular-nums}
+.adgrid span{font-size:12px;color:var(--muted)}
+.adgrid .late b{color:var(--drop)}
+.hrow{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.hrow:first-child{border-top:0}
+.hrow.ad{opacity:.8}
+.hsign{width:18px;text-align:center;font-weight:800;color:var(--accent)}
+.hmain{flex:1;min-width:0;font-size:14px;overflow-wrap:anywhere}
+.hamt{font-variant-numeric:tabular-nums;font-weight:700;font-size:14px;white-space:nowrap}
+.shares{display:grid;gap:6px}
+.share{display:flex;gap:8px;align-items:center;font-size:14px}
+.share .mname{flex:1}
+.mini.pct{width:64px;text-align:right}
+.label.ok{color:var(--keep)}
+.label.bad{color:var(--drop)}
+.moneycard .now-title{font-variant-numeric:tabular-nums}
+.money-hero h1{font-variant-numeric:tabular-nums}
+.mlink{display:flex;gap:10px;justify-content:space-between;align-items:center;width:100%;text-align:left;border:0;border-top:1px solid var(--line);background:none;color:var(--ink);padding:10px 0;font:inherit;cursor:pointer;flex-wrap:wrap}
+.mlink.late{border:0;background:var(--drop-soft);color:var(--drop);border-radius:10px;padding:8px 10px}
+.goalrow{display:grid;gap:6px;padding:6px 0}
+.rules{margin:0;padding-left:20px;display:grid;gap:6px;font-size:14.5px}
+.planner.agreed{border-color:var(--keep)}
 .pill{font:500 11px/1 var(--body);padding:5px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;z-index:30;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));max-width:calc(100% - 32px);box-sizing:border-box;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:reduce){.track .fill{transition:none}}
@@ -570,6 +625,8 @@ input,select,textarea{background-color:var(--field)}
   <section id="view-skills" hidden><div id="skills"></div></section>
 
   <section id="view-settings" hidden><div id="settings"></div></section>
+
+  <section id="view-money" hidden><div id="money"></div></section>
 
   <section id="view-chat" hidden>
     <div class="chatbox">
