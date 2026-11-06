@@ -2069,7 +2069,7 @@ function renderSettings() {
    It only ever suggests: people review and tap to add or save anything. */
 
 const AI_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
-const AI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];   // free-tier models, tried in order
+const AI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview"];   // free-tier models, tried in order
 let asstOpen = false, asstBusy = false, asstMsgs = [], aiP = null, checkinDraft = null;
 
 function loadAI() {
@@ -2088,17 +2088,35 @@ async function askAI(prompt, system) {
       const model = aiM.getGenerativeModel(ai, { model: m, systemInstruction: system });
       const r = await model.generateContent(prompt);
       return r.response.text();
-    } catch (e) { last = e; if (!/not.?found|404|unsupported|is not available/i.test(String(e && (e.message || e)))) throw e }
+    } catch (e) {
+      // a model that's missing or out of free requests: try the next one
+      last = e; const k = aiErrorKind(e);
+      if (k !== "model" && k !== "busy") throw e;
+    }
   }
   throw last;
 }
+function aiErrorRaw(e) {
+  const parts = [e && e.code, e && e.customErrorData && e.customErrorData.status, e && e.customErrorData && e.customErrorData.statusText, e && e.message].filter(Boolean);
+  return parts.join(" \u00b7 ").slice(0, 300) || String(e);
+}
+function aiErrorKind(e) {
+  const t = aiErrorRaw(e), status = e && e.customErrorData && e.customErrorData.status;
+  if (/api-not-enabled|SERVICE_DISABLED|has not been used|API_KEY_SERVICE_BLOCKED|is disabled|not been enabled|enable the/i.test(t) || status === 403) return "off";
+  if (status === 404 || /\b404\b|not found for API version|is not found|not supported for generateContent|no longer available/i.test(t)) return "model";
+  if (status === 429 || /RESOURCE_EXHAUSTED|\b429\b|quota exceeded|exceeded your current quota|Too Many Requests/i.test(t)) return "busy";
+  if (/Failed to fetch|NetworkError|Load failed|ERR_INTERNET|network error/i.test(t)) return "net";
+  if (/Failed to fetch dynamically imported module|Importing a module script failed/i.test(t)) return "load";
+  return "other";
+}
 function aiErrorText(e) {
-  const t = String(e && (e.message || e.code || e));
-  if (/api.?not.?enabled|has not been used|PERMISSION_DENIED|403|ai-logic|firebaseml|not enabled|API key/i.test(t))
-    return isAdmin ? "The assistant isn't switched on yet. In Firebase, open AI Logic and turn on the Gemini Developer API (I gave you the steps in the chat)." : `The assistant isn't switched on yet. Ask ${ADMIN_NAME} to turn it on.`;
-  if (/429|quota|RESOURCE_EXHAUSTED|rate/i.test(t)) return "The assistant is busy right now (the free plan has a limit). Try again in a minute.";
-  if (/Failed to fetch|NetworkError|network|load/i.test(t)) return "Couldn't reach the assistant. Check your connection and try again.";
-  return "Something went wrong with the assistant. Try again in a moment.";
+  const k = aiErrorKind(e);
+  if (k === "off") return isAdmin ? "The assistant isn't switched on yet. In Firebase, open AI Logic and turn on the Gemini Developer API." : `The assistant isn't switched on yet. Ask ${ADMIN_NAME} to turn it on.`;
+  if (k === "busy") return "The free Gemini limit was reached for now. Try again in a minute (daily limits reset overnight).";
+  if (k === "model") return "The Gemini models this site uses aren't available on your Firebase project.";
+  if (k === "net") return "Couldn't reach the assistant. Check your connection and try again.";
+  if (k === "load") return "The assistant couldn't load. Reload the page and try again.";
+  return "Something went wrong with the assistant.";
 }
 
 // What the assistant is told about the board: only what it needs, never private notes.
@@ -2151,7 +2169,10 @@ async function runAssistant(userText, opts = {}) {
       asstMsgs.push({ role: "ai", text: "I drafted your check-in from the board. It's filled in on the project's “This week” tab. Check it, change anything, and tap Save." });
       editCheckin = p.id; projTab = "week"; asstOpen = false;
     } else asstMsgs.push({ role: "ai", text, plan: /^\s*PHASE:/im.test(text) && /^\s*-\s+/m.test(text) });
-  } catch (e) { asstMsgs.push({ role: "ai", error: true, text: e instanceof SyntaxError ? "I couldn't draft the check-in this time. Try again." : aiErrorText(e) }) }
+  } catch (e) {
+    try { console.error("Assistant error", e) } catch { }
+    asstMsgs.push({ role: "ai", error: true, text: e instanceof SyntaxError ? "I couldn't draft the check-in this time. Try again." : aiErrorText(e), detail: e instanceof SyntaxError ? "" : aiErrorRaw(e) });
+  }
   asstBusy = false; render();
   const log = document.getElementById("asst-log"); if (log) log.scrollTop = log.scrollHeight;
 }
@@ -2176,7 +2197,8 @@ function renderAssistant() {
   if (!asstMsgs.length) log.append(el("p", { class: "asst-hint" }, p ? `Ask about your tasks, or about “${p.title}”.` : "Ask about your tasks and projects. Open a project first to plan it."),
     el("p", { class: "asst-hint small" }, "Powered by Google Gemini. It only suggests: nothing changes until you tap to add or save. Don't put secrets here."));
   for (const m of asstMsgs) {
-    const b = el("div", { class: "asst-msg " + (m.role === "me" ? "mine" : "ai") + (m.error ? " err" : "") }, m.text);
+    const b = el("div", { class: "asst-msg " + (m.role === "me" ? "mine" : "ai") + (m.error ? " err" : "") }, m.text,
+      m.detail ? el("div", { class: "asst-detail" }, "Details: " + m.detail) : null);
     log.append(b);
     if (m.plan && planner) log.append(el("div", { class: "row", style: "justify-content:flex-start;gap:8px" },
       el("button", { class: "btn primary small", onclick: () => { asstOpen = false; openImport(p, m.text) } }, "Preview and add to plan"),
