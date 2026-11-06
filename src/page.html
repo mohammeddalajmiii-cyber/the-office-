@@ -430,6 +430,15 @@ input,select,textarea{background-color:var(--field)}
 .asst-msg.typing{opacity:.7}
 .asst-detail{margin-top:6px;font:11.5px/1.4 ui-monospace,Menlo,monospace;opacity:.85;user-select:text;-webkit-user-select:text}
 .asst-chips{display:flex;gap:6px;flex-wrap:wrap}
+.tpl-list{display:grid;gap:6px;margin-top:4px}
+.tpl-g{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:6px}
+.tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+.tpl,.tpl-use{display:flex;align-items:center;gap:8px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:9px 10px;font-size:13.5px;font-weight:600;color:var(--ink);min-height:44px;cursor:pointer}
+.tpl:hover,.tpl-use:hover{border-color:var(--accent)}
+.tpl.mine{padding:0;gap:0}.tpl.mine .tpl-use{border:0;background:none;flex:1;min-width:0}.tpl.mine .x{margin-right:6px}
+.tpl.add{border-style:dashed;color:var(--muted)}
+.tpl-ico{width:22px;height:22px;flex:none;display:grid;place-items:center;border-radius:7px;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);font-size:13px}
+.tpl-form{grid-column:1/-1;display:grid;gap:6px}
 .asst-chips .pchip{padding:5px 11px;font-size:13px}
 .asst .chatform textarea{resize:none;max-height:120px}
 .importbox{gap:10px;border-color:var(--accent)}

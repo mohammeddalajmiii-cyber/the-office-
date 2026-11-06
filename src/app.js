@@ -1922,7 +1922,8 @@ function renderMe() {
   box.append(el("section", { class: "profile" },
     el("img", { class: "av av-lg", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
     el("div", { class: "profile-main" },
-      el("div", { class: "hello" }, greeting() + ","),
+      el("div", { class: "row", style: "gap:8px;align-items:center" }, el("div", { class: "hello" }, greeting() + ","), el("span", { class: "spacer" }),
+        el("button", { class: "btn quiet small brief-btn", onclick: () => { asstOpen = true; alertsOpen = false; useTemplate(ASST_TEMPLATES[0], null) } }, "☀ Morning brief")),
       el("h1", {}, fullName.split(" ")[0] || "you"),
       el("div", { class: "row", style: "gap:6px;margin-top:8px" },
         tops.length ? tops.map(s => el("span", { class: "chip" }, SKILLS[s].name)) : el("button", { class: "linkbtn", onclick: () => { location.hash = "skills" } }, "Take the skills quiz \u2192")))),
@@ -2164,6 +2165,26 @@ function boardContext(p) {
     const meets = Object.values(p.meetings || {}).filter(Boolean).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
     if (meets.length) { L.push("Latest meeting notes:"); meets.forEach(m => L.push(`- ${m.date}: ${short(m.title, 60)} — ${short(m.text, 300)}`)) }
   }
+  // what the team finished lately
+  const recent = [];
+  for (const a of ideas.filter(i => i.status === "approved")) for (const t of tasksOf(a)) if (t.done && t.doneAt && t.doneAt > Date.now() - 7 * 864e5) recent.push({ t, a });
+  recent.sort((x, y) => y.t.doneAt - x.t.doneAt);
+  if (recent.length) { L.push("\nFinished by the team in the last 7 days:"); recent.slice(0, 30).forEach(({ t, a }) => L.push(`- ${short(t.text, 80)} [${a.title}] by ${assignees(t).map(u => realName(u)).join(", ") || "someone"}, ${ymd(new Date(t.doneAt))}`)) }
+  // ideas waiting for votes
+  const vot = ideas.filter(i => i.status === "voting");
+  if (vot.length) { L.push("\nIdeas in the vote:"); vot.slice(0, 20).forEach(i => { const { k, d } = tally(i), mine = (i.votes || {})[me]; L.push(`- ${i.title}${i.category ? " (" + i.category + ")" : ""}: ${k} keep, ${d} drop${mine ? "" : ", I haven't voted"} | by ${realName(i.author) || "someone"}${i.pitch ? " | " + short(i.pitch, 160) : ""}`) }) }
+  // money (everyone on the team can see this on the Money page)
+  try {
+    const all = allMoney(), F = fundState(all);
+    if (all.projects.length || F.subs.length) {
+      L.push("\nMoney (EGP):");
+      L.push(`- Owed to me: ${fmtEGP(all.me.balance)}. Team fund: ${fmtEGP(F.balance)} (rule: ${rulesNow().fundPct}% of profit).`);
+      if (all.month.expected) L.push(`- This month: ${fmtEGP(all.month.received)} received of ${fmtEGP(all.month.expected)} expected.`);
+      all.late.slice(0, 10).forEach(({ p: lp, s: ls }) => L.push(`- LATE: ${lp.title}${(lp.money || {}).client ? " (" + lp.money.client + ")" : ""}: ${ls.label} ${fmtEGP(ls.expected - ls.received)}`));
+      F.subs.slice(0, 8).forEach(sb => L.push(`- Subscription ${sb.name}: ${sb.amount} EGP, next due ${sb.nextDue || "?"}`));
+      F.goals.slice(0, 5).forEach(g => L.push(`- Goal ${g.name}: target ${g.target} EGP`));
+    }
+  } catch { }
   return L.join("\n");
 }
 const ASSISTANT_RULES = `You are the assistant inside "Pitch Room", where a small team of friends in Egypt pitch ideas and turn them into real projects that build experience and make money.
@@ -2197,25 +2218,89 @@ async function runAssistant(userText, opts = {}) {
 }
 function currentProject() { const r = route(); return r.view === "project" ? ideas.find(i => i.id === r.id) : null }
 
+/* ----- assistant templates ----- */
+// need: "project" = open a project first, "plan" = you plan that project. fill = put text in the box for you to finish.
+const ASST_TEMPLATES = [
+  { g: "Daily", id: "morning", icon: "☀", label: "Morning brief", prompt: "Give me my morning brief for today. Start with a one-line greeting. Then, in short sections: 1) Today's focus: the 3 tasks I should do today and why, 2) Overdue or due in the next 3 days, 3) What the team finished since yesterday, 4) Anything waiting on me (ideas I haven't voted on, late client payments I should chase, subscriptions due soon). End with one short motivating line. Keep it under 180 words." },
+  { g: "Daily", id: "next", icon: "→", label: "What should I do next?", prompt: "Pick the one task I should do next and say why in one or two lines, then list the next two after it." },
+  { g: "Daily", id: "status", icon: "◷", label: "My status", prompt: "Give me a short status update: what I finished recently, what I'm working on, what's overdue, and what's due soon. Group by project." },
+  { g: "Daily", id: "eod", icon: "☾", label: "End-of-day wrap-up", prompt: "Wrap up my day: what I finished today, what's still open, and the first thing I should start tomorrow. Under 100 words." },
+  { g: "Daily", id: "week", icon: "▦", label: "Plan my week", prompt: "Plan my week day by day (7 days from today) using my open tasks, due dates and priorities. Keep each day light (2 or 3 tasks), friends have school or jobs. Put overdue things first." },
+  { g: "Team", id: "teamweek", icon: "◎", label: "Team weekly recap", prompt: "Write a weekly recap for the whole team: what we finished this week per project, who did great work (name them), what's late or stuck, and the focus for next week. Friendly, under 200 words, ready to post in our chat." },
+  { g: "Team", id: "load", icon: "⚖", label: "Who's overloaded?", prompt: "Look at everyone's open tasks and due dates across the projects being built. Who has too much, who has room, and which 2 or 3 tasks should move to someone else (name who and why, based on strengths)." },
+  { g: "Team", id: "stuck", icon: "!", label: "What's stuck?", prompt: "List everything that's stuck: overdue tasks, tasks with nobody on them, blockers from check-ins. For each, suggest one concrete way to unstick it." },
+  { g: "Team", id: "post", icon: "✎", label: "Write a chat message", fill: "Write a short message for our team chat about: " },
+  { g: "Project", id: "sum", icon: "▤", label: "Sum up this project", need: "project", prompt: p => `Summarize "${p.title}": how far along it is, what's going well, what's stuck or overdue, and the next 3 most important steps.` },
+  { g: "Project", id: "plan", icon: "✦", label: p => getPhases(p).length ? "Suggest more tasks" : "Plan this project", need: "plan", prompt: p => getPhases(p).length
+    ? `Suggest the missing tasks for "${p.title}" so the plan reaches the finish line. Use existing phase names where they fit. Don't repeat tasks already on the board.`
+    : `Make a complete step-by-step plan for "${p.title}" from start to launch: 4 to 6 phases, 3 to 6 tasks each, with who does what, due dates and priorities.` },
+  { g: "Project", id: "risks", icon: "△", label: "Risks and deadlines", need: "project", prompt: p => `For "${p.title}": will we hit the phase deadlines? List the biggest risks (late tasks, missing skills, too much on one person) and what to do about each.` },
+  { g: "Project", id: "agenda", icon: "☰", label: "Meeting agenda", need: "project", prompt: p => `Write a 20-minute meeting agenda for "${p.title}": quick wins to celebrate, decisions we need to make, blockers to solve, and who owns what next. Short bullet lines.` },
+  { g: "Project", id: "checkin", icon: "✓", label: "Draft my weekly check-in", need: "team", checkin: true },
+  { g: "Project", id: "update", icon: "✉", label: "Client update message", need: "project", prompt: p => `Write a short, professional WhatsApp message to the client of "${p.title}"${(p.money || {}).client ? " (" + p.money.client + ")" : ""} telling them what we finished and what's next, based on the board. No internal names or money details. Under 80 words.` },
+  { g: "Ideas", id: "rank", icon: "★", label: "Rank our ideas", prompt: "Rank the ideas in the vote from best to worst for our team right now: how fast we could build it, if it can make money, and if we have the skills. One line of reasoning each. Then say which ones I haven't voted on." },
+  { g: "Ideas", id: "pitch", icon: "✧", label: "Make my idea stronger", fill: "Make this idea stronger: who it's for, how it makes money, and a first small version we could build in 2 weeks. The idea: " },
+  { g: "Ideas", id: "brain", icon: "✺", label: "Brainstorm new ideas", prompt: "Brainstorm 5 project ideas our team could build and sell in Egypt, based on our strengths and what we already did. For each: one line on what it is, who pays, and a rough price." },
+  { g: "Money", id: "money", icon: "£", label: "Money brief", prompt: "Give me a money brief: what I'm owed, the team fund and how close we are to our goals, late client payments (and how late), and subscriptions due soon. Then one practical tip. Use EGP." },
+  { g: "Money", id: "chase", icon: "⏰", label: "Chase a late payment", prompt: "For each late client payment, write a short, polite but firm WhatsApp reminder I can send to the client. Mention the amount and month, no threats. If nothing is late, say so." },
+  { g: "Money", id: "price", icon: "≈", label: "How much should we charge?", fill: "Help us price this work for a client in Egypt (give a low, fair and high price in EGP and why): " },
+];
+const tplLabel = (t, p) => typeof t.label === "function" ? t.label(p) : t.label;
+let asstTplOpen = false, tplForm = null;
+function availableTemplates(p) {
+  const planner = p && canPlan(p), onTeam = p && (teamOf(p).includes(me) || canPlan(p)), live = p && p.status !== "completed";
+  return ASST_TEMPLATES.filter(t => !t.need || (t.need === "project" && p) || (t.need === "plan" && planner && live) || (t.need === "team" && onTeam && live));
+}
+function myTemplates() { return Object.entries((people[me] || {}).asstTemplates || {}).filter(([, v]) => v && v.name).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.at || 0) - (b.at || 0)) }
+function useTemplate(t, p) {
+  asstTplOpen = false;
+  if (t.fill) { render(); const i = document.getElementById("asst-input"); if (i) { i.value = t.fill; i.focus(); i.setSelectionRange(i.value.length, i.value.length) } return }
+  if (t.checkin) return runAssistant(tplLabel(t, p), { checkin: true, prompt: `Draft MY weekly check-in for "${p.title}" based only on the board (tasks I finished or started this week, what's next for me, anything overdue or blocked). Reply with ONLY JSON like {"did":"...","next":"...","blockers":""}. Write in first person, short and plain.` });
+  runAssistant(tplLabel(t, p), { prompt: typeof t.prompt === "function" ? t.prompt(p) : t.prompt });
+}
+function templateList(p) {
+  const wrap = el("div", { class: "tpl-list" });
+  const groups = {};
+  for (const t of availableTemplates(p)) (groups[t.g] || (groups[t.g] = [])).push(t);
+  for (const [g, list] of Object.entries(groups)) wrap.append(el("div", { class: "tpl-g" }, g), el("div", { class: "tpl-grid" },
+    list.map(t => el("button", { class: "tpl", onclick: () => useTemplate(t, p) }, el("span", { class: "tpl-ico" }, t.icon), el("span", {}, tplLabel(t, p))))));
+  // your own templates
+  const mine = myTemplates();
+  wrap.append(el("div", { class: "tpl-g" }, "Mine"));
+  const grid = el("div", { class: "tpl-grid" }, mine.map(t => el("div", { class: "tpl mine" },
+    el("button", { class: "tpl-use", onclick: () => useTemplate({ label: t.name, prompt: t.prompt }, p) }, el("span", { class: "tpl-ico" }, "◆"), el("span", {}, t.name)),
+    el("button", { class: "x", "aria-label": "Delete template " + t.name, onclick: () => write(() => setDoc(doc(db, "users", me), { asstTemplates: { [t.id]: DEL() } }, { merge: true }), "Template deleted") }, "✕"))));
+  if (tplForm) {
+    const n = el("input", { id: "tpl-name", class: "mini", maxlength: "40", placeholder: "Name, like “Sunday plan”", value: tplForm.name || "" });
+    const q = el("textarea", { id: "tpl-prompt", class: "noteinput", rows: "3", maxlength: "1200", placeholder: "What should the assistant do? Like: every Sunday, plan my week and tell me which client to call." }, tplForm.prompt || "");
+    grid.append(el("div", { class: "tpl-form" }, n, q, el("div", { class: "row", style: "gap:6px" },
+      el("button", { class: "btn quiet small", onclick: () => { tplForm = null; render() } }, "Cancel"),
+      el("button", { class: "btn primary small", onclick: () => {
+        const name = n.value.trim(), prompt = q.value.trim(); if (!name || !prompt) { toast("Give it a name and say what it should do"); return }
+        const id = uid(); tplForm = null;
+        people[me] = { ...(people[me] || {}), asstTemplates: { ...((people[me] || {}).asstTemplates || {}), [id]: { name, prompt, at: Date.now() } } }; render();
+        write(() => setDoc(doc(db, "users", me), { asstTemplates: { [id]: { name, prompt, at: Date.now() } } }, { merge: true }), "Template saved");
+      } }, "Save template"))));
+  } else grid.append(el("button", { class: "tpl add", onclick: () => { tplForm = {}; render() } }, el("span", { class: "tpl-ico" }, "+"), el("span", {}, "Make your own")));
+  wrap.append(grid);
+  return wrap;
+}
+
 function renderAssistant() {
   const panel = $("#asst"); panel.hidden = !asstOpen; if (!asstOpen) return;
   panel.replaceChildren();
-  const p = currentProject(), planner = p && canPlan(p), onTeam = p && (teamOf(p).includes(me) || canPlan(p));
-  const chips = [["What's my status?", "Give me a short status update: what I finished recently, what I'm working on, what's overdue, and what's due soon. Group by project."],
-                 ["What should I do next?", "Pick the one task I should do next and say why in one or two lines, then list the next two after it."]];
-  if (p) chips.push(["Sum up this project", `Summarize "${p.title}": how far along it is, what's going well, what's stuck or overdue, and the next 3 most important steps.`]);
-  if (p && planner && p.status !== "completed") chips.push([getPhases(p).length ? "Suggest more tasks" : "Plan this project", getPhases(p).length
-    ? `Suggest the missing tasks for "${p.title}" so the plan reaches the finish line. Use existing phase names where they fit. Don't repeat tasks already on the board.`
-    : `Make a complete step-by-step plan for "${p.title}" from start to launch: 4 to 6 phases, 3 to 6 tasks each, with who does what, due dates and priorities.`]);
-  if (p && onTeam && p.status !== "completed") chips.push(["Draft my weekly check-in", "check-in"]);
+  const p = currentProject(), planner = p && canPlan(p);
+  const av_ = availableTemplates(p), pick = id => av_.find(t => t.id === id);
+  const quick = (p ? ["sum", "plan", "checkin", "next"] : ["morning", "next", "teamweek"]).map(pick).filter(Boolean).slice(0, 3);
 
   panel.append(el("div", { class: "row asst-head" }, el("span", { class: "asst-ico" }, "✦"), el("h3", {}, "Assistant"), el("span", { class: "spacer" }),
     asstMsgs.length ? el("button", { class: "btn quiet small", onclick: () => { asstMsgs = []; render() } }, "Clear") : null,
     el("button", { class: "x", "aria-label": "Close assistant", onclick: () => { asstOpen = false; render() } }, "✕")));
   const log = el("div", { class: "asst-log", id: "asst-log" });
-  if (!asstMsgs.length) log.append(el("p", { class: "asst-hint" }, p ? `Ask about your tasks, or about “${p.title}”.` : "Ask about your tasks and projects. Open a project first to plan it."),
-    el("p", { class: "asst-hint small" }, "Powered by Google Gemini. It only suggests: nothing changes until you tap to add or save. Don't put secrets here."));
-  for (const m of asstMsgs) {
+  if (!asstMsgs.length || asstTplOpen) log.append(el("p", { class: "asst-hint" }, p ? `Pick a template or ask about “${p.title}”.` : "Pick a template or ask anything. Open a project for project templates."));
+  if (asstTplOpen || !asstMsgs.length) log.append(templateList(p));
+  if (!asstMsgs.length) log.append(el("p", { class: "asst-hint small" }, "Powered by Google Gemini. It only suggests: nothing changes until you tap to add or save. Don't put secrets here."));
+  if (!asstTplOpen) for (const m of asstMsgs) {
     const b = el("div", { class: "asst-msg " + (m.role === "me" ? "mine" : "ai") + (m.error ? " err" : "") }, m.text,
       m.detail ? el("div", { class: "asst-detail" }, "Details: " + m.detail) : null);
     log.append(b);
@@ -2225,15 +2310,14 @@ function renderAssistant() {
   }
   if (asstBusy) log.append(el("div", { class: "asst-msg ai typing" }, "Thinking…"));
   panel.append(log);
-  if (!asstBusy) panel.append(el("div", { class: "asst-chips" }, chips.map(([label, prompt]) => el("button", { class: "pchip", onclick: () => {
-    if (prompt === "check-in") runAssistant(label, { checkin: true, prompt: `Draft MY weekly check-in for "${p.title}" based only on the board (tasks I finished or started this week, what's next for me, anything overdue or blocked). Reply with ONLY JSON like {"did":"...","next":"...","blockers":""}. Write in first person, short and plain.` });
-    else runAssistant(label, { prompt });
-  } }, label))));
+  if (!asstBusy && asstMsgs.length) panel.append(el("div", { class: "asst-chips" },
+    asstTplOpen ? null : quick.map(t => el("button", { class: "pchip", onclick: () => useTemplate(t, p) }, tplLabel(t, p))),
+    el("button", { class: "pchip", "aria-pressed": String(asstTplOpen), onclick: () => { asstTplOpen = !asstTplOpen; render() } }, asstTplOpen ? "Back to chat" : "All templates")));
   const inp = el("textarea", { id: "asst-input", class: "noteinput", rows: "1", maxlength: "1500", placeholder: "Ask anything about the board…" });
   const send = () => { const v = inp.value.trim(); if (!v || asstBusy) return; inp.value = ""; runAssistant(v) };
   inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send() } });
   panel.append(el("div", { class: "chatform" }, inp, el("button", { class: "btn primary", disabled: asstBusy, onclick: send }, "Ask")));
-  log.scrollTop = log.scrollHeight;
+  if (!asstTplOpen && asstMsgs.length) log.scrollTop = log.scrollHeight;
 }
 
 /* ----- new versions: tell people when the site has been updated ----- */
