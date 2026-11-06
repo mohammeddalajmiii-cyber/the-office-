@@ -2057,7 +2057,7 @@ function renderSettings() {
   const setLook = (t, m) => { applyLook(t, m); render(); write(() => setDoc(doc(db, "users", me), { theme: t, meteors: m }, { merge: true })) };
   box.append(el("section", { class: "idea" }, el("h3", {}, "Look"),
     el("div", { class: "seg seg-wide", role: "group", "aria-label": "Theme" }, THEMES.map(([v, l]) => el("button", { "aria-pressed": String(theme === v), onclick: () => setLook(v, meteors) }, l))),
-    el("div", { class: "row" }, el("span", {}, "Shooting stars"), el("span", { class: "spacer" }),
+    el("div", { class: "row" }, el("span", {}, "Shooting stars and lasers"), el("span", { class: "spacer" }),
       el("div", { class: "seg seg-sm", role: "group", "aria-label": "Shooting stars" },
         el("button", { "aria-pressed": String(meteors), onclick: () => setLook(theme, true) }, "On"),
         el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off")))));

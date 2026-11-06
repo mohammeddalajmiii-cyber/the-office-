@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>The Office Pitch Room</title>
-<meta name="build" content="20261106085439">
+<meta name="build" content="20261106092820">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="icon" href="icon-192.png" type="image/png">
@@ -16,6 +16,8 @@
     var t = "dark"; try { t = localStorage.getItem("theme") || "dark" } catch (e) {}
     if (t === "system") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", t);
+    var mo = "on"; try { mo = localStorage.getItem("meteors") === "off" ? "off" : "on" } catch (e) {}
+    document.documentElement.setAttribute("data-motion", mo);
     var m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "light" ? "#F6F3FB" : "#000000";
   };
   applyTheme();
@@ -413,6 +415,24 @@ details.removed .idea{opacity:.75}
 .danger-quiet{color:var(--drop)}
 /* galaxy background: a still purple band of stars behind everything */
 #sky{position:fixed;inset:0;z-index:-2;pointer-events:none;background:var(--sky)}
+/* faded stage lasers: beams from the bottom corners slowly sweeping and fading (behind everything, above the galaxy) */
+#lz{position:fixed;inset:0;z-index:-2;pointer-events:none;overflow:hidden}
+#lz i{position:absolute;bottom:-2px;display:block;height:2px;width:170vmax;border-radius:2px;opacity:0;will-change:transform,opacity;
+  box-shadow:0 0 10px 1px var(--c),0 0 28px 4px color-mix(in srgb,var(--c) 45%,transparent);filter:blur(.6px)}
+#lz i:nth-child(-n+2){left:-2px;transform-origin:0 50%;background:linear-gradient(90deg,var(--c),color-mix(in srgb,var(--c) 40%,transparent) 40%,transparent 85%)}
+#lz i:nth-child(n+3){right:-2px;transform-origin:100% 50%;background:linear-gradient(270deg,var(--c),color-mix(in srgb,var(--c) 40%,transparent) 40%,transparent 85%)}
+#lz i:nth-child(1){--c:#B14CFF;animation:lz1 9s ease-in-out infinite alternate,lzf 9s ease-in-out infinite}
+#lz i:nth-child(2){--c:#FF5FD2;animation:lz2 12s ease-in-out -4s infinite alternate,lzf 12s ease-in-out -4s infinite}
+#lz i:nth-child(3){--c:#8F5BFF;animation:lz3 10s ease-in-out -2s infinite alternate,lzf 10s ease-in-out -2s infinite}
+#lz i:nth-child(4){--c:#C77DFF;animation:lz4 14s ease-in-out -7s infinite alternate,lzf 14s ease-in-out -7s infinite}
+@keyframes lz1{from{transform:rotate(-12deg)}to{transform:rotate(-58deg)}}
+@keyframes lz2{from{transform:rotate(-30deg)}to{transform:rotate(-75deg)}}
+@keyframes lz3{from{transform:rotate(14deg)}to{transform:rotate(60deg)}}
+@keyframes lz4{from{transform:rotate(32deg)}to{transform:rotate(72deg)}}
+@keyframes lzf{0%,100%{opacity:.06}50%{opacity:.42}}
+:root[data-theme="light"] #lz{opacity:.45}
+:root[data-motion="off"] #lz{display:none}
+@media (prefers-reduced-motion:reduce){#lz{display:none}}
 #stars{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;will-change:contents}
 .alerts,.tdetail,.lightbox .lb-bar .btn{background:var(--solid)}
 .chatlog{background:var(--chatbg)}
@@ -523,6 +543,7 @@ input,select,textarea{background-color:var(--field)}
 </head>
 <body>
 <div id="sky" aria-hidden="true"></div>
+<div id="lz" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <canvas id="stars" aria-hidden="true"></canvas>
 <script>
 // Shooting stars, done like a real meteor shower: every meteor falls the same way (top right to bottom left),
@@ -682,7 +703,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261106085439";
+const BUILD_ID = "20261106092820";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -2890,7 +2911,7 @@ function renderSettings() {
   const setLook = (t, m) => { applyLook(t, m); render(); write(() => setDoc(doc(db, "users", me), { theme: t, meteors: m }, { merge: true })) };
   box.append(el("section", { class: "idea" }, el("h3", {}, "Look"),
     el("div", { class: "seg seg-wide", role: "group", "aria-label": "Theme" }, THEMES.map(([v, l]) => el("button", { "aria-pressed": String(theme === v), onclick: () => setLook(v, meteors) }, l))),
-    el("div", { class: "row" }, el("span", {}, "Shooting stars"), el("span", { class: "spacer" }),
+    el("div", { class: "row" }, el("span", {}, "Shooting stars and lasers"), el("span", { class: "spacer" }),
       el("div", { class: "seg seg-sm", role: "group", "aria-label": "Shooting stars" },
         el("button", { "aria-pressed": String(meteors), onclick: () => setLook(theme, true) }, "On"),
         el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off")))));
