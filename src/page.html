@@ -96,7 +96,7 @@ button{cursor:pointer}
 .status.warn{color:var(--drop)}
 
 /* main navigation: bottom bar on phones, a row under the top bar on wide screens */
-.nav{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(4,1fr);background:var(--solid);border-top:1px solid var(--line);padding:6px max(6px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-left,0px))}
+.nav{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(5,1fr);background:var(--solid);border-top:1px solid var(--line);padding:6px max(6px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-left,0px))}
 .tab{position:relative;background:none;border:0;border-radius:12px;padding:6px 2px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11.5px;font-weight:600;color:var(--muted);white-space:nowrap}
 .tab svg{width:22px;height:22px}
 .tab[aria-selected="true"]{color:var(--accent)}
@@ -111,6 +111,48 @@ button{cursor:pointer}
   .count{position:static;margin-left:2px}
   .wrap{padding-bottom:64px}
 }
+
+/* partners: the team's Partners tab and the partners' own small site */
+.nav.pnav{grid-template-columns:repeat(3,1fr)}
+.pgroup{text-align:left;color:inherit;font:inherit;cursor:pointer;width:100%}
+.pstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.pstat{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:8px 6px;text-align:center;font-size:12px;color:var(--muted);min-width:0}
+.pstat b{display:block;font:800 22px/1.15 var(--display);color:var(--ink)}
+.st{font:600 11.5px/1 var(--body);padding:5px 9px;border-radius:999px;background:var(--line);color:var(--ink);white-space:nowrap;flex:none}
+.st.noanswer,.st.callback{background:var(--accent-soft);color:var(--accent)}
+.st.interested,.st.meeting{background:var(--warn-soft);color:var(--warn)}
+.st.won{background:var(--keep-soft);color:var(--keep)}
+.st.lost{background:var(--drop-soft);color:var(--drop)}
+.lead{gap:10px}
+.lead .x{border:0;background:none;color:var(--muted);padding:0 4px}
+.lphone{font:600 17px/1.2 var(--body);color:var(--ink);text-decoration:none;letter-spacing:.01em;overflow-wrap:anywhere}
+a.btn{text-decoration:none;color:inherit;display:inline-block}
+.lead-edit{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:start}
+.lead-edit .mini{padding:8px 6px;font-size:13px}
+@media (max-width:520px){.lead-edit{grid-template-columns:1fr auto}.lead-edit textarea{grid-column:1/-1;grid-row:2}}
+.lead-hist summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600}
+.lead-hist ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px;font-size:13px}
+.lead-hist li{display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:var(--muted)}
+.pfeed{display:grid;gap:8px}
+.post{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;min-width:0}
+.post.team{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.post.call{background:transparent;padding:8px 12px}
+.post .av{width:30px;height:30px}
+.post .x{border:0;background:none;color:var(--muted);padding:0 4px;margin-left:auto}
+.post-body{flex:1;min-width:0;display:grid;gap:4px}
+.post-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.post-meta b{color:var(--ink)}
+.post-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.call-dot{width:30px;text-align:center;flex:none;color:var(--muted)}
+.feedlink{display:grid;gap:4px;justify-items:start;background:none;border:0;padding:0;text-align:left;color:inherit;font:inherit;width:100%}
+.feedlink .post{width:100%;box-sizing:border-box}
+.pimport{display:grid;gap:4px;font-size:13px;background:var(--bg);border-radius:10px;padding:10px 12px}
+.plinks{margin:0;padding-left:18px;display:grid;gap:6px}
+.plinks li a{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
+.plinks .x{border:0;background:none;color:var(--muted);margin-left:6px}
+.plink{font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
+.rulesbox{width:100%;box-sizing:border-box;min-height:200px;font:11.5px/1.45 ui-monospace,Menlo,monospace;border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--ink);resize:vertical}
+.p-group{font-size:13px;color:var(--muted);font-weight:600}
 
 /* compose */
 .compose{display:grid;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
@@ -635,6 +677,7 @@ input,select,textarea{background-color:var(--field)}
     <button class="tab" role="tab" data-view="ideas"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg></span>Ideas <span class="count" id="c-ideas" hidden>0</span></button>
     <button class="tab" role="tab" data-view="projects"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h6"/></svg></span>Projects <span class="count" id="c-projects" hidden>0</span></button>
     <button class="tab" role="tab" data-view="chat"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Chat <span class="count" id="c-chat" hidden>0</span></button>
+    <button class="tab" role="tab" data-view="partners"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>Partners <span class="count" id="c-partners" hidden>0</span></button>
   </nav>
 
   <section id="view-me"><div id="me"></div></section>
@@ -662,6 +705,8 @@ input,select,textarea{background-color:var(--field)}
   </section>
 
 
+  <section id="view-partners" hidden><div id="partners"></div></section>
+
   <section id="view-skills" hidden><div id="skills"></div></section>
 
   <section id="view-settings" hidden><div id="settings"></div></section>
@@ -683,6 +728,19 @@ input,select,textarea{background-color:var(--field)}
       </form>
     </div>
   </section>
+</div>
+<div class="wrap" id="partner" hidden>
+  <header class="topbar">
+    <span class="brand"><span>Ardent <span class="brand-accent">Studios</span></span></span>
+    <span class="spacer"></span>
+    <span class="p-group" id="p-group"></span>
+  </header>
+  <nav class="nav pnav" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" data-pview="leads"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg></span>Numbers <span class="count" id="pc-leads" hidden>0</span></button>
+    <button class="tab" role="tab" data-pview="updates"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Updates <span class="count" id="pc-updates" hidden>0</span></button>
+    <button class="tab" role="tab" data-pview="info"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></span>Info</button>
+  </nav>
+  <section id="pv"></section>
 </div>
 <div class="lightbox" id="lightbox" hidden></div>
 <div class="toast" id="toast" hidden></div>

@@ -1,11 +1,11 @@
 // Firebase is loaded in the background so the page can draw right away from the last saved copy.
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
-let auth, db, GoogleAuthProvider, signInWithPopup, signOut, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes, where;
+let auth, db, GoogleAuthProvider, signInWithPopup, signOut, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes, where, writeBatch;
 const fbReady = (async () => {
   const [appM, authM, fsM] = await Promise.all([import(FB + "firebase-app.js"), import(FB + "firebase-auth.js"), import(FB + "firebase-firestore.js")]);
   const fb = appM.initializeApp(firebaseConfig);
   ({ GoogleAuthProvider, signInWithPopup, signOut } = authM);
-  ({ collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes, where } = fsM);
+  ({ collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes, where, writeBatch } = fsM);
   auth = authM.getAuth(fb);
   db = fsM.initializeFirestore(fb, { localCache: fsM.persistentLocalCache({ tabManager: fsM.persistentMultipleTabManager() }) });
   authM.onAuthStateChanged(auth, onAuth);
@@ -102,22 +102,25 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 
 /* ---------- routing ---------- */
 
-const VIEWS = ["me", "ideas", "projects", "chat", "skills", "settings", "money", "project"];
+const VIEWS = ["me", "ideas", "projects", "chat", "partners", "skills", "settings", "money", "project"];
 function route() {
   const h = location.hash.slice(1);
   for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
   if (h === "projects-done" || h === "current") return { view: "projects" };
   if (h === "mine" || h === "notes") return { view: "me" };
   if (h.startsWith("dm-")) return { view: "chat", dm: h.slice(3) };
+  if (h.startsWith("pg-")) return { view: "partners", gid: h.slice(3) };
   return { view: VIEWS.includes(h) && h !== "project" ? h : "me" };
 }
 function show() {
+  if (partnerMode) { renderPortal(); return }
   const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "settings" || r.view === "money" ? "me" : r.view;
-  for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
+  for (const b of document.querySelectorAll("#app .tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
   render();
 }
-for (const b of document.querySelectorAll(".tab")) b.onclick = () => { location.hash = b.dataset.view };
+for (const b of document.querySelectorAll("#app .tab")) b.onclick = () => { location.hash = b.dataset.view };
+for (const b of document.querySelectorAll("#partner .tab")) b.onclick = () => { location.hash = b.dataset.pview };
 addEventListener("hashchange", () => { show(); scrollTo(0, 0) });
 
 /* ---------- auth & data ---------- */
@@ -137,11 +140,21 @@ const suggestions = {};          // projectId -> [{task, owner, why}]
 let quiz = null;                 // {i, answers:[], grow:[]} while taking the quiz
 
 let myProfile = null, privErr = false, privUnsubs = [], privRetry = null, live = false;
-function onAuth(u) {
+let authN = 0;
+async function onAuth(u) {
+  const n = ++authN;
   unsubs.forEach(f => f()); unsubs = [];
   privUnsubs.forEach(f => f()); privUnsubs = [];
+  if (partnerMode || !u) partnerStop();
+  if (!u) { $("#boot").hidden = true; me = null; live = false; remember(false); clearCache(); $("#gate").hidden = false; $("#app").hidden = true; return }
+  // Partners (lead finders) get their own small site and never load the team's data.
+  const email = (u.email || "").toLowerCase(), knownTeam = me === u.uid;
+  if (!knownTeam && !ADMINS.includes(email)) {
+    const pm = await partnerCheck(email);
+    if (n !== authN) return;
+    if (pm) { me = u.uid; clearCache(); startPartner(u, pm); return }
+  }
   $("#boot").hidden = true;
-  if (!u) { me = null; live = false; remember(false); clearCache(); $("#gate").hidden = false; $("#app").hidden = true; return }
   remember(true);
   if (me && me !== u.uid) { ideas = []; people = {}; chat = []; dmThreads = []; dmMsgs = {}; personal = []; myNotes = []; focusId = null; activeMap = {} }
   me = u.uid;
@@ -180,6 +193,7 @@ function onAuth(u) {
   unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "news"), s => { newsDoc = s.exists() ? s.data() : null; render() }, () => {}));
   teamLoaded = false; teamDoc = null;
+  unsubs.push(...partnerTeamSubs());
   if (isAdmin) unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
   subscribePrivate();
   show();
@@ -292,7 +306,7 @@ function keepInputs(fn) {
   if (actId) { const n = document.getElementById(actId); if (n && n !== document.activeElement) { n.focus(); try { if (sel) n.setSelectionRange(sel[0], sel[1]) } catch { } } }
 }
 
-function render() { if (!me) return; keepInputs(renderAll) }
+function render() { if (!me) return; if (partnerMode) { renderPortal(); return } keepInputs(renderAll) }
 
 function renderAll() {
   const voting = ideas.filter(i => i.status === "voting").sort((a, b) => b.createdAt - a.createdAt);
@@ -308,6 +322,8 @@ function renderAll() {
   if (r.view === "settings") renderSettings();
   if (r.view === "money") renderMoneyPage();
   if (r.view === "me") renderMe();
+  if (r.view === "partners") renderPartnersTeam(r.gid);
+  { const pu = pGroups.reduce((a, g) => a + partnerUnread(g.id), 0); const pc = $("#c-partners"); pc.hidden = !pu; pc.textContent = pu > 9 ? "9+" : pu }
   const open = myTasks().filter(x => !x.t.done && !x.closed).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
   renderAlerts();
   renderAssistant();
@@ -1897,6 +1913,7 @@ function buildAlerts() {
   const out = [], today = todayStr();
   const tomorrow = (() => { const d = new Date(dayStart(1)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` })();
   const add = (key, at, who, text, go) => { if (at) out.push({ key, at, who, text, go }) };
+  partnerAlerts(add);
   for (const p of ideas) {
     if (p.status === "voting" && p.author !== me) add("idea:" + p.id, p.createdAt, p.author, `${name(p.author)} pitched a new idea: ${p.title}`, "ideas");
     if (p.status === "completed" && p.completedBy !== me) add("done:" + p.id, p.completedAt, p.completedBy, `${p.title} is completed`, "projects-done");
@@ -2471,6 +2488,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-partners-1", date: "2026-11-09", icon: "🌍", title: "Partners",
+    text: "A new Partners tab for the people abroad who find clients. Make a group per country, add their Google emails, paste numbers from a sheet, and read their call updates. They only see their own group, never our ideas, projects, chat or money.", go: "partners" },
   { id: "f-dm-1", date: "2026-11-06", icon: "🔒", title: "Private messages",
     text: "Open Chat and tap someone's name at the top to message them privately. Only you two can see it.", go: "chat" },
   { id: "f-ideas-1", date: "2026-11-06", icon: "✺", title: "Get help with ideas",

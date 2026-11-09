@@ -4,7 +4,7 @@ from pathlib import Path
 root = Path(__file__).parent
 page = (root / "src/page.html").read_text()
 config = (root / "firebase-config.js").read_text().replace("export const", "const")
-app = (root / "src/money-engine.js").read_text() + "\n" + (root / "src/app.js").read_text()
+app = (root / "src/money-engine.js").read_text() + "\n" + (root / "src/partners.js").read_text() + "\n" + (root / "src/app.js").read_text()
 import time
 build_id = time.strftime("%Y%m%d%H%M%S")
 page = page.replace("__BUILD_ID__", build_id)
