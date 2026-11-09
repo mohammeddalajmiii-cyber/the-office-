@@ -16,19 +16,19 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261109042346">
+<meta name="build" content="20261109044530">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg?v=2" type="image/svg+xml">
 <link rel="icon" href="icon-192.png?v=2" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=2" sizes="180x180">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#17191C">
 <script>
   // Dark (galaxy), light, or match the device. Chosen in Settings and kept on this device.
   window.applyTheme = function () {
     var t = "dark"; try { t = localStorage.getItem("theme") || "dark" } catch (e) {}
     if (t === "system") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", t);
-    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "light" ? "#F6F3FB" : "#000000";
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "light" ? "#E6E9ED" : "#17191C";
   };
   applyTheme();
   try { matchMedia("(prefers-color-scheme: light)").addEventListener("change", applyTheme) } catch (e) {}
@@ -47,27 +47,28 @@ body{margin:0}
 [hidden]{display:none!important}
 
 /* Layout: compact top bar, bottom tab bar on phones (top on wide screens), one calm column of cards.
-   Look: one fixed black-and-purple theme ("Pure Black Neon"), the same on every device. */
+   Look: charcoal grey with a faint dot grid, white shooting stars with a teal glow, teal buttons. Light mode is the same in grey and white. */
 :root{
-  --bg:#000000; --surface:rgba(18,14,26,.82); --solid:#0E0B14; --ink:#F4F2F8; --muted:#9B98A6; --line:rgba(160,120,220,.16); --hero:rgba(36,14,66,.88);
-  --accent:#B14CFF; --accent-soft:#2A1145; --on-accent:#FFFFFF;
+  --bg:#17191C; --surface:rgba(38,41,46,.94); --solid:#1D2024; --ink:#EEF1F3; --muted:#9AA3AD; --line:rgba(255,255,255,.07); --hero:rgba(38,41,46,.94);
+  --accent:#5DB3A5; --fill:#0B4F48; --accent-soft:#16302D; --on-accent:#FFFFFF;
   --keep:#5BC892; --keep-soft:#14301F; --drop:#F08872; --drop-soft:#3A1C16; --warn:#F0B35A; --warn-soft:#3A2A10;
-  --topbar:rgba(4,1,9,.55); --notch:rgba(4,1,9,.7); --chatbg:rgba(14,10,22,.78); --field:rgba(0,0,0,.55);
-  --sky:linear-gradient(125deg,transparent 30%,rgba(95,30,170,.32) 45%,rgba(150,70,240,.22) 52%,rgba(80,20,150,.30) 60%,transparent 75%),
-    radial-gradient(40% 30% at 55% 50%,rgba(170,90,255,.20),transparent 70%),
-    radial-gradient(60% 40% at 0% 100%,rgba(60,10,110,.35),transparent 70%),#020005;
+  --topbar:rgba(23,25,28,.55); --notch:rgba(23,25,28,.92); --chatbg:rgba(30,33,37,.92); --field:#1B1E22;
+  --sky:linear-gradient(125deg,transparent 26%,rgba(255,255,255,.035) 40%,rgba(255,255,255,.085) 50%,rgba(255,255,255,.035) 60%,transparent 74%),
+    radial-gradient(45% 35% at 58% 46%,rgba(255,255,255,.07),transparent 70%),
+    radial-gradient(70% 45% at 50% -8%,rgba(255,255,255,.06),transparent 70%),#17191C;
   --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
   --body:"Instrument Sans",ui-sans-serif,system-ui,sans-serif;
   color-scheme:dark;
 }
-/* light mode: soft lavender page, white cards, deeper purple so text stays readable */
+/* light mode: cool white and grey, blue-cyan accent */
 :root[data-theme="light"]{
-  --bg:#F6F3FB; --surface:rgba(255,255,255,.86); --solid:#FFFFFF; --ink:#1B1426; --muted:#6C6480; --line:rgba(90,50,150,.14); --hero:rgba(237,226,255,.92);
-  --accent:#8434F0; --accent-soft:#EFE4FF; --on-accent:#FFFFFF;
-  --keep:#1D7F52; --keep-soft:#DDF2E7; --drop:#B83A26; --drop-soft:#F8E1DC; --warn:#A35F00; --warn-soft:#FBEBD2;
-  --topbar:rgba(246,243,251,.78); --notch:rgba(246,243,251,.92); --chatbg:rgba(255,255,255,.78); --field:rgba(255,255,255,.95);
-  --sky:linear-gradient(125deg,transparent 30%,rgba(177,76,255,.10) 45%,rgba(200,150,255,.16) 52%,rgba(150,90,240,.10) 60%,transparent 75%),
-    radial-gradient(40% 30% at 55% 50%,rgba(200,150,255,.18),transparent 70%),#F6F3FB;
+  --bg:#E6E9ED; --surface:#FFFFFF; --solid:#F5F6F8; --ink:#11181F; --muted:#5A646F; --line:rgba(20,32,44,.12); --hero:rgba(248,250,251,.96);
+  --accent:#0B4F48; --fill:#0B4F48; --accent-soft:#DDEDEA; --on-accent:#FFFFFF;
+  --keep:#16794C; --keep-soft:#DCF2E6; --drop:#B83A26; --drop-soft:#F8E1DC; --warn:#985A00; --warn-soft:#FBEBD2;
+  --topbar:rgba(230,233,237,.85); --notch:rgba(230,233,237,.95); --chatbg:rgba(255,255,255,.9); --field:#F3F5F7;
+  --sky:linear-gradient(125deg,transparent 28%,rgba(31,181,165,.09) 44%,rgba(11,79,72,.08) 52%,rgba(40,170,190,.06) 60%,transparent 76%),
+    radial-gradient(42% 32% at 58% 48%,rgba(110,215,205,.16),transparent 70%),
+    radial-gradient(50% 40% at 0% 100%,rgba(11,79,72,.06),transparent 70%),#E6E9ED;
   color-scheme:light;
 }
 
@@ -90,6 +91,15 @@ button{cursor:pointer}
 .mark{width:30px;height:30px;flex:none}
 .mark-lg{width:84px;height:84px;margin-bottom:4px}
 .brand-accent{color:var(--accent)}
+/* logo: grey outer arch, white-to-teal inner arch, white star (light mode: teal) */
+#brandg stop:first-child{stop-color:#F2F7F8}
+#brandg stop:last-child{stop-color:#0E6157}
+.mark path:first-child{stroke:#4A5059}
+:root[data-theme="light"] #brandg stop:first-child{stop-color:#5DB3A5}
+:root[data-theme="light"] #brandg stop:last-child{stop-color:#0B4F48}
+:root[data-theme="light"] .mark path:first-child{stroke:#5A646F}
+:root[data-theme="light"] .mark path:last-child{fill:#0B4F48}
+:root[data-theme="light"] .idea,:root[data-theme="light"] .compose{box-shadow:0 1px 2px rgba(16,42,72,.05),0 4px 14px rgba(16,42,72,.04)}
 .me-btn{border:0;background:none;padding:0;border-radius:50%}
 .me-btn .av{width:34px;height:34px;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line)}
 .status{font-size:13px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -162,7 +172,7 @@ a.btn{text-decoration:none;color:inherit;display:inline-block}
 .spacer{flex:1}
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 15px;font-weight:600;transition:background .15s,border-color .15s}
 .btn:hover{border-color:var(--accent)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary{background:var(--fill);border-color:var(--fill);color:var(--on-accent)}
 .btn.quiet{border-color:transparent;background:none;color:var(--muted);padding-inline:8px}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 
@@ -189,7 +199,7 @@ details.removed .idea{opacity:.75}
 
 /* progress line */
 .track{position:relative;height:10px;border-radius:999px;background:var(--line);overflow:hidden}
-.track .fill{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:999px;transition:width .4s ease}
+.track .fill{position:absolute;inset:0 auto 0 0;background:var(--fill);border-radius:999px;transition:width .4s ease}
 .track .tick{position:absolute;top:0;bottom:0;width:2px;background:var(--surface)}
 .pmeta{display:flex;justify-content:space-between;font:500 12px/1 var(--body);color:var(--muted);font-variant-numeric:tabular-nums}
 
@@ -256,7 +266,7 @@ details.removed .idea{opacity:.75}
 .catbar{display:flex;gap:6px;flex-wrap:wrap;margin-top:18px}
 .catbar:empty{display:none}
 .cat{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600;color:var(--muted)}
-.cat[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.cat[aria-pressed="true"]{background:var(--fill);border-color:var(--fill);color:var(--on-accent)}
 .catchip{font:500 11px/1 var(--body);padding:5px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
 .notes{grid-column:2/4;display:grid;gap:6px;justify-items:start}
 .note{display:flex;gap:8px;align-items:flex-start;font-size:14px;background:var(--bg);border-radius:8px;padding:8px 10px;width:100%;box-sizing:border-box}
@@ -280,7 +290,7 @@ details.removed .idea{opacity:.75}
 .msg .av{margin:0}
 .av-space{width:22px;flex:none}
 .bubble{background:var(--line);border-radius:14px;padding:7px 11px;overflow-wrap:anywhere;white-space:pre-wrap;min-width:0}
-.msg.mine .bubble{background:var(--accent);color:var(--on-accent)}
+.msg.mine .bubble{background:var(--fill);color:var(--on-accent)}
 .msg-time{font:500 10px/1 var(--body);opacity:.6;margin-left:8px;white-space:nowrap}
 .bubble{cursor:pointer;display:grid;gap:4px}
 .bubble>span:not(.msg-time){display:inline}
@@ -340,7 +350,7 @@ details.removed .idea{opacity:.75}
 .focus .prio{background:transparent;color:inherit}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:var(--surface)}
 .seg button{border:0;background:none;border-radius:999px;padding:6px 12px;font-weight:600;font-size:13px;color:var(--muted)}
-.seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.seg button[aria-pressed="true"]{background:var(--fill);color:var(--on-accent)}
 .due{font:500 11px/1 var(--body);color:var(--muted)}
 .due.late{color:var(--drop)}
 .due.soon{color:var(--warn)}
@@ -356,7 +366,7 @@ details.removed .idea{opacity:.75}
 .stat b{font:800 22px/1.2 var(--display);font-variant-numeric:tabular-nums}
 .stat span{font-size:12.5px;color:var(--muted)}
 .stat.late b{color:var(--drop)}
-.newscard{margin-top:12px;border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 16%,var(--surface)),var(--surface));border-radius:16px;padding:14px 16px;display:grid;gap:6px}
+.newscard{margin-top:12px;border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 8%,var(--surface)),var(--surface));border-radius:16px;padding:14px 16px;display:grid;gap:6px}
 .newscard h3{margin:0;font-size:17px}.newscard p{margin:0;font-size:14px;color:var(--muted)}
 .news-ico{width:26px;height:26px;flex:none;display:grid;place-items:center;border-radius:8px;background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--accent);font-size:14px}
 .newslist{display:grid;gap:4px;margin-top:6px}
@@ -434,7 +444,7 @@ details.removed .idea{opacity:.75}
 .pchip{display:inline-flex;align-items:center;gap:6px;flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px 4px 4px;font-size:13.5px;font-weight:600;color:var(--ink)}
 .pchip:first-child{padding-left:12px}
 .pchip .av{width:24px;height:24px;border:0}
-.pchip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.pchip[aria-pressed="true"]{background:var(--fill);border-color:var(--fill);color:var(--on-accent)}
 .pcount{font-weight:500;opacity:.7;font-variant-numeric:tabular-nums}
 .padd{display:grid;gap:8px;margin-bottom:12px}
 .padd .addtask input{background:var(--surface)}
@@ -465,8 +475,15 @@ details.removed .idea{opacity:.75}
 .btn.danger-btn:hover{background:var(--drop-soft);border-color:var(--drop)}
 .danger-text{margin:0;color:var(--drop)!important;font-weight:500}
 .danger-quiet{color:var(--drop)}
-/* galaxy background: a still purple band of stars behind everything */
+/* background: charcoal with a soft white band of light and a few still white stars (grey and white in light mode) */
 #sky{position:fixed;inset:0;z-index:-2;pointer-events:none;background:var(--sky)}
+/* a few tiny still stars inside the band of light; light mode keeps the plain background */
+#sky::after{content:"";position:absolute;inset:0;opacity:.55;
+  background:radial-gradient(1.2px 1.2px at 22% 64%,#fff,transparent),radial-gradient(1px 1px at 34% 52%,#fff,transparent),radial-gradient(1.4px 1.4px at 47% 41%,#fff,transparent),
+    radial-gradient(1px 1px at 55% 50%,#fff,transparent),radial-gradient(1.2px 1.2px at 63% 33%,#fff,transparent),radial-gradient(1px 1px at 71% 27%,#fff,transparent),
+    radial-gradient(1px 1px at 41% 58%,#fff,transparent),radial-gradient(1.3px 1.3px at 78% 19%,#fff,transparent),radial-gradient(1px 1px at 28% 71%,#fff,transparent),
+    radial-gradient(1px 1px at 60% 44%,#fff,transparent),radial-gradient(1.1px 1.1px at 15% 80%,#fff,transparent),radial-gradient(1px 1px at 86% 12%,#fff,transparent)}
+:root[data-theme="light"] #sky::after{display:none}
 #stars{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;will-change:contents}
 .alerts,.tdetail,.lightbox .lb-bar .btn{background:var(--solid)}
 .chatlog{background:var(--chatbg)}
@@ -484,7 +501,7 @@ input,select,textarea{background-color:var(--field)}
 .asst-hint{color:var(--muted);margin:0;font-size:14px}
 .asst-hint.small{font-size:12.5px}
 .asst-msg{max-width:92%;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14.5px;line-height:1.5;border-radius:14px;padding:9px 12px}
-.asst-msg.mine{align-self:flex-end;background:var(--accent);color:var(--on-accent)}
+.asst-msg.mine{align-self:flex-end;background:var(--fill);color:var(--on-accent)}
 .asst-msg.ai{align-self:flex-start;background:var(--accent-soft);color:var(--ink)}
 .asst-msg.err{background:var(--warn-soft);color:var(--warn)}
 .asst-msg.typing{opacity:.7}
@@ -519,7 +536,7 @@ input,select,textarea{background-color:var(--field)}
 .pv-phase{font-weight:700;margin-top:6px}
 .pv-task{display:grid;padding-left:12px;font-size:14px}
 .pv-meta{font-size:12.5px;color:var(--muted)}
-.update-bar{position:fixed;z-index:40;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 10px);display:flex;gap:10px;align-items:center;background:var(--accent);color:var(--on-accent);border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.3);cursor:pointer;max-width:calc(100% - 32px)}
+.update-bar{position:fixed;z-index:40;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 10px);display:flex;gap:10px;align-items:center;background:var(--fill);color:var(--on-accent);border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.3);cursor:pointer;max-width:calc(100% - 32px)}
 .money-sum{gap:10px}
 .bignum{font:800 26px/1.15 var(--display);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .bignum span{font:500 14px var(--body);color:var(--muted)}
@@ -620,9 +637,9 @@ input,select,textarea{background-color:var(--field)}
       // tapered tail: a few strokes, wide and faint near the head, thin at the end
       var g = x.createLinearGradient(tx, ty, hx, hy);
       var light = document.documentElement.getAttribute("data-theme") === "light";
-      g.addColorStop(0, "rgba(150,70,255,0)");
-      g.addColorStop(0.55, light ? "rgba(132,52,240," + 0.35 * alpha + ")" : "rgba(190,130,255," + 0.5 * alpha + ")");
-      g.addColorStop(1, light ? "rgba(110,30,220," + 0.85 * alpha + ")" : "rgba(245,235,255," + 0.95 * alpha + ")");
+      g.addColorStop(0, light ? "rgba(31,181,165,0)" : "rgba(93,179,165,0)");
+      g.addColorStop(0.55, light ? "rgba(31,181,165," + 0.6 * alpha + ")" : "rgba(150,210,198," + 0.45 * alpha + ")");
+      g.addColorStop(1, light ? "rgba(11,79,72," + alpha + ")" : "rgba(255,255,255," + 0.95 * alpha + ")");
       x.lineCap = "round"; x.strokeStyle = g;
       x.lineWidth = m.w; x.beginPath(); x.moveTo(tx, ty); x.lineTo(hx, hy); x.stroke();
       x.lineWidth = m.w * 2.6; x.globalAlpha = 0.32;
@@ -630,9 +647,9 @@ input,select,textarea{background-color:var(--field)}
       x.globalAlpha = 1;
       // soft glowing head
       var r = m.w * 4, glow = x.createRadialGradient(hx, hy, 0, hx, hy, r);
-      glow.addColorStop(0, light ? "rgba(120,40,230," + alpha + ")" : "rgba(255,255,255," + alpha + ")");
-      glow.addColorStop(0.35, light ? "rgba(160,100,255," + 0.4 * alpha + ")" : "rgba(225,200,255," + 0.45 * alpha + ")");
-      glow.addColorStop(1, "rgba(177,76,255,0)");
+      glow.addColorStop(0, light ? "rgba(11,79,72," + alpha + ")" : "rgba(255,255,255," + alpha + ")");
+      glow.addColorStop(0.35, light ? "rgba(70,200,185," + 0.4 * alpha + ")" : "rgba(195,235,226," + 0.45 * alpha + ")");
+      glow.addColorStop(1, light ? "rgba(31,181,165,0)" : "rgba(93,179,165,0)");
       x.fillStyle = glow; x.beginPath(); x.arc(hx, hy, r, 0, 6.2832); x.fill();
     }
     if (list.length) requestAnimationFrame(frame); else { running = false; x.clearRect(0, 0, W, H) }
@@ -759,7 +776,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261109042346";
+const BUILD_ID = "20261109044530";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
