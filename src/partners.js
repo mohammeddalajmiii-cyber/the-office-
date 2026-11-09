@@ -14,44 +14,85 @@ const LEAD_NAME = Object.fromEntries(LEAD_ST);
 const TO_CALL = ["new", "noanswer", "callback"];
 const HOT = ["interested", "meeting"];
 
-// Paste this inside the Firestore rules, just before the last two closing braces.
-const PARTNER_RULES = `    // ===== Partners (lead finders). They only reach their own group. =====
-    function prOk() { return request.auth != null && request.auth.token.email_verified == true; }
-    function prEmail() { return request.auth.token.email.lower(); }
-    function prTeam() {
-      return prOk() && (prEmail() == "mohammedd.alajmiii@gmail.com"
-        || prEmail() in get(/databases/$(database)/documents/meta/team).data.emails);
-    }
-    function prMe() { return get(/databases/$(database)/documents/pmembers/$(prEmail())).data; }
-    function prPartner() {
-      return prOk() && exists(/databases/$(database)/documents/pmembers/$(prEmail())) && prMe().active == true;
-    }
-    function prGid() { return prMe().gid; }
+// The whole Firestore rules file (same as firestore.rules). Replace everything in the console with it.
+const PARTNER_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
 
+    // ---------- who is who ----------
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function isAdmin() { return signedIn() && myEmail() == "mohammedd.alajmiii@gmail.com"; }
+    function isTeam() {
+      return isAdmin() || (signedIn() && myEmail() in get(/databases/$(database)/documents/meta/team).data.emails);
+    }
+    function partnerDoc() { return get(/databases/$(database)/documents/pmembers/$(myEmail())).data; }
+    function isPartner() {
+      return signedIn() && exists(/databases/$(database)/documents/pmembers/$(myEmail())) && partnerDoc().active == true;
+    }
+    function myGroup() { return partnerDoc().gid; }
+
+    // ---------- the team's own site: only the team ----------
+    match /ideas/{id} {
+      allow read, write: if isTeam();
+    }
+    match /chat/{id} {
+      allow read, write: if isTeam();
+    }
+    match /meta/{name} {
+      allow read: if isTeam();
+      allow write: if (isTeam() && name != "team") || isAdmin();
+    }
+    match /users/{uid} {
+      allow read: if isTeam();
+      allow write: if isTeam() && request.auth.uid == uid;
+    }
+    // private messages: only the two people in the conversation
+    match /dms/{tid} {
+      allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+      match /msgs/{mid} {
+        allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+      }
+    }
+    // files sent in chat, stored in pieces
+    match /fileparts/{id} {
+      allow read: if isTeam();
+      allow create: if isTeam() && request.resource.data.by == request.auth.uid;
+      allow delete: if isTeam() && (resource.data.by == request.auth.uid || isAdmin());
+    }
+    // your own tasks and notes: only you
+    match /private/{uid}/{rest=**} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ---------- partners (lead finders): only their own group ----------
     match /pmembers/{email} {
-      allow read: if prTeam() || (prOk() && prEmail() == email);
-      allow write: if prTeam();
-      allow update: if prPartner() && prEmail() == email
+      allow read: if isTeam() || (signedIn() && myEmail() == email);
+      allow write: if isTeam();
+      allow update: if isPartner() && myEmail() == email
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid", "photo", "seenAt"]);
     }
     match /pgroups/{gid} {
-      allow read: if prTeam() || (prPartner() && prGid() == gid);
-      allow write: if prTeam();
+      allow read: if isTeam() || (isPartner() && myGroup() == gid);
+      allow write: if isTeam();
     }
     match /pleads/{lid} {
-      allow read: if prTeam() || (prPartner() && resource.data.gid == prGid());
-      allow create, delete: if prTeam();
-      allow update: if prTeam() || (prPartner() && resource.data.gid == prGid()
+      allow read: if isTeam() || (isPartner() && resource.data.gid == myGroup());
+      allow create, delete: if isTeam();
+      allow update: if isTeam() || (isPartner() && resource.data.gid == myGroup()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(["status", "note", "claimBy", "claimName", "updatedAt", "updatedBy", "updatedName", "history"]));
     }
     match /pposts/{pid} {
-      allow read: if prTeam() || (prPartner() && resource.data.gid == prGid());
-      allow create: if prTeam() || (prPartner() && request.resource.data.gid == prGid()
+      allow read: if isTeam() || (isPartner() && resource.data.gid == myGroup());
+      allow create: if isTeam() || (isPartner() && request.resource.data.gid == myGroup()
         && request.resource.data.by == request.auth.uid && request.resource.data.team == false);
-      allow update: if prTeam();
-      allow delete: if prTeam() || (prPartner() && resource.data.by == request.auth.uid);
-    }`;
+      allow update: if isTeam();
+      allow delete: if isTeam() || (isPartner() && resource.data.by == request.auth.uid);
+    }
+  }
+}
+`;
 
 /* ---------- shared state ---------- */
 
@@ -247,10 +288,10 @@ function rulesCard(open) {
   const ta = el("textarea", { class: "rulesbox", readonly: true, "aria-label": "Rules to paste" }, PARTNER_RULES);
   return el("section", { class: "idea", style: "margin-top:14px" },
     el("h3", {}, open ? "One step left: lock the partner area" : "Database rules for partners"),
-    el("p", { class: "label", style: "margin:0" }, "The site hides your projects from partners, but the database rules are what actually block them. Paste these once:"),
+    el("p", { class: "label", style: "margin:0" }, "The site hides your projects from partners, but the database rules are what actually block them. Do this once:"),
     el("ol", { class: "rules", style: "margin:0;padding-left:20px;font-size:14px" },
       el("li", {}, "Open console.firebase.google.com → the-office project → Firestore Database → Rules."),
-      el("li", {}, "Paste the text below just before the last two closing braces } }."),
+      el("li", {}, "Delete everything there and paste the text below."),
       el("li", {}, "Press Publish, then reload this page.")),
     ta,
     el("div", { class: "row" }, el("span", { class: "spacer" }),

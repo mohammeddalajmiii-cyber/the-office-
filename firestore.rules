@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- who is who ----------
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function isAdmin() { return signedIn() && myEmail() == "mohammedd.alajmiii@gmail.com"; }
+    function isTeam() {
+      return isAdmin() || (signedIn() && myEmail() in get(/databases/$(database)/documents/meta/team).data.emails);
+    }
+    function partnerDoc() { return get(/databases/$(database)/documents/pmembers/$(myEmail())).data; }
+    function isPartner() {
+      return signedIn() && exists(/databases/$(database)/documents/pmembers/$(myEmail())) && partnerDoc().active == true;
+    }
+    function myGroup() { return partnerDoc().gid; }
+
+    // ---------- the team's own site: only the team ----------
+    match /ideas/{id} {
+      allow read, write: if isTeam();
+    }
+    match /chat/{id} {
+      allow read, write: if isTeam();
+    }
+    match /meta/{name} {
+      allow read: if isTeam();
+      allow write: if (isTeam() && name != "team") || isAdmin();
+    }
+    match /users/{uid} {
+      allow read: if isTeam();
+      allow write: if isTeam() && request.auth.uid == uid;
+    }
+    // private messages: only the two people in the conversation
+    match /dms/{tid} {
+      allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+      match /msgs/{mid} {
+        allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+      }
+    }
+    // files sent in chat, stored in pieces
+    match /fileparts/{id} {
+      allow read: if isTeam();
+      allow create: if isTeam() && request.resource.data.by == request.auth.uid;
+      allow delete: if isTeam() && (resource.data.by == request.auth.uid || isAdmin());
+    }
+    // your own tasks and notes: only you
+    match /private/{uid}/{rest=**} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ---------- partners (lead finders): only their own group ----------
+    match /pmembers/{email} {
+      allow read: if isTeam() || (signedIn() && myEmail() == email);
+      allow write: if isTeam();
+      allow update: if isPartner() && myEmail() == email
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid", "photo", "seenAt"]);
+    }
+    match /pgroups/{gid} {
+      allow read: if isTeam() || (isPartner() && myGroup() == gid);
+      allow write: if isTeam();
+    }
+    match /pleads/{lid} {
+      allow read: if isTeam() || (isPartner() && resource.data.gid == myGroup());
+      allow create, delete: if isTeam();
+      allow update: if isTeam() || (isPartner() && resource.data.gid == myGroup()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["status", "note", "claimBy", "claimName", "updatedAt", "updatedBy", "updatedName", "history"]));
+    }
+    match /pposts/{pid} {
+      allow read: if isTeam() || (isPartner() && resource.data.gid == myGroup());
+      allow create: if isTeam() || (isPartner() && request.resource.data.gid == myGroup()
+        && request.resource.data.by == request.auth.uid && request.resource.data.team == false);
+      allow update: if isTeam();
+      allow delete: if isTeam() || (isPartner() && resource.data.by == request.auth.uid);
+    }
+  }
+}
