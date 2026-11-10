@@ -403,21 +403,8 @@ function renderPartnerGroupTeam(box, gid) {
   }
 
   if (pgTab === "people") {
-    const nm = el("input", { class: "noteinput", id: "pgp-name-" + gid, maxlength: "60", placeholder: "Their name" });
-    const em = el("input", { class: "noteinput", id: "pgp-email-" + gid, type: "email", maxlength: "120", placeholder: "Their Google email (the one they'll sign in with)", autocomplete: "off" });
-    const addP = () => {
-      const e = em.value.trim().toLowerCase(), n = nm.value.trim();
-      if (!emailOk(e)) { toast("Type their full Google email"); em.focus(); return }
-      if (ADMINS.includes(e) || teamEmails().includes(e)) { toast("That's a team member. Team members already see everything"); return }
-      const was = pMembers.find(m => m.id === e);
-      if (was && was.gid === gid) { toast("Already in this group"); return }
-      em.value = ""; nm.value = "";
-      write(() => setDoc(doc(db, "pmembers", e), { email: e, name: n || (was && was.name) || e.split("@")[0], gid, active: true, addedBy: me, addedAt: Date.now() }, { merge: true }),
-        was ? `Moved to ${g.name} from ${groupName(was.gid)}` : `Added. Send them the link`);
-    };
-    em.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addP() } });
-    box.append(el("div", { class: "compose", style: "margin-top:12px" }, el("h3", {}, "Add a partner"), nm, em,
-      el("div", { class: "row" }, el("span", { class: "label" }, "They'll only see this group."), el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: addP }, "Add partner"))));
+    box.append(el("div", { class: "idea", style: "margin-top:12px" }, el("p", { style: "margin:0" }, "To add a partner to this group, go to Me \u203a Settings \u203a People and access, choose Partner, and pick " + g.name + "."),
+      isAdmin ? el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary small", onclick: () => { location.hash = "settings" } }, "Open Settings")) : null));
     box.append(el("div", { class: "idea", style: "margin-top:12px" },
       el("div", { class: "label" }, "Send them this link. They sign in with Google using the email you added:"),
       el("div", { class: "row" }, el("code", { class: "plink" }, SITE_LINK), el("span", { class: "spacer" }),
