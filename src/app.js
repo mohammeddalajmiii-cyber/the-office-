@@ -1,11 +1,11 @@
 // Firebase is loaded in the background so the page can draw right away from the last saved copy.
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
-let auth, db, GoogleAuthProvider, signInWithPopup, signOut, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes, where, writeBatch;
+let auth, db, GoogleAuthProvider, signInWithPopup, signOut, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, getDocs, Bytes, where, writeBatch;
 const fbReady = (async () => {
   const [appM, authM, fsM] = await Promise.all([import(FB + "firebase-app.js"), import(FB + "firebase-auth.js"), import(FB + "firebase-firestore.js")]);
   const fb = appM.initializeApp(firebaseConfig);
   ({ GoogleAuthProvider, signInWithPopup, signOut } = authM);
-  ({ collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, Bytes, where, writeBatch } = fsM);
+  ({ collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, orderBy, limitToLast, getDoc, getDocs, Bytes, where, writeBatch } = fsM);
   auth = authM.getAuth(fb);
   db = fsM.initializeFirestore(fb, { localCache: fsM.persistentLocalCache({ tabManager: fsM.persistentMultipleTabManager() }) });
   authM.onAuthStateChanged(auth, onAuth);
@@ -114,6 +114,7 @@ function route() {
 }
 function show() {
   if (partnerMode) { renderPortal(); return }
+  if (clientMode) { renderClient(); return }
   const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "settings" || r.view === "money" ? "me" : r.view;
   for (const b of document.querySelectorAll("#app .tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
@@ -146,6 +147,7 @@ async function onAuth(u) {
   unsubs.forEach(f => f()); unsubs = [];
   privUnsubs.forEach(f => f()); privUnsubs = [];
   if (partnerMode || !u) partnerStop();
+  if (clientMode || !u) clientStop();
   if (!u) { $("#boot").hidden = true; me = null; live = false; remember(false); clearCache(); $("#gate").hidden = false; $("#app").hidden = true; return }
   // Partners (lead finders) get their own small site and never load the team's data.
   const email = (u.email || "").toLowerCase(), knownTeam = me === u.uid;
@@ -153,6 +155,10 @@ async function onAuth(u) {
     const pm = await partnerCheck(email);
     if (n !== authN) return;
     if (pm) { me = u.uid; clearCache(); startPartner(u, pm); return }
+    // Clients: anyone listed on a project's client view gets only their project page
+    const cl = await clientCheck(email);
+    if (n !== authN) return;
+    if (cl.length) { me = u.uid; clearCache(); startClient(u, cl); return }
   }
   $("#boot").hidden = true;
   remember(true);
@@ -193,7 +199,7 @@ async function onAuth(u) {
   unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "news"), s => { newsDoc = s.exists() ? s.data() : null; render() }, () => {}));
   teamLoaded = false; teamDoc = null;
-  unsubs.push(...partnerTeamSubs());
+  unsubs.push(...partnerTeamSubs(), ...clientTeamSubs());
   if (isAdmin) unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
   subscribePrivate();
   show();
@@ -306,7 +312,7 @@ function keepInputs(fn) {
   if (actId) { const n = document.getElementById(actId); if (n && n !== document.activeElement) { n.focus(); try { if (sel) n.setSelectionRange(sel[0], sel[1]) } catch { } } }
 }
 
-function render() { if (!me) return; if (partnerMode) { renderPortal(); return } keepInputs(renderAll) }
+function render() { if (!me) return; if (partnerMode) { renderPortal(); return } if (clientMode) { renderClient(); return } keepInputs(renderAll) }
 
 function renderAll() {
   const voting = ideas.filter(i => i.status === "voting").sort((a, b) => b.createdAt - a.createdAt);
@@ -393,7 +399,9 @@ function renderProjectPage(p) {
     el("button", { "aria-pressed": String(projTab === "tasks"), onclick: () => { projTab = "tasks"; render() } }, "Tasks"),
     el("button", { "aria-pressed": String(projTab === "week"), onclick: () => { projTab = "week"; render() } }, "Week"),
     el("button", { "aria-pressed": String(projTab === "meet"), onclick: () => { projTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : "")),
-    el("button", { "aria-pressed": String(projTab === "money"), onclick: () => { projTab = "money"; render() } }, "Money")));
+    el("button", { "aria-pressed": String(projTab === "money"), onclick: () => { projTab = "money"; render() } }, "Money"),
+    el("button", { "aria-pressed": String(projTab === "share"), onclick: () => { projTab = "share"; render() } }, "Client" + countNew(p.id))));
+  if (projTab === "share") return renderShare(box, p);
   if (projTab === "week") return renderWeek(box, p, team);
   if (projTab === "meet") return renderMeetings(box, p);
   if (projTab === "money") return renderMoney(box, p);
@@ -1914,6 +1922,7 @@ function buildAlerts() {
   const tomorrow = (() => { const d = new Date(dayStart(1)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` })();
   const add = (key, at, who, text, go) => { if (at) out.push({ key, at, who, text, go }) };
   partnerAlerts(add);
+  clientAlerts(add);
   for (const p of ideas) {
     if (p.status === "voting" && p.author !== me) add("idea:" + p.id, p.createdAt, p.author, `${name(p.author)} pitched a new idea: ${p.title}`, "ideas");
     if (p.status === "completed" && p.completedBy !== me) add("done:" + p.id, p.completedAt, p.completedBy, `${p.title} is completed`, "projects-done");

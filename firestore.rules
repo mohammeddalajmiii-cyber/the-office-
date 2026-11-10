@@ -73,5 +73,25 @@ service cloud.firestore {
       allow update: if isTeam();
       allow delete: if isTeam() || (isPartner() && resource.data.by == request.auth.uid);
     }
+
+    // ---------- clients and per-project partners: only the projects they are listed on ----------
+    function cpOf(pid) { return get(/databases/$(database)/documents/cprojects/$(pid)).data; }
+    function seesProject(d) { return signedIn() && (myEmail() in d.clients || myEmail() in d.partners); }
+    match /cprojects/{pid} {
+      allow read: if isTeam() || seesProject(resource.data);
+      allow write: if isTeam();
+    }
+    match /cposts/{id} {
+      allow read: if isTeam() || seesProject(cpOf(resource.data.pid));
+      allow create: if isTeam() || (signedIn() && myEmail() in cpOf(request.resource.data.pid).clients
+        && request.resource.data.by == request.auth.uid && request.resource.data.team == false);
+      allow update, delete: if isTeam();
+    }
+    match /ptasks/{id} {
+      allow read: if isTeam() || (signedIn() && resource.data.email == myEmail());
+      allow create, delete: if isTeam();
+      allow update: if isTeam() || (signedIn() && resource.data.email == myEmail()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["done", "doneAt"]));
+    }
   }
 }

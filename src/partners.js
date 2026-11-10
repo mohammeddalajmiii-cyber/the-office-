@@ -90,6 +90,26 @@ service cloud.firestore {
       allow update: if isTeam();
       allow delete: if isTeam() || (isPartner() && resource.data.by == request.auth.uid);
     }
+
+    // ---------- clients and per-project partners: only the projects they are listed on ----------
+    function cpOf(pid) { return get(/databases/$(database)/documents/cprojects/$(pid)).data; }
+    function seesProject(d) { return signedIn() && (myEmail() in d.clients || myEmail() in d.partners); }
+    match /cprojects/{pid} {
+      allow read: if isTeam() || seesProject(resource.data);
+      allow write: if isTeam();
+    }
+    match /cposts/{id} {
+      allow read: if isTeam() || seesProject(cpOf(resource.data.pid));
+      allow create: if isTeam() || (signedIn() && myEmail() in cpOf(request.resource.data.pid).clients
+        && request.resource.data.by == request.auth.uid && request.resource.data.team == false);
+      allow update, delete: if isTeam();
+    }
+    match /ptasks/{id} {
+      allow read: if isTeam() || (signedIn() && resource.data.email == myEmail());
+      allow create, delete: if isTeam();
+      allow update: if isTeam() || (signedIn() && resource.data.email == myEmail()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["done", "doneAt"]));
+    }
   }
 }
 `;
@@ -459,7 +479,7 @@ async function partnerCheck(email) {
 }
 function partnerStop() {
   pGroupUnsubs.forEach(f => f()); pGroupUnsubs = []; pGid = null; pGroup = null; pMe = null;
-  pLeads = []; pPosts = []; partnerMode = false; $("#partner").hidden = true;
+  pLeads = []; pPosts = []; partnerMode = false; $("#partner").hidden = true; partnerProjectsStop();
 }
 function startPartner(u, pm) {
   partnerMode = true; isAdmin = false; pMe = pm;
@@ -473,7 +493,8 @@ function startPartner(u, pm) {
     render();
   }, e => { if (e.code === "permission-denied") partnerEnded(u) }));
   partnerGroupSubs(pm.gid);
-  if (!["leads", "updates", "info"].includes(location.hash.slice(1))) history.replaceState(null, "", "#leads");
+  partnerProjectSubs(pm.id);
+  if (!["leads", "updates", "info", "projects"].includes(location.hash.slice(1))) history.replaceState(null, "", "#leads");
   render();
 }
 function partnerEnded(u) {
@@ -507,7 +528,8 @@ function keepPartnerInputs(fn) {
 }
 function renderPortal() { keepPartnerInputs(renderPortalNow) }
 function renderPortalNow() {
-  let v = location.hash.slice(1); if (!["leads", "updates", "info"].includes(v)) v = "leads";
+  let v = location.hash.slice(1); if (!["leads", "updates", "info", "projects"].includes(v)) v = "leads";
+  const open = myPTasks.filter(t => !t.done).length, cpj = $("#pc-projects"); if (cpj) { cpj.hidden = !open; cpj.textContent = open }
   for (const b of document.querySelectorAll("#partner .tab")) b.setAttribute("aria-selected", b.dataset.pview === v);
   const seen = pGetSeen("p-updates");
   const unread = pPosts.filter(p => p.team && (p.at || 0) > seen).length;
@@ -517,6 +539,7 @@ function renderPortalNow() {
   $("#p-group").textContent = pGroup ? pGroup.name : "";
   const box = $("#pv"); box.replaceChildren();
   const first = partnerName().split(" ")[0];
+  if (v === "projects") { renderPartnerProjects(box); return }
   if (!pGroup) { box.append(el("div", { class: "empty" }, pGroupGone ? "Your group was closed. Message the Ardent Studios team." : "Loading your group…")); return }
 
   if (v === "leads") {
