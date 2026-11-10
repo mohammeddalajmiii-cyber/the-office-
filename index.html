@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261111014908">
+<meta name="build" content="20261111015814">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg?v=2" type="image/svg+xml">
 <link rel="icon" href="icon-192.png?v=2" type="image/png" sizes="192x192">
@@ -822,7 +822,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261111014908";
+const BUILD_ID = "20261111015814";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -1543,7 +1543,7 @@ async function openGroupFile(f) {
   } else downloadFile(f);
 }
 function pickGroupFile(gid, labelInput) {
-  const inp = el("input", { type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,image/*" });
+  const inp = el("input", { type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.html,.htm,image/*" });
   inp.onchange = async () => {
     const f = inp.files && inp.files[0]; if (!f) return;
     if (f.size > MAX_FILE && !f.type.startsWith("image/")) { toast(`${f.name} is too big. The limit is 5 MB per file.`); return }

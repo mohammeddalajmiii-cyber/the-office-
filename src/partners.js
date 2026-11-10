@@ -570,7 +570,7 @@ async function openGroupFile(f) {
   } else downloadFile(f);
 }
 function pickGroupFile(gid, labelInput) {
-  const inp = el("input", { type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,image/*" });
+  const inp = el("input", { type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.html,.htm,image/*" });
   inp.onchange = async () => {
     const f = inp.files && inp.files[0]; if (!f) return;
     if (f.size > MAX_FILE && !f.type.startsWith("image/")) { toast(`${f.name} is too big. The limit is 5 MB per file.`); return }
