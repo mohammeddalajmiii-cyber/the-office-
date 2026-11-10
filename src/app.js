@@ -2070,6 +2070,7 @@ function getMeteors() { try { return localStorage.getItem("meteors") !== "off" }
 function applyLook(theme, meteors) {
   try { localStorage.setItem("theme", theme); localStorage.setItem("meteors", meteors ? "on" : "off") } catch { }
   window.applyTheme && window.applyTheme();
+  window.pitchBackground && window.pitchBackground();
 }
 let lookSynced = false;
 function syncLookFromAccount() {
@@ -2135,8 +2136,8 @@ function renderSettings() {
   const setLook = (t, m) => { applyLook(t, m); render(); write(() => setDoc(doc(db, "users", me), { theme: t, meteors: m }, { merge: true })) };
   box.append(el("section", { class: "idea" }, el("h3", {}, "Look"),
     el("div", { class: "seg seg-wide", role: "group", "aria-label": "Theme" }, THEMES.map(([v, l]) => el("button", { "aria-pressed": String(theme === v), onclick: () => setLook(v, meteors) }, l))),
-    el("div", { class: "row" }, el("span", {}, "Shooting stars"), el("span", { class: "spacer" }),
-      el("div", { class: "seg seg-sm", role: "group", "aria-label": "Shooting stars" },
+    el("div", { class: "row" }, el("span", {}, "Background animation"), el("span", { class: "spacer" }),
+      el("div", { class: "seg seg-sm", role: "group", "aria-label": "Background animation" },
         el("button", { "aria-pressed": String(meteors), onclick: () => setLook(theme, true) }, "On"),
         el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off")))));
 
@@ -2488,6 +2489,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-look-2", date: "2026-11-10", icon: "🗺️", title: "A new look",
+    text: "Plain grey with deep teal buttons, and a faint contour map in the background that lights up as a slow prism scan passes. You can switch the animation off in Me › Settings › Look.", go: "settings" },
   { id: "f-partners-1", date: "2026-11-09", icon: "🌍", title: "Partners",
     text: "A new Partners tab for the people abroad who find clients. Make a group per country, add their Google emails, paste numbers from a sheet, and read their call updates. They only see their own group, never our ideas, projects, chat or money.", go: "partners" },
   { id: "f-dm-1", date: "2026-11-06", icon: "🔒", title: "Private messages",
