@@ -2157,33 +2157,8 @@ function renderSettings() {
       el("span", { style: "flex:1 1 220px" }, perm === "granted" ? "On. You get pop-ups while the site is open." : perm === "denied" ? "Blocked in your browser settings. Allow notifications for this site there to turn them on." : perm === "unsupported" ? "This browser can't show pop-up alerts. The bell still works." : "Off. Turn on to get pop-ups while the site is open."),
       perm === "default" ? el("button", { class: "btn primary small", onclick: enableDeviceAlerts }, "Turn on") : null)));
 
-  /* team access (admin) */
-  if (isAdmin) {
-    const list = teamEmails();
-    const joinedEmails = new Set(Object.values(people).map(p => (p.email || "").toLowerCase()).filter(Boolean));
-    const inp = el("input", { id: "team-add", class: "noteinput", type: "email", inputmode: "email", placeholder: "friend@gmail.com", maxlength: "120" });
-    const add = () => {
-      const v = inp.value.trim().toLowerCase();
-      if (!emailOk(v)) { toast("That doesn't look like an email address"); inp.focus(); return }
-      if (list.includes(v)) { toast("Already on the team"); return }
-      inp.value = ""; saveTeam([...list, v], `${v} can now sign in`);
-    };
-    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
-    const sec = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "Team access"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Only you see this")),
-      el("p", { style: "margin:0;font-size:14px" }, "Only these emails can sign in. They sign in with Google using exactly this email."),
-      el("div", { class: "addtask", style: "margin:0" }, inp, el("button", { class: "btn primary", onclick: add }, "Add")));
-    if (!teamLoaded) sec.append(el("p", { class: "label" }, "Loading the team list…"));
-    for (const e of list) {
-      const isMe = ADMINS.includes(e);
-      sec.append(el("div", { class: "teamrow" },
-        el("span", { class: "teammail" }, e),
-        el("span", { class: joinedEmails.has(e) ? "done-badge" : "label" }, isMe ? "Admin" : joinedEmails.has(e) ? "Joined" : "Hasn't signed in yet"),
-        isMe ? null : delEmail === e
-          ? el("button", { class: "linkdel sure", onclick: () => { delEmail = null; saveTeam(list.filter(x => x !== e), `${e} can't sign in anymore`) } }, "Remove?")
-          : el("button", { class: "linkdel", "aria-label": "Remove " + e, onclick: () => { delEmail = e; render() } }, "✕")));
-    }
-    box.append(sec);
-  }
+  /* people and access (admin): team members, partners and clients in one place */
+  if (isAdmin) box.append(accessSection());
 
   box.append(newsSettings());
 

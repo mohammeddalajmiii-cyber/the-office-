@@ -240,3 +240,75 @@ function renderPartnerProjects(box) {
         team ? el("div", { class: "note" }, el("span", { class: "note-body" }, team.text), el("span", { class: "note-meta" }, (team.name || "Ardent team") + " · " + ago(team.at))) : null)));
   }
 }
+
+/* ---------- Settings › People and access: one place to add and remove team members, partners and clients ---------- */
+let accessRole = "team", accessGid = "", accessPid = "", accessDel = null;
+const ROLE_NAME = { team: "Team member", partner: "Partner", client: "Client" };
+function roleOf(e) {
+  if (ADMINS.includes(e) || teamEmails().includes(e)) return "team";
+  if (pMembers.some(m => m.id === e)) return "partner";
+  if (cProjects.some(c => (c.clients || []).includes(e))) return "client";
+  return null;
+}
+function accessSection() {
+  const projects = ideas.filter(i => i.status === "approved" || i.status === "completed").sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  if (!accessGid || !pGroups.find(g => g.id === accessGid)) accessGid = (pGroups[0] || {}).id || "";
+  if (!accessPid || !projects.find(p => p.id === accessPid)) accessPid = (projects[0] || {}).id || "";
+  const em = el("input", { id: "acc-email", class: "noteinput", type: "email", inputmode: "email", placeholder: "Their Google email", maxlength: "120", autocomplete: "off" });
+  const nm = el("input", { id: "acc-name", class: "noteinput", maxlength: "60", placeholder: "Their name (optional)" });
+  const add = () => {
+    const e = lower(em.value), n = nm.value.trim();
+    if (!emailOk(e)) { toast("That doesn't look like an email address"); em.focus(); return }
+    const has = roleOf(e);
+    if (has === "team" || (has && has !== accessRole)) { toast(`${e} is already a ${ROLE_NAME[has].toLowerCase()}. Remove them there first`); return }
+    if (accessRole === "team") { em.value = ""; nm.value = ""; saveTeam([...teamEmails(), e], `${e} is on the team and can sign in`); return }
+    if (accessRole === "partner") {
+      if (!accessGid) { toast("Make a partner group first in the Partners tab"); return }
+      em.value = ""; nm.value = "";
+      write(() => setDoc(doc(db, "pmembers", e), { email: e, name: n || e.split("@")[0], gid: accessGid, active: true, addedBy: me, addedAt: Date.now() }, { merge: true }), `${n || e} is a partner in ${groupName(accessGid)}`);
+      return;
+    }
+    const p = projects.find(x => x.id === accessPid); if (!p) { toast("Pick the client's project"); return }
+    const cp = cpOf(p.id); if (cp && (cp.clients || []).includes(e)) { toast("Already a client on this project"); return }
+    em.value = ""; nm.value = "";
+    saveCP(p, { clients: [...((cp && cp.clients) || []), e] }, `${e} can now follow ${p.title}`);
+  };
+  em.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); add() } });
+  const pick = accessRole === "partner"
+    ? (pGroups.length ? el("select", { class: "mini", "aria-label": "Partner group", onchange: ev => { accessGid = ev.target.value } }, [...pGroups].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(g => el("option", { value: g.id, selected: g.id === accessGid }, "Group: " + g.name)))
+      : el("span", { class: "label" }, "No partner groups yet. Make one in the Partners tab."))
+    : accessRole === "client"
+      ? (projects.length ? el("select", { class: "mini", "aria-label": "Client's project", onchange: ev => { accessPid = ev.target.value } }, projects.map(p => el("option", { value: p.id, selected: p.id === accessPid }, "Project: " + p.title)))
+        : el("span", { class: "label" }, "No projects yet."))
+      : null;
+  const what = { team: "Sees everything: ideas, projects, chat, money and partners.", partner: "Sees only their group's numbers, updates and info, plus projects you add them to.", client: "Sees only their project's progress, next step, files and updates." }[accessRole];
+  const sec = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "People and access"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Only you see this")),
+    el("p", { style: "margin:0;font-size:14px" }, "Everyone signs in on the same link with Google, using exactly the email you add here. What they see depends on who they are."),
+    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Add as" }, ["team", "partner", "client"].map(r => el("button", { "aria-pressed": String(accessRole === r), onclick: () => { accessRole = r; render() } }, ROLE_NAME[r]))),
+    el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, what),
+    em, accessRole === "partner" ? nm : null, pick,
+    el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: add }, "Add " + ROLE_NAME[accessRole].toLowerCase())));
+  if (!teamLoaded) sec.append(el("p", { class: "label" }, "Loading…"));
+
+  const joined = new Set(Object.values(people).map(p => (p.email || "").toLowerCase()).filter(Boolean));
+  const row = (key, label, badge, onRemove, locked) => el("div", { class: "teamrow" }, el("span", { class: "teammail" }, label), badge,
+    locked ? null : accessDel === key
+      ? el("button", { class: "linkdel sure", onclick: () => { accessDel = null; onRemove() } }, "Remove?")
+      : el("button", { class: "linkdel", "aria-label": "Remove " + label, onclick: () => { accessDel = key; render() } }, "✕"));
+  const group = (title, n, rows) => el("div", { style: "display:grid;gap:2px;margin-top:10px" }, el("div", { class: "label" }, `${title} (${n})`), rows.length ? rows : el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Nobody yet."));
+
+  const team = teamEmails();
+  sec.append(group("Team", team.length, team.map(e => row("t:" + e, e, el("span", { class: joined.has(e) ? "done-badge" : "label" }, ADMINS.includes(e) ? "Admin" : joined.has(e) ? "Joined" : "Hasn't signed in yet"),
+    () => saveTeam(team.filter(x => x !== e), `${e} isn't on the team anymore`), ADMINS.includes(e)))));
+  const parts = [...pMembers].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+  sec.append(group("Partners", parts.length, parts.map(m => row("p:" + m.id, (m.name ? m.name + " · " : "") + m.id, el("span", { class: "label" }, groupName(m.gid) + (m.uid ? "" : " · not signed in yet")),
+    () => write(async () => {
+      await deleteDoc(doc(db, "pmembers", m.id));
+      for (const c of cProjects.filter(c => (c.partners || []).includes(m.id))) await setDoc(doc(db, "cprojects", c.id), { partners: c.partners.filter(x => x !== m.id) }, { merge: true });
+    }, `${m.name || m.id} isn't a partner anymore`)))));
+  const clients = {}; for (const c of cProjects) for (const e of c.clients || []) (clients[e] = clients[e] || []).push(c);
+  const ce = Object.keys(clients).sort();
+  sec.append(group("Clients", ce.length, ce.map(e => row("c:" + e, e, el("span", { class: "label" }, clients[e].map(c => c.title).join(", ")),
+    () => write(async () => { for (const c of clients[e]) await setDoc(doc(db, "cprojects", c.id), { clients: (c.clients || []).filter(x => x !== e) }, { merge: true }) }, `${e} can't see their project anymore`)))));
+  return sec;
+}
