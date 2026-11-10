@@ -1173,6 +1173,14 @@ function dueChip(t) {
   return el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, late ? "Overdue · " + fmtDate(t.due) : soon ? "Due today" : "Due " + fmtDate(t.due));
 }
 
+/* Waiting for: a task can depend on other tasks. It shows as waiting until they're done. */
+const waitIds = t => Object.entries(t.waitFor || {}).filter(([, v]) => v).map(([id]) => id);
+function waitInfo(p, t) {
+  const all = tasksOf(p), deps = waitIds(t).map(id => all.find(x => x.id === id)).filter(Boolean);
+  return { deps, open: deps.filter(d => !d.done) };
+}
+const ownerName = d => { const ps = assignees(d); return ps.length ? ps.map(u => u === me ? "you" : name(u).split(" ")[0]).join(", ") : "nobody yet" };
+
 function taskItem(p, t, where, opts = {}) {
   const key = where + ":" + t.id, open = openTask === key;
   const can = canPlan(p) || isAssignee(t, me);
@@ -1189,6 +1197,9 @@ function taskItem(p, t, where, opts = {}) {
       opts.phase ? el("span", { class: "label" }, opts.phase) : null,
       showPeople ? (people.length ? el("span", { class: "stack", title: people.map(name).join(", ") }, people.slice(0, 4).map(av)) : el("span", { class: "label" }, "Not assigned")) : null,
       !t.done && t.status === "doing" ? el("span", { class: "doing" }, "In progress") : null,
+      (() => { if (t.done) return null; const w = waitInfo(p, t); if (!w.deps.length) return null;
+        return w.open.length ? el("span", { class: "waitchip", title: w.open.map(d => `${d.text} (${ownerName(d)})`).join("\n") }, "\u23F3 Waiting for " + (w.open.length === 1 ? `${ownerName(w.open[0])}: ${w.open[0].text}` : `${w.open.length} tasks`))
+          : el("span", { class: "readychip" }, "\u2713 Ready to start") })(),
       t.priority && t.priority !== "medium" ? el("span", { class: "prio prio-" + t.priority }, PRIORITIES.find(x => x.id === t.priority).name) : null,
       dueChip(t),
       cl.length ? el("span", { class: "label" }, `Checklist ${cld}/${cl.length}`) : null,
@@ -1237,6 +1248,22 @@ function taskDetail(p, t, key) {
     box.append(field("Details", el("span", { class: "row", style: "gap:6px" },
       el("span", { class: "prio prio-" + (t.priority || "medium") }, PRIORITIES.find(x => x.id === (t.priority || "medium")).name), dueChip(t) || el("span", { class: "label" }, "No due date"),
       t.skill ? el("span", { class: "chip" }, SKILLS[t.skill].name) : null)));
+  }
+
+  /* waiting for other tasks */
+  {
+    const all = tasksOf(p), w = waitInfo(p, t), mine = waitIds(t);
+    const chips = w.deps.map(d => el("span", { class: "planner" + (d.done ? " waitdone" : "") }, (d.done ? "\u2713 " : "\u23F3 ") + d.text, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, ownerName(d)),
+      can ? el("button", { class: "x", "aria-label": "Stop waiting for " + d.text, onclick: () => set({ [`${t.path}.waitFor.${d.id}`]: DEL() }) }, "\u2715") : null));
+    const phs = getPhases(p), phName = id => (phs.find(x => x.id === id) || {}).name || "";
+    // other tasks, this task's phase first; never itself or a task that already waits for this one
+    const options = all.filter(x => x.id !== t.id && !mine.includes(x.id) && !waitIds(x).includes(t.id))
+      .sort((a, b) => (b.phase === t.phase) - (a.phase === t.phase) || (a.done - b.done) || (a.order || 0) - (b.order || 0));
+    const add = can && options.length ? el("select", { class: "mini", "aria-label": "Add a task to wait for", onchange: e => { const id = e.target.value; if (!id) return; const d = all.find(x => x.id === id);
+      set({ [`${t.path}.waitFor.${id}`]: true }, d.done ? "That task is already done" : `Waiting for ${ownerName(d)} to finish it`) } },
+      el("option", { value: "" }, w.deps.length ? "+ Wait for another task\u2026" : "Pick the task you're waiting for\u2026"),
+      options.map(x => el("option", { value: x.id }, `${x.done ? "\u2713 " : ""}${phs.length > 1 ? phName(x.phase) + " \u00B7 " : ""}${x.text} (${ownerName(x)})`))) : null;
+    if (w.deps.length || add) box.append(field("Waiting for", ...chips, add || (w.deps.length ? null : el("span", { class: "label" }, "Not waiting for anything"))));
   }
 
   /* checklist */
@@ -1932,6 +1959,13 @@ function buildAlerts() {
   const add = (key, at, who, text, go) => { if (at) out.push({ key, at, who, text, go }) };
   partnerAlerts(add);
   clientAlerts(add);
+  for (const p of ideas) if (p.status === "approved") for (const t of tasksOf(p)) {
+    if (t.done || !isAssignee(t, me)) continue;
+    const w = waitInfo(p, t); if (!w.deps.length || w.open.length) continue;
+    const last = w.deps.reduce((a, d) => (d.doneAt || 0) > (a.doneAt || 0) ? d : a, w.deps[0]);
+    if (last.doneBy === me) continue;
+    add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, last.doneBy || null, `You can start "${t.text}": ${last.doneBy ? name(last.doneBy).split(" ")[0] : "someone"} finished "${last.text}"`, "project-" + p.id);
+  }
   for (const p of ideas) {
     if (p.status === "voting" && p.author !== me) add("idea:" + p.id, p.createdAt, p.author, `${name(p.author)} pitched a new idea: ${p.title}`, "ideas");
     if (p.status === "completed" && p.completedBy !== me) add("done:" + p.id, p.completedAt, p.completedBy, `${p.title} is completed`, "projects-done");
