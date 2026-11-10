@@ -364,7 +364,7 @@ function renderProjectPage(p) {
   const head = el("section", { class: "focus" },
     el("div", { class: "row", style: "gap:6px" },
       done ? el("span", { class: "done-badge" }, "\u2713 Completed " + fmtDay(p.completedAt)) : el("span", { class: "pill" }, isActive(p) ? "Building now" : "Up next"),
-      prioChip(p), p.category ? catChip(p) : null),
+      prioChip(p), catsOf(p).length ? catChip(p) : null),
     el("div", { class: "row", style: "align-items:flex-start;flex-wrap:nowrap" }, el("h2", { style: "flex:1;min-width:0" }, p.title),
       planner || joined ? el("button", { class: "btn small", "aria-expanded": String(settingsOpen), onclick: () => { showSettings = settingsOpen ? null : p.id; render() } }, settingsOpen ? "Close" : "Settings") : null),
     clientOf(p) ? clientLine(clientOf(p)) : null,
@@ -704,9 +704,13 @@ function renderMeetings(box, p) {
 /* ----- ideas ----- */
 
 const NEW = "__new";
+// A project can have several categories. Older projects have one in "category"; newer ones keep the list in "categories".
+const catsOf = i => (i && Array.isArray(i.categories) && i.categories.length ? i.categories : i && i.category ? [i.category] : []);
+const inCat = (i, c) => { const cs = catsOf(i); return c === "Other" ? !cs.length || cs.includes("Other") : cs.includes(c) };
+const setCats = (p, list) => { const cs = [...new Set(list.filter(Boolean))]; return upd(p.id, { categories: cs, category: cs[0] || "" }) };
 const allCats = () => {
   const base = CATEGORIES.filter(c => c !== "Other");
-  const custom = [...new Set(ideas.map(i => i.category).filter(c => c && !CATEGORIES.includes(c)))].sort((a, b) => a.localeCompare(b));
+  const custom = [...new Set(ideas.flatMap(catsOf).filter(c => c && !CATEGORIES.includes(c)))].sort((a, b) => a.localeCompare(b));
   return [...base, ...custom, "Other"];
 };
 const catOptions = () => [...allCats().map(c => el("option", { value: c }, c)), el("option", { value: NEW }, "+ New category\u2026")];
@@ -724,19 +728,19 @@ const catFilter = { ideas: "", projects: "" };
 const catEls = { ideas: $("#cat-ideas"), projects: $("#cat-projects") };   // kept so the filter can sit under the tabs
 function catBar(where, list) {
   const box = catEls[where]; box.replaceChildren();
-  const used = allCats().filter(c => list.some(i => (i.category || "Other") === c));
+  const used = allCats().filter(c => list.some(i => inCat(i, c)));
   if ((used.length < 2 || list.length < 6) && !catFilter[where]) { box.replaceChildren(); return list }
   const pick = c => { catFilter[where] = catFilter[where] === c ? "" : c; render() };
   box.append(el("button", { class: "cat", "aria-pressed": String(!catFilter[where]), onclick: () => pick("") }, `All ${list.length}`),
-    ...used.map(c => el("button", { class: "cat", "aria-pressed": String(catFilter[where] === c), onclick: () => pick(c) }, `${c} ${list.filter(i => (i.category || "Other") === c).length}`)));
-  return catFilter[where] ? list.filter(i => (i.category || "Other") === catFilter[where]) : list;
+    ...used.map(c => el("button", { class: "cat", "aria-pressed": String(catFilter[where] === c), onclick: () => pick(c) }, `${c} ${list.filter(i => inCat(i, c)).length}`)));
+  return catFilter[where] ? list.filter(i => inCat(i, catFilter[where])) : list;
 }
 function cleanCat(raw) {
   const t = (raw || "").trim().replace(/\s+/g, " ").slice(0, 30);
   if (!t) return "";
   return allCats().find(c => c.toLowerCase() === t.toLowerCase()) || t.charAt(0).toUpperCase() + t.slice(1);
 }
-const catChip = i => el("span", { class: "catchip" }, i.category || "No category");
+const catChip = i => { const cs = catsOf(i); return cs.length > 1 ? el("span", { class: "catchips" }, cs.map(c => el("span", { class: "catchip" }, c))) : el("span", { class: "catchip" }, cs[0] || "No category") };
 const clientOf = p => (p && (p.client || (p.money || {}).client)) || "";
 const clientLine = c => el("div", { class: "clientline" }, el("span", { class: "tlabel" }, "Client"), el("span", {}, c));
 
@@ -1022,21 +1026,26 @@ function renderCompleted(box, done) {
 function fmtDay(at) { return at ? new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "" }
 
 let newCatFor = null;
+// Categories: a project can have as many as you like. Tap ✕ on one to remove it, pick from the list to add one.
 function catSelect(p) {
-  const wrapStyle = "gap:8px;font-size:13px;color:var(--muted)";
+  const wrapStyle = "gap:8px;font-size:13px;color:var(--muted);flex-wrap:wrap";
+  const cs = catsOf(p);
+  const chips = cs.map(c => el("span", { class: "catchip catchip-x" }, c,
+    el("button", { type: "button", "aria-label": "Remove category " + c, onclick: () => write(() => setCats(p, cs.filter(x => x !== c)), "Removed " + c) }, "\u2715")));
   if (newCatFor === p.id) {
     const inp = el("input", { id: "newcat-" + p.id, class: "mini", maxlength: "30", placeholder: "New category name", style: "padding:6px 8px;font-size:13px" });
-    const save = () => { const c = cleanCat(inp.value); if (!c) return; newCatFor = null; write(() => upd(p.id, { category: c }), "Category changed") };
+    const save = () => { const c = cleanCat(inp.value); if (!c) return; newCatFor = null; write(() => setCats(p, [...cs, c]), "Added " + c) };
     inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } if (e.key === "Escape") { newCatFor = null; render() } });
     setTimeout(() => inp.focus(), 0);
-    return el("div", { class: "row", style: wrapStyle }, "Category", inp, el("button", { class: "btn", onclick: save }, "Save"), el("button", { class: "btn quiet", onclick: () => { newCatFor = null; render() } }, "Cancel"));
+    return el("div", { class: "row", style: wrapStyle }, "Categories", ...chips, inp, el("button", { class: "btn", onclick: save }, "Add"), el("button", { class: "btn quiet", onclick: () => { newCatFor = null; render() } }, "Cancel"));
   }
-  const sel = el("select", { class: "mini", "aria-label": "Category", onchange: e => {
-    if (e.target.value === NEW) { newCatFor = p.id; render(); return }
-    write(() => upd(p.id, { category: e.target.value }), "Category changed");
-  } }, !p.category ? el("option", { value: "" }, "Pick a category\u2026") : null, catOptions());
-  sel.value = p.category || "";
-  return el("label", { class: "row", style: wrapStyle }, "Category", sel);
+  const left = allCats().filter(c => !cs.includes(c));
+  const sel = el("select", { class: "mini", "aria-label": "Add a category", onchange: e => {
+    const v = e.target.value; if (!v) return;
+    if (v === NEW) { newCatFor = p.id; render(); return }
+    write(() => setCats(p, [...cs, v]), "Added " + v);
+  } }, el("option", { value: "" }, cs.length ? "+ Add another\u2026" : "Pick a category\u2026"), ...left.map(c => el("option", { value: c }, c)), el("option", { value: NEW }, "+ New category\u2026"));
+  return el("div", { class: "row", style: wrapStyle }, "Categories", ...chips, sel);
 }
 
 function planBody(p, opts = {}) {
@@ -2237,7 +2246,7 @@ function boardContext(p) {
   const act = activeProjects();
   if (act.length) { L.push("\nProjects being built now:"); act.forEach(a => { const pr = progressOf(tasksOf(a)); L.push(`- ${a.title} (${prioOf(a).name} priority, ${pr.done}/${pr.total} tasks done)`) }) }
   if (p) {
-    L.push(`\nTHE PROJECT WE'RE LOOKING AT: "${p.title}"${p.category ? " (" + p.category + ")" : ""}, ${prioOf(p).name} priority, ${p.status === "completed" ? "completed" : isActive(p) ? "being built now" : "not started yet"}.`);
+    L.push(`\nTHE PROJECT WE'RE LOOKING AT: "${p.title}"${catsOf(p).length ? " (" + catsOf(p).join(", ") + ")" : ""}, ${prioOf(p).name} priority, ${p.status === "completed" ? "completed" : isActive(p) ? "being built now" : "not started yet"}.`);
     if (p.pitch) L.push("Description: " + short(p.pitch, 500));
     if (clientOf(p)) L.push("Client: " + clientOf(p));
     const g = (p.goals || {})[weekKey()]; if (g && g.text) L.push(`This week's goal: ${g.text}${g.reached ? " (reached)" : ""}`);
