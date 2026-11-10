@@ -39,7 +39,7 @@ service cloud.firestore {
     }
     // files sent in chat, stored in pieces
     match /fileparts/{id} {
-      allow read: if isTeam();
+      allow read: if isTeam() || (isPartner() && resource.data.gid == myGroup());
       allow create: if isTeam() && request.resource.data.by == request.auth.uid;
       allow delete: if isTeam() && (resource.data.by == request.auth.uid || isAdmin());
     }

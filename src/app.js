@@ -1629,11 +1629,11 @@ async function prepareFile(f) {
   if (out.blob.size > MAX_FILE) throw new Error("too big");
   return out;
 }
-async function uploadFile(p, onProgress) {
+async function uploadFile(p, onProgress, extra = {}) {
   const id = uid(); const buf = new Uint8Array(await p.blob.arrayBuffer());
   const parts = Math.max(1, Math.ceil(buf.length / PART));
   for (let n = 0; n < parts; n++) {
-    await setDoc(doc(db, "fileparts", `${id}_${n}`), { by: me, fileId: id, n, data: Bytes.fromUint8Array(buf.subarray(n * PART, (n + 1) * PART)) });
+    await setDoc(doc(db, "fileparts", `${id}_${n}`), { ...extra, by: me, fileId: id, n, data: Bytes.fromUint8Array(buf.subarray(n * PART, (n + 1) * PART)) });
     onProgress && onProgress(Math.round((n + 1) / parts * 100));
   }
   const file = { id, name: p.name, type: p.type, size: buf.length, parts };

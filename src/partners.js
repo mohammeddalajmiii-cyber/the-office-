@@ -56,7 +56,7 @@ service cloud.firestore {
     }
     // files sent in chat, stored in pieces
     match /fileparts/{id} {
-      allow read: if isTeam();
+      allow read: if isTeam() || (isPartner() && resource.data.gid == myGroup());
       allow create: if isTeam() && request.resource.data.by == request.auth.uid;
       allow delete: if isTeam() && (resource.data.by == request.auth.uid || isAdmin());
     }
@@ -435,13 +435,14 @@ function renderPartnerGroupTeam(box, gid) {
     const links = Object.entries(g.links || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.at || 0) - (b.at || 0));
     const lab = el("input", { class: "noteinput", id: "pgl-label-" + gid, maxlength: "60", placeholder: "Name, e.g. Price list" });
     const url = el("input", { class: "noteinput", id: "pgl-url-" + gid, type: "url", maxlength: "500", placeholder: "https://…" });
-    box.append(el("div", { class: "compose", style: "margin-top:12px" }, el("h3", {}, "Links"),
-      links.length ? el("ul", { class: "plinks" }, links.map(k => el("li", {}, el("a", { href: k.url, target: "_blank", rel: "noopener" }, k.label || k.url),
-        el("button", { class: "x", "aria-label": "Remove link " + (k.label || ""), onclick: () => write(() => updateDoc(doc(db, "pgroups", gid), { ["links." + k.id]: DEL() }), "Link removed") }, "✕")))) : el("p", { class: "label", style: "margin:0" }, "Price lists, a pitch script, your portfolio, a WhatsApp group."),
+    box.append(el("div", { class: "compose", style: "margin-top:12px" }, el("h3", {}, "Files and links"),
+      links.length ? el("ul", { class: "plinks" }, links.map(k => el("li", {}, linkOrFile(k),
+        el("button", { class: "x", "aria-label": "Remove " + (k.label || ""), onclick: () => write(async () => { await updateDoc(doc(db, "pgroups", gid), { ["links." + k.id]: DEL() }); if (k.file) for (let n = 0; n < k.file.parts; n++) deleteDoc(doc(db, "fileparts", `${k.file.id}_${n}`)).catch(() => {}) }, k.file ? "File removed" : "Link removed") }, "✕")))) : el("p", { class: "label", style: "margin:0" }, "Price lists, a pitch script, your portfolio, a WhatsApp group. PDFs and other files up to 5 MB too."),
       lab, url,
       el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn", onclick: () => {
         let u = url.value.trim(); const t = lab.value.trim(); if (!u) { url.focus(); return } if (!/^https?:\/\//i.test(u)) u = "https://" + u;
-        lab.value = ""; url.value = ""; write(() => updateDoc(doc(db, "pgroups", gid), { ["links." + uid()]: { label: t, url: u, at: Date.now() } }), "Link added") } }, "Add link"))));
+        lab.value = ""; url.value = ""; write(() => updateDoc(doc(db, "pgroups", gid), { ["links." + uid()]: { label: t, url: u, at: Date.now() } }), "Link added") } }, "Add link"),
+        el("button", { class: "btn primary", onclick: () => pickGroupFile(gid, lab) }, "Attach a file"))));
     const rn = el("input", { class: "noteinput", id: "pgrn-" + gid, maxlength: "40", placeholder: g.name });
     box.append(el("div", { class: "compose", style: "margin-top:12px" }, el("h3", {}, "Group"),
       el("div", { class: "addstep" }, rn, el("button", { class: "btn", onclick: () => { const v = rn.value.trim(); if (!v) return; rn.value = ""; write(() => updateDoc(doc(db, "pgroups", gid), { name: v }), "Renamed") } }, "Rename")),
@@ -549,8 +550,40 @@ function renderPortalNow() {
     const links = Object.entries(pGroup.links || {}).filter(([, x]) => x).map(([id, x]) => ({ id, ...x })).sort((a, b) => (a.at || 0) - (b.at || 0));
     box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Info"),
       el("div", { class: "idea" }, pGroup.info ? el("div", { class: "post-text" }, pGroup.info) : el("p", { class: "label", style: "margin:0" }, "The team hasn't added info for your group yet.")),
-      links.length ? el("div", { class: "idea", style: "margin-top:12px" }, el("h3", {}, "Links"), el("ul", { class: "plinks" }, links.map(k => el("li", {}, el("a", { href: k.url, target: "_blank", rel: "noopener" }, k.label || k.url))))) : null,
+      links.length ? el("div", { class: "idea", style: "margin-top:12px" }, el("h3", {}, "Files and links"), el("ul", { class: "plinks" }, links.map(k => el("li", {}, linkOrFile(k))))) : null,
       el("div", { class: "idea", style: "margin-top:12px;gap:6px" }, el("div", { class: "label" }, "Signed in as"), el("b", {}, partnerName()), el("div", { class: "label" }, (myProfile && myProfile.email) || ""),
         el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => doSignOut() }, "Sign out"))));
   }
+}
+
+/* ---------- files for a partner group: PDFs, price lists, scripts (stored in pieces, tagged with the group) ---------- */
+function linkOrFile(k) {
+  if (!k.file) return el("a", { href: k.url, target: "_blank", rel: "noopener" }, k.label || k.url);
+  return el("button", { class: "filelink", onclick: () => openGroupFile(k.file) }, el("span", { class: "att-ext" }, extOf(k.file.name)),
+    el("span", {}, k.label || k.file.name), el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, fmtSize(k.file.size)));
+}
+async function openGroupFile(f) {
+  // PDFs and pictures open in a new tab; anything else downloads
+  if (/^(application\/pdf|image\/)/.test(f.type)) {
+    const w = window.open("", "_blank");
+    try { const url = await loadFile(f); if (w) w.location.href = url; else downloadFile(f) } catch { if (w) w.close(); toast("That file couldn't be loaded. It may have been deleted.") }
+  } else downloadFile(f);
+}
+function pickGroupFile(gid, labelInput) {
+  const inp = el("input", { type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,image/*" });
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    if (f.size > MAX_FILE && !f.type.startsWith("image/")) { toast(`${f.name} is too big. The limit is 5 MB per file.`); return }
+    const label = (labelInput && labelInput.value.trim()) || f.name.replace(/\.[^.]+$/, "");
+    try {
+      toast("Uploading " + f.name + "…");
+      const prepared = await prepareFile(f);
+      const file = await uploadFile(prepared, null, { gid });
+      delete file.thumb;
+      await updateDoc(doc(db, "pgroups", gid), { ["links." + uid()]: { label, file, at: Date.now() } });
+      if (labelInput) labelInput.value = "";
+      toast("File added for the group");
+    } catch (e) { toast(e && e.message === "too big" ? `${f.name} is too big. The limit is 5 MB per file.` : "That file didn't upload. Check your connection and try again.") }
+  };
+  inp.click();
 }
