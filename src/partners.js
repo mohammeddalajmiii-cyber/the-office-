@@ -570,9 +570,9 @@ async function openGroupFile(f) {
   } else downloadFile(f);
 }
 function pickGroupFile(gid, labelInput) {
-  const inp = el("input", { type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.html,.htm,image/*" });
+  const inp = el("input", { type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.html,.htm,image/*", hidden: true });
   inp.onchange = async () => {
-    const f = inp.files && inp.files[0]; if (!f) return;
+    const f = inp.files && inp.files[0]; inp.remove(); if (!f) return;
     if (f.size > MAX_FILE && !f.type.startsWith("image/")) { toast(`${f.name} is too big. The limit is 5 MB per file.`); return }
     const label = (labelInput && labelInput.value.trim()) || f.name.replace(/\.[^.]+$/, "");
     try {
@@ -585,5 +585,5 @@ function pickGroupFile(gid, labelInput) {
       toast("File added for the group");
     } catch (e) { toast(e && e.message === "too big" ? `${f.name} is too big. The limit is 5 MB per file.` : "That file didn't upload. Check your connection and try again.") }
   };
-  inp.click();
+  document.body.append(inp); inp.click();
 }
