@@ -1130,7 +1130,8 @@ function phaseCard(p, ph, n, phases, list, mode = {}) {
     sec.append(tools);
   }
   if (!list.length) sec.append(el("p", { style: "font-size:14px" }, planner ? "No tasks yet. Add the first one below." : "No tasks yet."));
-  for (const t of list) sec.append(taskItem(p, t, "p", { people: "always" }));
+  // Most important first: urgent, high, medium, low. Done tasks go to the bottom.
+  for (const t of [...list].sort((a, b) => (a.done - b.done) || taskPrioRank(a) - taskPrioRank(b))) sec.append(taskItem(p, t, "p", { people: "always" }));
   if (planner && !loose && !mode.filtered) sec.append(addTaskRow(p, ph));
   return sec;
 }
@@ -1188,7 +1189,7 @@ function taskItem(p, t, where, opts = {}) {
   const ncount = Object.values(t.notes || {}).filter(n => n && n.text).length;
   const people = assignees(t);
   const showPeople = opts.people === "always" || (opts.people !== "never" && (opts.people !== "multi" || people.length > 1));
-  return el("div", { class: "task" + (t.done ? " done" : "") + (isAssignee(t, me) ? " mytask" : "") + (open ? " open" : "") },
+  return el("div", { class: "task" + (t.done ? " done" : " tp-" + (t.priority || "medium")) + (isAssignee(t, me) ? " mytask" : "") + (open ? " open" : "") },
     el("input", { type: "checkbox", id: "c-" + key, checked: t.done, disabled: !can, "aria-label": "Done: " + t.text, title: can ? "" : "Only the people on this task or a planner can tick it", onchange: e => toggleDone(p, t, e.target.checked, key) }),
     el("button", { class: "ttext", "aria-expanded": String(open), onclick: () => { openTask = open ? null : key; delTask = null; render() } }, t.text),
     el("button", { class: "chev", "aria-label": open ? "Close details" : "Open details", onclick: () => { openTask = open ? null : key; delTask = null; render() } }, open ? "–" : "…"),
@@ -1860,8 +1861,8 @@ function renderMine(box) {
 
   const list = el("section", { class: "idea", style: "gap:0" });
   if (!todo.length) list.append(el("p", { style: "padding:6px 0" }, "All done. Nice work."));
-  // Highest priority first, then the soonest due date.
-  todo.sort((a, b) => prioRank(a.p) - prioRank(b.p) || taskPrioRank(a.t) - taskPrioRank(b.t) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (isActive(a.p) ? -1 : isActive(b.p) ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
+  // Most urgent task first (then project priority), then the soonest due date.
+  todo.sort((a, b) => taskPrioRank(a.t) - taskPrioRank(b.t) || prioRank(a.p) - prioRank(b.p) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (isActive(a.p) ? -1 : isActive(b.p) ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
   todo.forEach(x => list.append(myTaskRow(x)));
   box.append(list);
   if (done.length) {
