@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261111020550">
+<meta name="build" content="20261111020835">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg?v=2" type="image/svg+xml">
 <link rel="icon" href="icon-192.png?v=2" type="image/png" sizes="192x192">
@@ -822,7 +822,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261111020550";
+const BUILD_ID = "20261111020835";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -1410,6 +1410,11 @@ function renderPartnerGroupTeam(box, gid) {
     const url = el("input", { class: "noteinput", id: "pgl-url-" + gid, type: "url", maxlength: "500", placeholder: "https://…" });
     box.append(el("div", { class: "compose", style: "margin-top:12px" }, el("h3", {}, "Files and links"),
       links.length ? el("ul", { class: "plinks" }, links.map(k => el("li", {}, linkOrFile(k),
+        el("button", { class: "x", title: "Rename", "aria-label": "Rename " + (k.label || ""), onclick: e => {
+          const li = e.currentTarget.closest("li"), inp = el("input", { class: "noteinput", maxlength: "60", value: k.label || (k.file && k.file.name) || "" });
+          const save = () => { const t = inp.value.trim(); if (!t || t === k.label) { renderPartnersTeam(gid); return } write(() => updateDoc(doc(db, "pgroups", gid), { ["links." + k.id + ".label"]: t }), "Renamed") };
+          inp.onkeydown = ev => { if (ev.key === "Enter") save(); if (ev.key === "Escape") renderPartnersTeam(gid) };
+          li.replaceChildren(inp, el("button", { class: "btn primary small", onclick: save }, "Save"), el("button", { class: "btn quiet small", onclick: () => renderPartnersTeam(gid) }, "Cancel")); inp.focus(); inp.select() } }, "✎"),
         el("button", { class: "x", "aria-label": "Remove " + (k.label || ""), onclick: () => write(async () => { await updateDoc(doc(db, "pgroups", gid), { ["links." + k.id]: DEL() }); if (k.file) for (let n = 0; n < k.file.parts; n++) deleteDoc(doc(db, "fileparts", `${k.file.id}_${n}`)).catch(() => {}) }, k.file ? "File removed" : "Link removed") }, "✕")))) : el("p", { class: "label", style: "margin:0" }, "Price lists, a pitch script, your portfolio, a WhatsApp group. PDFs and other files up to 5 MB too."),
       lab, url,
       el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn", onclick: () => {
