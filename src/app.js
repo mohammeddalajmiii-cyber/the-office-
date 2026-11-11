@@ -135,7 +135,7 @@ async function doSignOut() { await fbReady; clearCache(); await signOut(auth) }
 let isAdmin = false;
 let ideas = [], focusId = null, me = null, people = {}, unsubs = [];
 let activeMap = {};   // projects being built right now: id -> {by, at}. Only the admin changes this.
-const isActive = p => !!p && p.status === "approved" && (!!activeMap[p.id] || p.id === focusId);
+const isActive = p => !!p && p.status === "approved" && !p.paused && (!!activeMap[p.id] || p.id === focusId);
 const activeProjects = () => ideas.filter(isActive).sort((a, b) => prioRank(a) - prioRank(b) || ((activeMap[a.id] || {}).at || 0) - ((activeMap[b.id] || {}).at || 0));
 const suggestions = {};          // projectId -> [{task, owner, why}]
 let quiz = null;                 // {i, answers:[], grow:[]} while taking the quiz
@@ -366,10 +366,11 @@ function renderProjectPage(p) {
 
   const head = el("section", { class: "focus" },
     el("div", { class: "row", style: "gap:6px" },
-      done ? el("span", { class: "done-badge" }, "\u2713 Completed " + fmtDay(p.completedAt)) : el("span", { class: "pill" }, isActive(p) ? "Building now" : "Up next"),
+      done ? el("span", { class: "done-badge" }, "\u2713 Completed " + fmtDay(p.completedAt)) : el("span", { class: "pill" + (isPaused(p) ? " pill-paused" : "") }, isPaused(p) ? "\u23f8 Paused" : isActive(p) ? "Building now" : "Up next"),
       prioChip(p), catsOf(p).length ? catChip(p) : null),
     el("div", { class: "row", style: "align-items:flex-start;flex-wrap:nowrap" }, el("h2", { style: "flex:1;min-width:0" }, p.title),
       planner || joined ? el("button", { class: "btn small", "aria-expanded": String(settingsOpen), onclick: () => { showSettings = settingsOpen ? null : p.id; render() } }, settingsOpen ? "Close" : "Settings") : null),
+    isPaused(p) ? el("div", { class: "paused-line" }, el("span", {}, `\u23f8 Paused by ${p.paused.by === me ? "you" : name(p.paused.by)} ${ago(p.paused.at)}. Its tasks are on hold.`), el("span", { class: "spacer" }), planner ? el("button", { class: "btn primary small", onclick: () => resumeProject(p) }, "Resume") : null) : null,
     clientOf(p) ? clientLine(clientOf(p)) : null,
     p.pitch ? el("p", { class: "pitch" }, p.pitch) : null,
     !done && goal && goal.text ? el("div", { class: "goal-line" + (goal.reached ? " reached" : "") }, el("span", { class: "tlabel" }, goal.reached ? "This week's goal \u2713 reached" : "This week's goal"), el("span", {}, goal.text)) : null,
@@ -377,10 +378,10 @@ function renderProjectPage(p) {
     mineLeft ? el("div", { class: "now-sub" }, `${mineLeft} of these are yours`) : null,
     linksBlock(p));
   const actions = el("div", { class: "row", style: "gap:8px" });
-  if (!done && !isActive(p)) actions.append(voteButton(p));
+  if (!done && !isActive(p) && !isPaused(p)) actions.append(voteButton(p));
   if (!done && !joined) actions.append(el("button", { class: "btn", onclick: () => write(() => upd(p.id, { ["members." + me]: true }), "You joined the team") }, "Join the team"));
   actions.append(el("span", { class: "spacer" }));
-  const pick = pickButton(p); if (pick) actions.append(pick);
+  const pick = isPaused(p) ? null : pickButton(p); if (pick) actions.append(pick);
   if (actions.childNodes.length > 1) head.append(actions);
   box.append(head);
 
@@ -390,7 +391,7 @@ function renderProjectPage(p) {
     const btns = el("div", { class: "row", style: "gap:8px" });
     if (joined) btns.append(el("button", { class: "btn quiet", onclick: () => write(() => upd(p.id, { ["members." + me]: DEL() }), "You left the team") }, "Leave the team"));
     btns.append(el("span", { class: "spacer" }));
-    if (isAdmin && isActive(p)) btns.append(el("button", { class: "btn", onclick: () => pauseBuilding(p) }, "Pause"));
+    if (planner && !done) btns.append(isPaused(p) ? el("button", { class: "btn", onclick: () => resumeProject(p) }, "Resume project") : el("button", { class: "btn", onclick: () => pauseProject(p) }, "Pause project"));
     if (planner) btns.append(done ? el("button", { class: "btn", onclick: () => reopenProject(p) }, "Reopen") : completeButton(p));
     set.append(btns);
     if (isAdmin || p.author === me) set.append(deleteBlock(p));
@@ -826,7 +827,7 @@ function renderProjects(all) {
   if (all.length && !projects.length) { box.append(el("div", { class: "empty" }, "No projects in this category.")); return }
   if (!projects.length) { box.append(el("div", { class: "empty" }, "No projects yet. Ideas land here once the team votes to keep them.")); return }
   const building = projects.filter(isActive).sort((a, b) => prioRank(a) - prioRank(b));
-  const next = projects.filter(p => !isActive(p));
+  const next = projects.filter(p => !isActive(p) && !isPaused(p)), paused = projects.filter(isPaused);
   if (building.length) {
     box.append(el("h2", { class: "sec-h" }, "Building now"));
     box.append(el("div", { class: "list", style: "margin-top:0" }, building.map(p => projCard(p))));
@@ -834,6 +835,10 @@ function renderProjects(all) {
   if (next.length) {
     box.append(el("div", { class: "sec-h row" }, el("h2", {}, "Up next"), el("span", { class: "spacer" }), el("span", { class: "label" }, isAdmin ? "Vote, then start the ones you pick" : `Vote for what we build next`)));
     box.append(el("div", { class: "list", style: "margin-top:0" }, next.map(p => projCard(p, rank[p.id]))));
+  }
+  if (paused.length) {
+    box.append(el("div", { class: "sec-h row" }, el("h2", {}, "Paused"), el("span", { class: "spacer" }), el("span", { class: "label" }, "On hold. Open one to resume it")));
+    box.append(el("div", { class: "list", style: "margin-top:0" }, paused.map(p => projCard(p))));
   }
 }
 /* ----- project links (website, socials, files…) ----- */
@@ -942,7 +947,8 @@ function projCard(p, n) {
       tasks.length ? line(progressOf(tasks), "tasks") : el("span", { class: "label" }, canPlan(p) ? "No plan yet. Tap to make one" : "No plan yet")),
     linksOf(p).length || filesOf(p).length ? el("div", { class: "links" }, linksOf(p).slice(0, 3).map(l => linkChip(p, l, false)),
       filesOf(p).length ? el("span", { class: "label" }, `${filesOf(p).length} file${filesOf(p).length > 1 ? "s" : ""}`) : null) : null,
-    isActive(p)
+    isPaused(p) ? el("div", { class: "row" }, el("span", { class: "pill pill-paused" }, "\u23f8 Paused"), el("span", { class: "spacer" }), el("span", { class: "label" }, "since " + fmtDay(p.paused.at)))
+    : isActive(p)
       ? el("div", { class: "row" }, el("span", { class: "stack" }, team.slice(0, 6).map(av)), el("span", { class: "spacer" }), el("span", { class: "now-sub" }, left ? `${left} of your tasks left` : ""))
       : el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p)));
 }
@@ -967,6 +973,14 @@ function startBuilding(p) {
     await setDoc(doc(db, "meta", "focus"), data, { merge: true });
   }, "Started building " + p.title);
 }
+const isPaused = p => !!(p && p.paused && p.status === "approved");
+function pauseProject(p) {
+  write(async () => {
+    await upd(p.id, { paused: { by: me, at: Date.now() } });
+    if (activeMap[p.id] || focusId === p.id) { const data = { ["active." + p.id]: DEL() }; if (focusId === p.id) data.projectId = null; await updateDoc(doc(db, "meta", "focus"), data).catch(() => {}) }
+  }, "Project paused. Its tasks are on hold");
+}
+function resumeProject(p) { write(() => upd(p.id, { paused: DEL() }), "Project resumed. It's back in Up next") }
 function pauseBuilding(p) {
   write(async () => {
     const data = { ["active." + p.id]: DEL() };
@@ -1847,7 +1861,7 @@ function myTasks() {
   const out = personal.map(t => ({ t, phase: "", personal: true, p: { id: "__personal", title: "Just for me", priority: t.priority || "medium" } }));
   for (const p of ideas.filter(i => i.status === "approved" || i.status === "completed")) {
     const phases = getPhases(p);
-    for (const t of tasksOf(p)) if (isAssignee(t, me)) out.push({ p, t, closed: p.status === "completed", phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" });
+    for (const t of tasksOf(p)) if (isAssignee(t, me)) out.push({ p, t, closed: p.status === "completed" || isPaused(p), held: isPaused(p), phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" });
   }
   return out;
 }
@@ -1868,6 +1882,8 @@ function renderMine(box) {
   todo.sort((a, b) => taskPrioRank(a.t) - taskPrioRank(b.t) || prioRank(a.p) - prioRank(b.p) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (isActive(a.p) ? -1 : isActive(b.p) ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
   todo.forEach(x => list.append(myTaskRow(x)));
   box.append(list);
+  const held = all.filter(x => x.held && !x.t.done);
+  if (held.length) box.append(el("p", { class: "label", style: "margin:8px 2px 0" }, `\u23f8 ${held.length} of your ${held.length === 1 ? "task is" : "tasks are"} on hold because ${[...new Set(held.map(x => x.p.title))].join(", ")} ${new Set(held.map(x => x.p.id)).size === 1 ? "is" : "are"} paused.`));
   if (done.length) {
     box.append(el("button", { class: "linkbtn", style: "margin:12px 4px", onclick: () => { mineShow = mineShow === "done" ? "todo" : "done"; render() } }, mineShow === "done" ? "Hide finished" : `Show finished (${done.length})`));
     if (mineShow === "done") {
