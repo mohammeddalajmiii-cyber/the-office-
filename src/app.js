@@ -184,7 +184,7 @@ async function onAuth(u) {
     chat = s.docs.map(d => ({ id: d.id, ...d.data() }));
     const newest = chat.length ? chat[chat.length - 1] : null;
     if (before && newest && newest.at > before && newest.by !== me) chime();
-    if (before && newest && newest.at > before && newest.by !== me && route().view !== "chat") toast(`${firstName(newest.by)}: ${msgSummary(newest).slice(0, 60)}`);
+    if (before && newest && newest.at > before && newest.by !== me && (route().view !== "chat" || document.hidden)) ping({ key: "chat:" + newest.id, who: newest.by, title: realName(newest.by) || "Team chat", sub: "Team chat", text: msgSummary(newest), go: "chat", at: newest.at });
     render();
   }, () => {}));
   // private messages: the conversations I'm in
@@ -192,8 +192,8 @@ async function onAuth(u) {
     const before = Object.fromEntries(dmThreads.map(t => [t.id, t.lastAt || 0]));
     dmThreads = s.docs.map(d => ({ id: d.id, ...d.data() }));
     if (dmThreads.some(t => t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id])) chime();
-    for (const t of dmThreads) if (t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id] && route().dm !== otherOf(t))
-      toast(`${firstName(t.lastBy)} (private): ${(t.lastText || "").slice(0, 60)}`);
+    for (const t of dmThreads) if (t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id] && (route().dm !== otherOf(t) || document.hidden))
+      ping({ key: "dm:" + t.id + ":" + t.lastAt, who: t.lastBy, title: realName(t.lastBy) || "Private message", sub: "Private", text: t.lastText || "", go: "dm-" + t.lastBy, at: t.lastAt });
     render();
   }, () => { dmOff = true; render() }));
   unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); render() }, () => {}));
@@ -2070,13 +2070,8 @@ function notifyDevice(list) {
   // Only pop up things that happened after the page was opened, not old ones that finished loading late.
   const fresh = list.filter(a => !alertBaseline.has(a.key) && a.at > pageOpenedAt && !a.key.startsWith("due:"));
   fresh.forEach(a => alertBaseline.add(a.key));
-  if (fresh.length) chime();
-  if (!fresh.length || !("Notification" in window) || Notification.permission !== "granted") return;
-  for (const a of fresh.slice(0, 3)) {
-    const opts = { body: a.text, icon: "icon-192.png", badge: "icon-192.png", tag: a.key, silent: false, data: { go: a.go } };
-    if (swReg) swReg.showNotification("Pitch Room", opts).catch(() => {});
-    else try { new Notification("Pitch Room", opts) } catch { }
-  }
+  // Looking at the site: a card inside the page. Not looking: the phone's or computer's own pop-up.
+  for (const a of fresh.slice(0, 3)) ping({ ...splitAlert(a), key: a.key, who: a.who, go: a.go, at: a.at });
 }
 
 /* ----- me: personal home page ----- */

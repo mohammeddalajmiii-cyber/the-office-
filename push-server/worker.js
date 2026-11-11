@@ -48,6 +48,7 @@ export default {
         body: String(m.body || "").slice(0, 300),
         tag: String(m.tag || "").slice(0, 120),
         go: String(m.go || "me").slice(0, 80),
+        icon: /^https:\/\/[^\s"]{1,400}$/.test(m.icon || "") ? m.icon : "",
         force: !!m.force,
       });
       for (const s of devices[to]) {
