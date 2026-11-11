@@ -120,7 +120,7 @@ let partnerMode = false;          // true when the signed-in person is a partner
 let pGroups = [], pMembers = [], pLeads = [], pPosts = [];
 let pErr = null, pLoaded = false;
 let pMe = null, pGroup = null, pGroupGone = false, pGroupUnsubs = [], pGid = null;
-let pgTab = "updates", plFilter = {}, pQuery = {}, pSel = {}, pDelGroup = null, pDelMember = null, pImport = {}, pImportOpen = {};
+let pgTab = "updates", plFilter = {}, pQuery = {}, pSel = {}, pDelGroup = null, pDelMember = null, pImport = {}, pImportText = {}, pImportOpen = {};
 
 const leadDigits = s => String(s || "").replace(/\D/g, "");
 const waLink = s => "https://wa.me/" + leadDigits(s);
@@ -383,22 +383,45 @@ function renderPartnerGroupTeam(box, gid) {
   if (pgTab === "leads") {
     box.append(el("div", { style: "margin-top:12px" }, stats(leads)));
     const ta = el("textarea", { class: "noteinput", id: "pgpaste-" + gid, rows: "5", placeholder: "Paste rows from Google Sheets or Excel here.\nName\tPhone\tBusiness\tCity\nAhmed\t+974 5555 1234\tDoha Dental\tDoha" });
-    const prev = pImport[gid];
-    const check = () => { pImport[gid] = parseLeads(ta.value, gid); render() };
-    ta.addEventListener("input", () => { clearTimeout(check.t); check.t = setTimeout(check, 250) });
-    box.append(el("details", { class: "idea", style: "margin-top:12px", open: !leads.length || pImportOpen[gid] || (prev && prev.rows.length) ? true : false, ontoggle: e => { pImportOpen[gid] = e.target.open } },
-      el("summary", { style: "cursor:pointer;font-weight:600" }, "Add numbers from a sheet"),
-      el("p", { class: "label", style: "margin:0" }, "Copy the rows (with the header row) and paste. Columns called name, phone, business and city are picked up. Anything else is kept with the number. Numbers already in this group are skipped."),
-      ta,
-      prev ? el("p", { class: "label", style: "margin:0" }, `Found ${prev.rows.length} new ${prev.rows.length === 1 ? "number" : "numbers"}` + (prev.dupes ? ` · ${prev.dupes} already here` : "") + (prev.noPhone ? ` · ${prev.noPhone} rows without a phone` : "")) : null,
-      prev && prev.rows.length ? el("div", { class: "pimport" }, prev.rows.slice(0, 5).map(r => el("div", {}, el("b", {}, r.name || r.biz || "No name"), " ", r.phone, r.biz && r.name ? " · " + r.biz : "", r.city ? " · " + r.city : "")),
-        prev.rows.length > 5 ? el("div", { class: "label" }, `…and ${prev.rows.length - 5} more`) : null) : null,
-      el("div", { class: "row" }, el("span", { class: "spacer" }),
-        el("button", { class: "btn primary", disabled: !(prev && prev.rows.length), onclick: async () => {
-          const rows = pImport[gid].rows; delete pImport[gid]; ta.value = "";
-          const el2 = document.getElementById("pgpaste-" + gid); if (el2) el2.value = "";
-          await write(() => addLeads(gid, rows), `Added ${rows.length} numbers for ${g.name}`);
-        } }, prev && prev.rows.length ? `Add ${prev.rows.length} numbers` : "Add numbers"))));
+    // Typing or pasting only refreshes the preview below the box, so nothing you type gets wiped.
+    ta.value = pImportText[gid] || "";
+    const preview = el("div", { style: "display:grid;gap:8px" });
+    const addBtn = el("button", { class: "btn primary", disabled: true }, "Add numbers");
+    const showPrev = () => {
+      const prev = pImport[gid]; const n = prev ? prev.rows.length : 0;
+      preview.replaceChildren(...[
+        prev && ta.value.trim() ? el("p", { class: "label", style: "margin:0" }, `Found ${n} new ${n === 1 ? "number" : "numbers"}` + (prev.dupes ? ` · ${prev.dupes} already here` : "") + (prev.noPhone ? ` · ${prev.noPhone} rows without a phone` : "")) : null,
+        n ? el("div", { class: "pimport" }, prev.rows.slice(0, 5).map(r => el("div", {}, el("b", {}, r.name || r.biz || "No name"), " ", r.phone, r.biz && r.name ? " · " + r.biz : "", r.city ? " · " + r.city : "")),
+          n > 5 ? el("div", { class: "label" }, `…and ${n - 5} more`) : null) : null].filter(Boolean));
+      addBtn.disabled = !n; addBtn.textContent = n ? `Add ${n} ${n === 1 ? "number" : "numbers"}` : "Add numbers";
+    };
+    const check = () => { pImportText[gid] = ta.value; pImport[gid] = parseLeads(ta.value, gid); showPrev() };
+    ta.addEventListener("input", () => { pImportText[gid] = ta.value; clearTimeout(check.t); check.t = setTimeout(check, 250) });
+    addBtn.onclick = async () => {
+      const rows = (pImport[gid] || {}).rows || []; if (!rows.length) return;
+      delete pImport[gid]; delete pImportText[gid]; ta.value = ""; showPrev();
+      await write(() => addLeads(gid, rows), `Added ${rows.length} ${rows.length === 1 ? "number" : "numbers"} for ${g.name}`);
+    };
+    if (ta.value) check();
+    // One number at a time, typed in by hand
+    const f = { name: el("input", { class: "noteinput", maxlength: "80", placeholder: "Name" }), phone: el("input", { class: "noteinput", type: "tel", maxlength: "30", placeholder: "Phone, e.g. +974 5555 1234" }),
+      biz: el("input", { class: "noteinput", maxlength: "80", placeholder: "Business" }), city: el("input", { class: "noteinput", maxlength: "60", placeholder: "City" }) };
+    const addOne = async () => {
+      const phone = f.phone.value.trim(), d = leadDigits(phone);
+      if (d.length < 6) { toast("Type a phone number first"); f.phone.focus(); return }
+      if (pLeads.some(l => l.gid === gid && leadDigits(l.phone) === d)) { toast("That number is already in this group"); return }
+      const row = { phone, name: f.name.value.trim(), biz: f.biz.value.trim(), city: f.city.value.trim(), extra: "" };
+      Object.values(f).forEach(i => i.value = "");
+      await write(() => addLeads(gid, [row]), "Number added");
+    };
+    Object.values(f).forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addOne() } }));
+    box.append(el("div", { class: "idea", style: "margin-top:12px;gap:8px" }, el("h3", {}, "Add a number"),
+      el("div", { class: "onelead" }, f.name, f.phone, f.biz, f.city),
+      el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: addOne }, "Add number"))));
+    box.append(el("details", { class: "idea", style: "margin-top:12px", open: !leads.length || pImportOpen[gid] || (pImportText[gid] || "").trim() ? true : false, ontoggle: e => { pImportOpen[gid] = e.target.open } },
+      el("summary", { style: "cursor:pointer;font-weight:600" }, "Add many numbers from a sheet"),
+      el("p", { class: "label", style: "margin:0" }, "Copy the rows from Google Sheets or Excel (with the header row) and paste. Columns called name, phone, business and city are picked up. Anything else is kept with the number. Numbers already in this group are skipped."),
+      ta, preview, el("div", { class: "row" }, el("span", { class: "spacer" }), addBtn)));
     box.append(...leadList(leads, "t-" + gid, { team: true, who: teamName() }).filter(Boolean));
   }
 
