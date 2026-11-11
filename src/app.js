@@ -197,6 +197,7 @@ async function onAuth(u) {
   unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "money"), s => { moneyRules = s.exists() ? s.data() : null; ensureMoneyRules(); render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "nicks"), s => { nicks = s.exists() ? Object.fromEntries(Object.entries(s.data()).filter(([, v]) => typeof v === "string" && v)) : {}; render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "news"), s => { newsDoc = s.exists() ? s.data() : null; render() }, () => {}));
   teamLoaded = false; teamDoc = null;
   unsubs.push(...partnerTeamSubs(), ...clientTeamSubs());
@@ -251,7 +252,9 @@ const upd = (id, data) => updateDoc(doc(db, "ideas", id), data);
 
 /* ---------- derived data ---------- */
 
-const realName = id => { const p = people[id] || {}; return p.nick || p.name || "" };
+let nicks = {};
+const googleName = id => (people[id] || {}).name || "";
+const realName = id => { const p = people[id] || {}; return nicks[id] || p.nick || p.name || "" };
 const name = id => id === me ? "You" : (realName(id) || "A friend");
 const firstName = id => id === me ? "you" : ((realName(id) || "a friend").split(" ")[0]);
 const photoOf = id => { const p = people[id] || {}; return p.pic || p.photo || AV };
@@ -2061,7 +2064,7 @@ function greeting() { const h = new Date().getHours(); return h < 5 ? "Up late" 
 function renderMe() {
   const box = $("#me"); box.replaceChildren();
   const prof = people[me] || {}, tops = topSkills(me);
-  const fullName = prof.nick || (myProfile && myProfile.name) || prof.name || "";
+  const fullName = realName(me) || (myProfile && myProfile.name) || "";
   const all = myTasks(), open = all.filter(x => !x.t.done && !x.closed), today = todayStr();
   const overdue = open.filter(x => x.t.due && x.t.due < today).length;
   const weekAgo = Date.now() - 7 * 864e5;
@@ -2184,6 +2187,18 @@ function renderSettings() {
     el("label", { class: "tlabel", for: "set-name" }, "Name the team sees"),
     el("div", { class: "addtask", style: "margin:0" }, nick, el("button", { class: "btn primary", onclick: saveName }, "Save")),
     el("p", { style: "margin:0;font-size:13px" }, "Leave it empty to use your Google name.")));
+
+  /* nicknames: anyone on the team can give anyone a nickname; everyone sees it */
+  const crew = Object.entries(people).filter(([, x]) => x && x.name).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""));
+  if (crew.length) box.append(el("section", { class: "idea" }, el("h3", {}, "Nicknames"),
+    el("p", { style: "margin:0;font-size:13px" }, "Give anyone on the team a nickname. Everyone on the team sees it instead of their name. Leave it empty to remove it."),
+    el("div", { class: "nicklist" }, crew.map(([id, x]) => {
+      const inp = el("input", { class: "noteinput", maxlength: "30", placeholder: x.nick || x.name, "aria-label": "Nickname for " + x.name, value: nicks[id] || "" });
+      const save = () => { const v = inp.value.trim(); if (v === (nicks[id] || "")) return; write(() => setDoc(doc(db, "meta", "nicks"), { [id]: v ? v.slice(0, 30) : DEL() }, { merge: true }), v ? `${x.name.split(" ")[0]} is now “${v}”` : "Nickname removed") };
+      inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } });
+      return el("div", { class: "nickrow" }, el("img", { class: "av", src: x.pic || x.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
+        el("span", { class: "nickname-real" }, id === me ? x.name + " (you)" : x.name), inp, el("button", { class: "btn small", onclick: save }, "Save"));
+    }))));
 
   /* look */
   const setLook = (t, m) => { applyLook(t, m); render(); write(() => setDoc(doc(db, "users", me), { theme: t, meteors: m }, { merge: true })) };
