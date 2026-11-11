@@ -130,7 +130,7 @@ $("#signin").onclick = async () => {
   try { await fbReady; await signInWithPopup(auth, new GoogleAuthProvider()) }
   catch (e) { $("#gate-msg").textContent = "Sign-in didn't finish. Try again, and allow pop-ups for this site if your browser blocked one." }
 };
-async function doSignOut() { await fbReady; clearCache(); await signOut(auth) }
+async function doSignOut() { await fbReady; clearCache(); try { await pushForget() } catch { } await signOut(auth) }
 
 let isAdmin = false;
 let ideas = [], focusId = null, me = null, people = {}, unsubs = [];
@@ -183,6 +183,7 @@ async function onAuth(u) {
     const before = chat.length ? chat[chat.length - 1].at : 0;
     chat = s.docs.map(d => ({ id: d.id, ...d.data() }));
     const newest = chat.length ? chat[chat.length - 1] : null;
+    if (before && newest && newest.at > before && newest.by !== me) chime();
     if (before && newest && newest.at > before && newest.by !== me && route().view !== "chat") toast(`${firstName(newest.by)}: ${msgSummary(newest).slice(0, 60)}`);
     render();
   }, () => {}));
@@ -190,6 +191,7 @@ async function onAuth(u) {
   unsubs.push(onSnapshot(query(collection(db, "dms"), where("members", "array-contains", me)), s => {
     const before = Object.fromEntries(dmThreads.map(t => [t.id, t.lastAt || 0]));
     dmThreads = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (dmThreads.some(t => t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id])) chime();
     for (const t of dmThreads) if (t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id] && route().dm !== otherOf(t))
       toast(`${firstName(t.lastBy)} (private): ${(t.lastText || "").slice(0, 60)}`);
     render();
@@ -199,6 +201,8 @@ async function onAuth(u) {
   unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "nicks"), s => { nicks = s.exists() ? Object.fromEntries(Object.entries(s.data()).filter(([, v]) => typeof v === "string" && v)) : {}; render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "news"), s => { newsDoc = s.exists() ? s.data() : null; render() }, () => {}));
+  pushBaseline = null;
+  unsubs.push(onSnapshot(doc(db, "meta", "push"), s => { pushConfig(s.exists() ? s.data() : null); render() }, () => {}));
   teamLoaded = false; teamDoc = null;
   unsubs.push(...partnerTeamSubs(), ...clientTeamSubs());
   if (isAdmin) unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
@@ -335,6 +339,7 @@ function renderAll() {
   { const pu = pGroups.reduce((a, g) => a + partnerUnread(g.id), 0); const pc = $("#c-partners"); pc.hidden = !pu; pc.textContent = pu > 9 ? "9+" : pu }
   const open = myTasks().filter(x => !x.t.done && !x.closed).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
   renderAlerts();
+  pushTick();
   renderAssistant();
   const meAv = $("#me-av"); const src = (people[me] || {}).pic || (myProfile && myProfile.photo) || (people[me] || {}).photo || AV; if (meAv.getAttribute("src") !== src) meAv.src = src;
   saveCache();
@@ -2037,8 +2042,8 @@ function renderAlerts() {
   const perm = "Notification" in window ? Notification.permission : "unsupported";
   panel.append(el("div", { class: "row", style: "padding:4px 4px 8px" }, el("h3", {}, "Alerts"), el("span", { class: "spacer" }),
     el("button", { class: "x", "aria-label": "Close alerts", onclick: () => { alertsOpen = false; render() } }, "\u2715")));
-  if (perm === "default") panel.append(el("div", { class: "alert-tip" }, el("span", {}, "Get these as pop-ups on this phone or computer while the site is open."),
-    el("button", { class: "btn primary", onclick: enableDeviceAlerts }, "Turn on")));
+  if (perm === "default" || (perm === "granted" && pushBase() && pushSupported() && !pushOn)) panel.append(el("div", { class: "alert-tip" }, el("span", {}, pushBase() && pushSupported() ? "Get these with a sound on this phone or computer, even when the site is closed." : "Get these as pop-ups on this phone or computer while the site is open."),
+    el("button", { class: "btn primary", onclick: () => pushBase() && pushSupported() ? pushEnable() : enableDeviceAlerts() }, "Turn on")));
   if (!list.length) panel.append(el("p", { class: "alert-empty" }, "Nothing yet. You'll see new tasks, notes, replies and deadlines here."));
   for (const a of list) panel.append(el("button", { class: "alert" + (a.at > alertsSeenAtOpen ? " new" : ""), onclick: () => { alertsOpen = false; location.hash = a.go; render() } },
     a.who ? av(a.who) : el("span", { class: "alert-dot" }, "!"),
@@ -2065,9 +2070,10 @@ function notifyDevice(list) {
   // Only pop up things that happened after the page was opened, not old ones that finished loading late.
   const fresh = list.filter(a => !alertBaseline.has(a.key) && a.at > pageOpenedAt && !a.key.startsWith("due:"));
   fresh.forEach(a => alertBaseline.add(a.key));
+  if (fresh.length) chime();
   if (!fresh.length || !("Notification" in window) || Notification.permission !== "granted") return;
   for (const a of fresh.slice(0, 3)) {
-    const opts = { body: a.text, icon: "icon-192.png", badge: "icon-192.png", tag: a.key, data: { go: a.go } };
+    const opts = { body: a.text, icon: "icon-192.png", badge: "icon-192.png", tag: a.key, silent: false, data: { go: a.go } };
     if (swReg) swReg.showNotification("Pitch Room", opts).catch(() => {});
     else try { new Notification("Pitch Room", opts) } catch { }
   }
@@ -2226,11 +2232,7 @@ function renderSettings() {
         el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off")))));
 
   /* alerts */
-  const perm = "Notification" in window ? Notification.permission : "unsupported";
-  box.append(el("section", { class: "idea" }, el("h3", {}, "Alerts on this device"),
-    el("div", { class: "row" },
-      el("span", { style: "flex:1 1 220px" }, perm === "granted" ? "On. You get pop-ups while the site is open." : perm === "denied" ? "Blocked in your browser settings. Allow notifications for this site there to turn them on." : perm === "unsupported" ? "This browser can't show pop-up alerts. The bell still works." : "Off. Turn on to get pop-ups while the site is open."),
-      perm === "default" ? el("button", { class: "btn primary small", onclick: enableDeviceAlerts }, "Turn on") : null)));
+  box.append(pushSettings());
 
   /* people and access (admin): team members, partners and clients in one place */
   if (isAdmin) box.append(accessSection());
