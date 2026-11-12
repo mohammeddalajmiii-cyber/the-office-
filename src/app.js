@@ -2137,7 +2137,7 @@ function renderMe() {
 /* ----- account settings (everyone) and team access (admin only) ----- */
 
 // Look: "dark" (galaxy), "light", or "system" (match the phone or computer). Saved on this device and on your account.
-const THEMES = [["dark", "Dark"], ["light", "Light"], ["system", "Match my device"]];
+const THEMES = [["dark", "Dark"], ["pine", "Pine teal"], ["light", "Light"], ["system", "Match my device"]];
 function getTheme() { try { return localStorage.getItem("theme") || "dark" } catch { return "dark" } }
 function getMeteors() { try { return localStorage.getItem("meteors") !== "off" } catch { return true } }
 function applyLook(theme, meteors) {
@@ -2149,6 +2149,7 @@ let lookSynced = false;
 function syncLookFromAccount() {
   // the first time your account loads on a device, use the look you picked elsewhere
   const prof = people[me]; if (lookSynced || !prof) return;
+  try { if (sessionStorage.getItem("lookFromLink")) { lookSynced = true; return } } catch { }
   lookSynced = true;
   if (prof.theme && prof.theme !== getTheme()) applyLook(prof.theme, prof.meteors !== false);
 }
