@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261112180549">
+<meta name="build" content="20261112180628">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -877,6 +877,7 @@ input,select,textarea{background-color:var(--field)}
 .msg-del{border:0;background:none;color:inherit;opacity:.6;font-size:11px;margin-left:6px;padding:0;cursor:pointer}
 .msg-del:hover{opacity:1}
 #chat-input{overflow-y:auto}
+#chat-input::placeholder,.cv-compose textarea::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .idea>.setdetails{padding:12px 0;border-top:1px solid var(--line)}
 
 .chatrow{display:flex;align-items:center;gap:8px;min-width:0}
@@ -1229,7 +1230,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261112180549";
+const BUILD_ID = "20261112180628";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -4887,7 +4888,7 @@ function renderChat() {
   head.append(el("div", { class: "chat-who" }, dm
     ? [chatAv(dm), el("span", { class: "who-n" }, el("b", {}, chatName(dm)), roleBadge(dm)), el("span", { class: "who-lock" }, "🔒 only you two see this")]
     : [el("span", { class: "teamdot big", "aria-hidden": "true" }, "#"), el("span", { class: "who-n" }, el("b", {}, "Team chat"), el("span", { class: "label" }, `${teamIds().length} team members · tap a name to talk privately`))]));
-  $("#chat-input").placeholder = dm ? "Message " + chatName(dm).split(" ")[0] + (isPartnerUid(dm) ? " (partner)" : "") : "Message the team";
+  $("#chat-input").placeholder = dm ? "Message " + chatName(dm).split(" ")[0] : "Message everyone";
 
   /* reply / edit bar above the input */
   if (chatReply && !msgById(chatReply)) chatReply = null;

@@ -877,6 +877,7 @@ input,select,textarea{background-color:var(--field)}
 .msg-del{border:0;background:none;color:inherit;opacity:.6;font-size:11px;margin-left:6px;padding:0;cursor:pointer}
 .msg-del:hover{opacity:1}
 #chat-input{overflow-y:auto}
+#chat-input::placeholder,.cv-compose textarea::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .idea>.setdetails{padding:12px 0;border-top:1px solid var(--line)}
 
 .chatrow{display:flex;align-items:center;gap:8px;min-width:0}

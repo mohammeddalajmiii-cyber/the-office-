@@ -1982,7 +1982,7 @@ function renderChat() {
   head.append(el("div", { class: "chat-who" }, dm
     ? [chatAv(dm), el("span", { class: "who-n" }, el("b", {}, chatName(dm)), roleBadge(dm)), el("span", { class: "who-lock" }, "🔒 only you two see this")]
     : [el("span", { class: "teamdot big", "aria-hidden": "true" }, "#"), el("span", { class: "who-n" }, el("b", {}, "Team chat"), el("span", { class: "label" }, `${teamIds().length} team members · tap a name to talk privately`))]));
-  $("#chat-input").placeholder = dm ? "Message " + chatName(dm).split(" ")[0] + (isPartnerUid(dm) ? " (partner)" : "") : "Message the team";
+  $("#chat-input").placeholder = dm ? "Message " + chatName(dm).split(" ")[0] : "Message everyone";
 
   /* reply / edit bar above the input */
   if (chatReply && !msgById(chatReply)) chatReply = null;
