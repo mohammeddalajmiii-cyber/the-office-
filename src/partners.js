@@ -367,7 +367,7 @@ function renderPartnerGroupTeam(box, gid) {
   if (pgTab === "updates") pSetSeen(gid);
   const unread = partnerUnread(gid);
   box.append(el("div", { class: "row" }, el("h2", {}, g.name), el("span", { class: "spacer" }), el("span", { class: "label" }, `${people.length} ${people.length === 1 ? "partner" : "partners"} · ${leads.length} numbers`)));
-  const tabs = [["updates", "Updates" + (unread ? ` (${unread})` : "")], ["leads", "Numbers"], ["people", "People"], ["info", "Info"]];
+  const tabs = [["updates", "Updates" + (unread ? ` (${unread})` : "")], ["leads", "Numbers"], ["people", "People"], ["info", "Info"], ["settings", "Settings"]];
   box.append(el("div", { class: "seg seg-wide", style: "margin:14px 0 4px" }, tabs.map(([k, v]) => el("button", { "aria-pressed": String(pgTab === k), onclick: () => { pgTab = k; render() } }, v))));
 
   if (pgTab === "updates") {
@@ -426,10 +426,24 @@ function renderPartnerGroupTeam(box, gid) {
   }
 
   if (pgTab === "people") {
-    box.append(el("div", { class: "idea", style: "margin-top:12px" }, el("p", { style: "margin:0" }, "To add a partner to this group, go to Me \u203a Settings \u203a People and access, choose Partner, and pick " + g.name + "."),
-      isAdmin ? el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary small", onclick: () => { location.hash = "settings" } }, "Open Settings")) : null));
-    box.append(el("div", { class: "idea", style: "margin-top:12px" },
-      el("div", { class: "label" }, "Send them this link. They sign in with Google using the email you added:"),
+    // add a partner to this group right here
+    const em = el("input", { class: "noteinput", id: "pgadd-email-" + gid, type: "email", inputmode: "email", maxlength: "120", placeholder: "Their Google email", autocomplete: "off" });
+    const nm = el("input", { class: "noteinput", id: "pgadd-name-" + gid, maxlength: "60", placeholder: "Their name" });
+    const addP = () => {
+      const e = lower(em.value), n = nm.value.trim();
+      if (!emailOk(e)) { toast("That doesn't look like an email address"); em.focus(); return }
+      const has = roleOf(e);
+      if (has === "team" || has === "client") { toast(`${e} is already a ${ROLE_NAME[has].toLowerCase()}`); return }
+      const cur = pMembers.find(m => m.id === e);
+      if (cur && cur.gid === gid) { toast("Already in this group"); return }
+      em.value = ""; nm.value = "";
+      write(() => setDoc(doc(db, "pmembers", e), { email: e, name: n || (cur && cur.name) || e.split("@")[0], gid, active: true, addedBy: me, addedAt: Date.now() }, { merge: true }),
+        cur ? `${n || cur.name || e} moved to ${g.name}` : `${n || e} is a partner in ${g.name}. Send them the link`);
+    };
+    [em, nm].forEach(i => i.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); addP() } }));
+    box.append(el("div", { class: "idea", style: "margin-top:12px;gap:8px" }, el("h3", {}, "Add a partner"),
+      el("div", { class: "onelead" }, nm, em),
+      el("div", { class: "row" }, el("span", { class: "label", style: "flex:1 1 200px;text-transform:none;letter-spacing:0" }, "They sign in with Google using exactly this email, on the same link as you."), el("button", { class: "btn primary", onclick: addP }, "Add partner")),
       el("div", { class: "row" }, el("code", { class: "plink" }, SITE_LINK), el("span", { class: "spacer" }),
         el("button", { class: "btn small", onclick: async () => { try { await navigator.clipboard.writeText(SITE_LINK); toast("Link copied") } catch { toast(SITE_LINK, 5000) } } }, "Copy link"))));
     const list = el("div", { class: "list" });
@@ -471,13 +485,20 @@ function renderPartnerGroupTeam(box, gid) {
         let u = url.value.trim(); const t = lab.value.trim(); if (!u) { url.focus(); return } if (!/^https?:\/\//i.test(u)) u = "https://" + u;
         lab.value = ""; url.value = ""; write(() => updateDoc(doc(db, "pgroups", gid), { ["links." + uid()]: { label: t, url: u, at: Date.now() } }), "Link added") } }, "Add link"),
         el("button", { class: "btn primary", onclick: () => pickGroupFile(gid, lab) }, "Attach a file"))));
+  }
+
+  if (pgTab === "settings") {
     const rn = el("input", { class: "noteinput", id: "pgrn-" + gid, maxlength: "40", placeholder: g.name });
-    box.append(el("div", { class: "compose", style: "margin-top:12px" }, el("h3", {}, "Group"),
-      el("div", { class: "addstep" }, rn, el("button", { class: "btn", onclick: () => { const v = rn.value.trim(); if (!v) return; rn.value = ""; write(() => updateDoc(doc(db, "pgroups", gid), { name: v }), "Renamed") } }, "Rename")),
-      el("div", { class: "row" }, el("span", { class: "label" }, "Deleting removes its partners, numbers and updates."), el("span", { class: "spacer" }),
+    const row = (title, sub, ...ctrl) => el("div", { class: "setrow" }, el("div", { class: "setrow-t" }, el("b", {}, title), sub ? el("span", {}, sub) : null), el("div", { class: "setrow-c" }, ...ctrl));
+    box.append(el("div", { class: "idea", style: "margin-top:12px;gap:0" },
+      row("Group name", "Partners see it at the top of their page.", el("div", { class: "addtask", style: "margin:0;flex-wrap:nowrap" }, rn, el("button", { class: "btn", onclick: () => { const v = rn.value.trim(); if (!v || v === g.name) return; rn.value = ""; write(() => updateDoc(doc(db, "pgroups", gid), { name: v }), "Renamed") } }, "Rename"))),
+      row("Link for partners", SITE_LINK, el("button", { class: "btn small", onclick: async () => { try { await navigator.clipboard.writeText(SITE_LINK); toast("Link copied") } catch { toast(SITE_LINK, 5000) } } }, "Copy")),
+      row("In this group", `${people.length} ${people.length === 1 ? "partner" : "partners"} · ${leads.length} numbers · made ${g.createdAt ? fmtDay(g.createdAt) : ""}`, el("button", { class: "btn small quiet", onclick: () => { pgTab = "people"; render() } }, "Manage people")),
+      row("Delete group", "Removes its partners' access, all its numbers and updates. This can't be undone.",
         pDelGroup === gid
-          ? el("button", { class: "btn small danger-btn", onclick: async () => { pDelGroup = null; await write(() => deleteGroup(gid), "Group deleted"); location.hash = "partners" } }, "Yes, delete everything")
-          : el("button", { class: "btn quiet small", onclick: () => { pDelGroup = gid; render() } }, "Delete group"))));
+          ? el("span", { class: "row", style: "gap:6px" }, el("button", { class: "btn quiet small", onclick: () => { pDelGroup = null; render() } }, "Cancel"),
+              el("button", { class: "btn small danger-btn", onclick: async () => { pDelGroup = null; await write(() => deleteGroup(gid), "Group deleted"); location.hash = "partners" } }, "Yes, delete everything"))
+          : el("button", { class: "btn small danger-btn", onclick: () => { pDelGroup = gid; render() } }, "Delete group"))));
   }
 }
 async function deleteGroup(gid) {

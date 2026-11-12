@@ -105,6 +105,7 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 const VIEWS = ["me", "ideas", "projects", "chat", "partners", "skills", "settings", "money", "project"];
 function route() {
   const h = location.hash.slice(1);
+  if (h === "money-fund" || h === "money-rules") return { view: "money", tab: h.slice(6) };
   if (h.startsWith("task-")) { const [id, task] = h.slice(5).split("-"); return { view: "project", id, task } }
   for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
   if (h === "projects-done" || h === "current") return { view: "projects" };
@@ -119,6 +120,7 @@ function show() {
   const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "settings" || r.view === "money" ? "me" : r.view;
   for (const b of document.querySelectorAll("#app .tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
+  if (r.tab) moneyTab = r.tab;
   if (r.task) { projTab = "tasks"; taskFilter[r.id] = null; openTask = "p:" + r.task; showTaskAt = r.task }
   render();
   if (showTaskAt) { const id = showTaskAt; showTaskAt = null; setTimeout(() => { const c = document.getElementById("c-p:" + id); if (c) { const row = c.closest(".task"); scrollTo({ top: row.getBoundingClientRect().top + scrollY - 96, behavior: "smooth" }); row.classList.add("flash") } }, 80) }
@@ -394,18 +396,7 @@ function renderProjectPage(p) {
   if (actions.childNodes.length > 1) head.append(actions);
   box.append(head);
 
-  if (settingsOpen) {
-    const set = el("section", { class: "idea settings" }, el("h3", {}, "Project settings"));
-    if (planner) set.append(renameBlock(p), catSelect(p), prioControl(p), plannersRow(p));
-    const btns = el("div", { class: "row", style: "gap:8px" });
-    if (joined) btns.append(el("button", { class: "btn quiet", onclick: () => write(() => upd(p.id, { ["members." + me]: DEL() }), "You left the team") }, "Leave the team"));
-    btns.append(el("span", { class: "spacer" }));
-    if (planner && !done) btns.append(isPaused(p) ? el("button", { class: "btn", onclick: () => resumeProject(p) }, "Resume project") : el("button", { class: "btn", onclick: () => pauseProject(p) }, "Pause project"));
-    if (planner) btns.append(done ? el("button", { class: "btn", onclick: () => reopenProject(p) }, "Reopen") : completeButton(p));
-    set.append(btns);
-    if (isAdmin || p.author === me) set.append(deleteBlock(p));
-    box.append(set);
-  }
+  if (settingsOpen) box.append(projectSettings(p, { planner, joined, done }));
 
   const meetings = Object.values(p.meetings || {}).filter(Boolean).length;
   box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin:4px 0 14px" },
@@ -427,6 +418,43 @@ function renderProjectPage(p) {
       ...team.map(u => { const list = tasks.filter(t => isAssignee(t, u)); return chip(u, u === me ? "You" : name(u).split(" ")[0], `${list.filter(t => t.done).length}/${list.length}`) })));
   }
   box.append(planBody(p, { filter: f }));
+}
+
+// Project settings, in the order people need them: details, people, status, and deleting last.
+function projectSettings(p, { planner, joined, done }) {
+  const set = el("section", { class: "idea settings projset" }, el("div", { class: "row" }, el("h3", {}, "Project settings")));
+  const group = (title, sub, ...kids) => el("div", { class: "psgroup" }, el("div", { class: "set-h" }, el("h4", {}, title), sub ? el("p", {}, sub) : null), ...kids);
+  if (planner) set.append(group("Details", null, renameBlock(p), catSelect(p), prioControl(p)));
+
+  // people: planners shape the plan; the team is who works on it
+  const members = Object.entries(p.members || {}).filter(([, v]) => v).map(([u]) => u);
+  const boss = isAdmin || p.author === me;
+  const others = teamIds().filter(u => !members.includes(u));
+  set.append(group("People", "Planners can change the plan, tasks and money. The team is everyone working on it.",
+    plannersRow(p),
+    el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Team:",
+      members.length ? members.map(u => el("span", { class: "planner" }, av(u), name(u),
+        planner && u !== me ? el("button", { class: "x", "aria-label": "Take " + name(u) + " off the team", onclick: () => write(() => upd(p.id, { ["members." + u]: DEL() }), `${name(u)} is off this project's team`) }, "✕") : null)) : el("span", {}, "nobody joined yet"),
+      planner && others.length ? el("select", { class: "mini", "aria-label": "Add someone to the team", onchange: e => { const u = e.target.value; if (u) write(() => upd(p.id, { ["members." + u]: true }), `${name(u)} is on the team`) } },
+        el("option", { value: "" }, "+ Add someone"), others.map(u => el("option", { value: u }, name(u)))) : null),
+    el("div", { class: "row" }, el("span", { class: "spacer" }), joined
+      ? el("button", { class: "btn quiet small", onclick: () => write(() => upd(p.id, { ["members." + me]: DEL() }), "You left the team") }, "Leave the team")
+      : el("button", { class: "btn small", onclick: () => write(() => upd(p.id, { ["members." + me]: true }), "You joined the team") }, "Join the team"))));
+
+  if (planner) set.append(group("Status", done ? "This project is completed." : isPaused(p) ? "Paused: its tasks are on hold and it doesn't count as being built." : "Pause it to put everything on hold, or mark it completed when it's finished.",
+    el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
+      done ? null : isPaused(p) ? el("button", { class: "btn", onclick: () => resumeProject(p) }, "Resume project") : el("button", { class: "btn", onclick: () => pauseProject(p) }, "Pause project"),
+      done ? el("button", { class: "btn", onclick: () => reopenProject(p) }, "Reopen") : completeButton(p)),
+    !done && confirmDone === p.id ? completeWarning(p) : null));
+  if (isAdmin || p.author === me) set.append(group("Delete", null, deleteBlock(p)));
+  return set;
+}
+// Before marking a project completed: say what's still open, so nothing is closed by mistake.
+function completeWarning(p) {
+  const open = tasksOf(p).filter(t => !t.done).length, out = [];
+  if (open) out.push(`${open} task${open > 1 ? "s are" : " is"} still open.`);
+  if (p.money) { const r = moneyOf(p); if (r.expected > r.received && !r.proposal) out.push(`The client still owes ${fmtEGP(r.expected - r.received)}.`); const owed = Object.values(r.people).reduce((s, v) => s + Math.max(0, v.balance), 0); if (owed) out.push(`${fmtEGP(owed)} still has to be handed to the team.`) }
+  return out.length ? el("div", { class: "notice", style: "margin:0" }, out.join(" ") + " You can still complete it, and reopen it later.") : null;
 }
 
 // Deleting a whole project. Only the admin and the person who pitched it can do this.
@@ -2200,10 +2228,10 @@ function buildAlerts() {
     if (!canPlan(p) || p.status !== "approved") continue;
     for (const s of moneyOf(p).late) add("late:" + p.id + ":" + s.label + ":" + today, dayStart(), null, `Late payment: ${p.title}${p.money.client ? " (" + p.money.client + ")" : ""}, ${s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label}`, "project-" + p.id);
   }
-  if (isAdmin && moneyRules && moneyRules.reviewAt && moneyRules.reviewAt <= today) add("review:" + moneyRules.reviewAt, dayStart(), null, `Time to review the team fund: it's ${rulesNow().fundPct}% since ${fmtDate(ymd(new Date(moneyRules.setAt || Date.now())))}. Keep it or change it on the Money page.`, "money");
-  if (isAdmin && fundDoc) for (const [sid, sb] of Object.entries(fundDoc.subs || {})) if (sb && sb.nextDue && sb.nextDue <= tomorrow) add("sub:" + sid + ":" + sb.nextDue, dayStart(), null, `${sb.name} subscription is due ${sb.nextDue < today ? "(overdue)" : sb.nextDue === today ? "today" : "tomorrow"}`, "money");
+  if (isAdmin && moneyRules && moneyRules.reviewAt && moneyRules.reviewAt <= today) add("review:" + moneyRules.reviewAt, dayStart(), null, `Time to review the team fund: it's ${rulesNow().fundPct}% since ${fmtDate(ymd(new Date(moneyRules.setAt || Date.now())))}. Keep it or change it on the Money page.`, "money-rules");
+  if (isAdmin && fundDoc) for (const [sid, sb] of Object.entries(fundDoc.subs || {})) if (sb && !sb.paused && sb.nextDue && sb.nextDue <= tomorrow) add("sub:" + sid + ":" + sb.nextDue, dayStart(), null, `${sb.name} subscription is due ${sb.nextDue < today ? "(overdue)" : sb.nextDue === today ? "today" : "tomorrow"}`, "money-fund");
   for (const n of unseenNews()) add("news:" + n.id, n.at || new Date(n.date + "T09:00").getTime(), n.by || null, (n.by ? `${firstName(n.by)} posted: ` : "New in Pitch Room: ") + n.title, "me");
-  { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, "Please read and agree to the team's money rules", "money") }
+  { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, rulesChanges(rulesNow()).length ? "The money rules changed: " + rulesChanges(rulesNow()).join(", ") + ". Please read and agree" : "Please read and agree to the team's money rules", "money-rules") }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
   for (const t of dmThreads) if (dmUnread(t)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, t.lastBy, `${name(t.lastBy)} sent you a private message: ${(t.lastText || "").slice(0, 60)}`, "dm-" + t.lastBy);
   for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
@@ -2368,55 +2396,60 @@ function renderSettings() {
   const box = $("#settings"); box.replaceChildren();
   const prof = people[me] || {}, theme = getTheme(), meteors = getMeteors();
   box.append(el("button", { class: "back", onclick: () => { location.hash = "me" } }, "← Me"), el("h2", { class: "sec-h", style: "margin-top:0" }, "Settings"));
+  const secs = [["s-you", "You"], ["s-alerts", "Alerts"], ["s-team", "Team"], ["s-help", "Help"], ["s-account", "Account"]];
+  box.append(el("nav", { class: "setnav", "aria-label": "Settings sections" }, secs.map(([id, l]) => el("button", { class: "cat", onclick: () => { const n = document.getElementById(id); if (n) scrollTo({ top: n.getBoundingClientRect().top + scrollY - 80, behavior: "smooth" }) } }, l))));
+  const sec = (id, title, sub, ...kids) => el("section", { class: "setsec", id }, el("div", { class: "set-h" }, el("h3", {}, title), sub ? el("p", {}, sub) : null), ...kids);
+  const item = (title, sub, ...ctrl) => el("div", { class: "setrow" }, el("div", { class: "setrow-t" }, el("b", {}, title), sub ? el("span", {}, sub) : null), el("div", { class: "setrow-c" }, ...ctrl));
 
-  /* profile */
+  /* you: photo, name, look */
   const nick = el("input", { id: "set-name", class: "noteinput", maxlength: "40", placeholder: (myProfile && myProfile.name) || "Your name" });
   if (!nick.value) nick.value = prof.nick || "";
   const saveName = () => { const v = nick.value.trim(); write(() => setDoc(doc(db, "users", me), { nick: v }, { merge: true }), v ? "Name saved" : "Using your Google name again") };
   nick.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); saveName() } });
-  box.append(el("section", { class: "idea" }, el("h3", {}, "Profile"),
-    el("div", { class: "row", style: "gap:14px" },
-      el("img", { class: "av av-lg", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
-      el("div", { class: "row", style: "gap:8px" },
-        el("button", { class: "btn small", onclick: pickProfilePhoto }, "Change photo"),
-        prof.pic ? el("button", { class: "btn quiet small", onclick: () => write(() => setDoc(doc(db, "users", me), { pic: DEL() }, { merge: true }), "Back to your Google photo") }, "Use Google photo") : null)),
-    el("label", { class: "tlabel", for: "set-name" }, "Name the team sees"),
-    el("div", { class: "addtask", style: "margin:0" }, nick, el("button", { class: "btn primary", onclick: saveName }, "Save")),
-    el("p", { style: "margin:0;font-size:13px" }, "Leave it empty to use your Google name.")));
+  const setLook = (t, m) => { applyLook(t, m); render(); write(() => setDoc(doc(db, "users", me), { theme: t, meteors: m }, { merge: true })) };
+  box.append(sec("s-you", "You", "How you look to the team, and how Pitch Room looks to you.",
+    el("div", { class: "idea", style: "gap:0" },
+      el("div", { class: "setrow" }, el("img", { class: "av av-lg", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
+        el("div", { class: "setrow-t" }, el("b", {}, realName(me) || (myProfile && myProfile.name) || ""), el("span", {}, (myProfile && myProfile.email) || "")),
+        el("div", { class: "setrow-c" }, el("button", { class: "btn small", onclick: pickProfilePhoto }, "Change photo"),
+          prof.pic ? el("button", { class: "btn quiet small", onclick: () => write(() => setDoc(doc(db, "users", me), { pic: DEL() }, { merge: true }), "Back to your Google photo") }, "Use Google photo") : null)),
+      item("Name the team sees", "Leave it empty to use your Google name.", el("div", { class: "addtask", style: "margin:0;flex-wrap:nowrap" }, nick, el("button", { class: "btn primary", onclick: saveName }, "Save"))),
+      item("Theme", "Saved to your account, so every device matches.", el("div", { class: "seg", role: "group", "aria-label": "Theme" }, THEMES.map(([v, l]) => el("button", { "aria-pressed": String(theme === v), onclick: () => setLook(v, meteors) }, l === "Match my device" ? "Auto" : l)))),
+      item("Background animation", "The slow moving map behind the page.", el("div", { class: "seg seg-sm", role: "group", "aria-label": "Background animation" },
+        el("button", { "aria-pressed": String(meteors), onclick: () => setLook(theme, true) }, "On"),
+        el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off"))))));
 
-  /* nicknames: anyone on the team can give anyone a nickname; everyone sees it */
+  /* alerts */
+  box.append(sec("s-alerts", "Alerts", "What reaches you, and how.", pushSettings(), newsSettings()));
+
+  /* team: nicknames for everyone, plus access for the admin */
   const crew = Object.entries(people).filter(([, x]) => x && x.name).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""));
-  if (crew.length) box.append(el("section", { class: "idea" }, el("h3", {}, "Nicknames"),
-    el("p", { style: "margin:0;font-size:13px" }, "Give anyone on the team a nickname. Everyone on the team sees it instead of their name. Leave it empty to remove it."),
+  const nickBox = crew.length ? el("details", { class: "idea setdetails" }, el("summary", {}, el("b", {}, "Nicknames"), el("span", { class: "label" }, `${Object.keys(nicks).length} set · everyone sees them instead of names`)),
     el("div", { class: "nicklist" }, crew.map(([id, x]) => {
       const inp = el("input", { class: "noteinput", maxlength: "30", placeholder: x.nick || x.name, "aria-label": "Nickname for " + x.name, value: nicks[id] || "" });
       const save = () => { const v = inp.value.trim(); if (v === (nicks[id] || "")) return; write(() => setDoc(doc(db, "meta", "nicks"), { [id]: v ? v.slice(0, 30) : DEL() }, { merge: true }), v ? `${x.name.split(" ")[0]} is now “${v}”` : "Nickname removed") };
       inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } });
       return el("div", { class: "nickrow" }, el("img", { class: "av", src: x.pic || x.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
         el("span", { class: "nickname-real" }, id === me ? x.name + " (you)" : x.name), inp, el("button", { class: "btn small", onclick: save }, "Save"));
-    }))));
+    }))) : null;
+  box.append(sec("s-team", "Team", isAdmin ? "Who can sign in and what they see. Only you see the access list." : "Names everyone on the team sees.", isAdmin ? accessSection() : null, nickBox,
+    el("div", { class: "idea", style: "gap:0" }, item("Money rules", "The team fund, finder's fee and how we split.", el("button", { class: "btn small", onclick: () => { moneyTab = "rules"; location.hash = "money" } }, "Open")),
+      item("Skills", "Your strengths, used to suggest who does which task.", el("button", { class: "btn small", onclick: () => { location.hash = "skills" } }, "Open")))));
 
-  /* look */
-  const setLook = (t, m) => { applyLook(t, m); render(); write(() => setDoc(doc(db, "users", me), { theme: t, meteors: m }, { merge: true })) };
-  box.append(el("section", { class: "idea" }, el("h3", {}, "Look"),
-    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Theme" }, THEMES.map(([v, l]) => el("button", { "aria-pressed": String(theme === v), onclick: () => setLook(v, meteors) }, l))),
-    el("div", { class: "row" }, el("span", {}, "Background animation"), el("span", { class: "spacer" }),
-      el("div", { class: "seg seg-sm", role: "group", "aria-label": "Background animation" },
-        el("button", { "aria-pressed": String(meteors), onclick: () => setLook(theme, true) }, "On"),
-        el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off")))));
-
-  /* alerts */
-  box.append(pushSettings());
-
-  /* people and access (admin): team members, partners and clients in one place */
-  if (isAdmin) box.append(accessSection());
-
-  box.append(newsSettings());
+  /* help: fixes for the usual problems, right here */
+  const adminId = Object.entries(people).find(([, x]) => ADMINS.includes((x.email || "").toLowerCase()));
+  const standalone = (() => { try { return matchMedia("(display-mode: standalone)").matches || navigator.standalone } catch { return false } })();
+  box.append(sec("s-help", "Help", "Quick fixes when something isn't right.", el("div", { class: "idea", style: "gap:0" },
+    item("Get the latest version", "If a new feature isn't showing up.", el("button", { class: "btn small", onclick: () => location.replace(location.pathname + "?v=" + Date.now() + location.hash) }, "Reload")),
+    item("Refresh this device", "If something looks wrong or out of date. Your work is safe: it's all saved online.", el("button", { class: "btn small", onclick: () => { clearCache(); location.replace(location.pathname + "?v=" + Date.now() + "#me") } }, "Refresh")),
+    standalone ? null : item("Put Pitch Room on your home screen", isIOS() ? "On iPhone: tap Share, then Add to Home Screen. Needed for alerts on iPhone." : "In your browser menu, choose Install app or Add to Home screen. It opens like an app.", null),
+    item("Share the site link", SITE_LINK, el("button", { class: "btn small", onclick: async () => { try { await navigator.clipboard.writeText(SITE_LINK); toast("Link copied") } catch { toast(SITE_LINK, 5000) } } }, "Copy")),
+    adminId && adminId[0] !== me ? item("Still stuck?", `Message ${ADMIN_NAME} privately.`, el("button", { class: "btn small", onclick: () => { location.hash = "dm-" + adminId[0] } }, "Message")) : null,
+    item("Version", typeof BUILD_ID !== "undefined" ? BUILD_ID.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2}).*/, "$3/$2/$1 $4:$5") : "", null))));
 
   /* account */
-  box.append(el("section", { class: "idea" }, el("h3", {}, "Account"),
-    el("div", { class: "row" }, el("span", { class: "me-email" }, "Signed in as " + ((myProfile && myProfile.email) || "")), el("span", { class: "spacer" }),
-      el("button", { class: "btn", onclick: doSignOut }, "Sign out"))));
+  box.append(sec("s-account", "Account", null, el("div", { class: "idea", style: "gap:0" },
+    item("Signed in", (myProfile && myProfile.email) || "", el("button", { class: "btn small", onclick: doSignOut }, "Sign out")))));
 }
 
 /* ----- assistant (Gemini through Firebase AI Logic) -----
@@ -2868,7 +2901,9 @@ function renderMoney(box, p) {
   const warn = [];
   if (r.monthsUnpaid >= rulesNow().pauseAfterLate) warn.push(`The client hasn't paid for ${r.monthsUnpaid} months. Our rule: pause the work until they pay.`);
   else if (r.late.length) warn.push(`Late: ${r.late.map(s => s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label).join(", ")}. Remind the client.`);
-  if (r.costsUnpaid > 0 && !r.pending) warn.push(`${fmtEGP(r.costsUnpaid)} of costs still needs paying back.` + (m.type === "one" ? " This project lost money, so the team fund should cover it." : " It comes out of the next payment."));
+  if (r.proposal) warn.push("This is a proposal. Nothing is due or late until the client agrees. Change the stage to Deal agreed in Edit deal when they say yes.");
+  if (r.costsUnpaid > 0 && !r.pending) warn.push(`${fmtEGP(r.costsUnpaid)} of costs still needs paying back. It comes out of the next payment.`);
+  if (r.fundCover > 0) warn.push(`This deal cost more than it earned. The team fund covered ${fmtEGP(r.fundCover)}, so nobody is out of pocket.`);
   if (r.unassigned > 0) warn.push(`${fmtEGP(r.unassigned)} isn't assigned to anyone yet. Set the shares in Edit deal.`);
   if (warn.length) box.append(el("div", { class: "notice", style: "margin:0 0 12px" }, warn.map(w => el("div", {}, w))));
 
@@ -3058,8 +3093,10 @@ function dealForm(p) {
   else box.append(el("p", { class: "label", style: "margin:0" }, `Team fund ${m.fundCustom && m.fundPct != null ? m.fundPct : R.fundPct}% \u00b7 finder ${m.findCustom && m.findPct != null ? m.findPct : R.findPct}% (set by ${ADMIN_NAME})`));
 
   const save = () => {
-    const s = shares.read(); if (s.total !== 100) { toast("The shares need to add up to 100%"); return }
-    let ms = null; if (mshares) { ms = mshares.read(); if (ms.total !== 100) { toast("The monthly shares need to add up to 100%"); return } }
+    // a proposal can be saved before the shares are agreed; a real deal needs them to add up to 100%
+    const prop = stage.value === "proposal";
+    const s = shares.read(); if (s.total !== 100 && !(prop && s.total === 0)) { toast(prop ? "The shares need to add up to 100%, or leave them all empty for now" : "The shares need to add up to 100%"); return }
+    let ms = null; if (mshares) { ms = mshares.read(); if (ms.total !== 100 && !(prop && ms.total === 0)) { toast("The monthly shares need to add up to 100%"); return } }
     const n = x => Math.round((Number(x.value) || 0) * 100) / 100;
     const finders = fMode.value === "people" ? [...fBoxes.querySelectorAll("input:checked")].map(i => i.value) : [];
     if (fMode.value === "people" && !finders.length) { toast("Tick who brought the client, or choose Nobody"); return }
@@ -3071,7 +3108,7 @@ function dealForm(p) {
       monthShares: m.monthShares || {}, setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
     if (type === "one") { if (!(n(price) > 0)) { toast("Enter the price"); return } data.price = n(price) }
     if (type === "installments") { if (!(n(price) > 0)) { toast("Enter the total price"); return } Object.assign(data, { price: n(price), installments: Math.max(2, Math.round(Number(months.value) || 3)), startMonth: start.value || thisMonth(), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)) }) }
-    if (type === "monthly") { if (!(n(fee) > 0)) { toast("Enter the monthly fee"); return } Object.assign(data, { monthlyFee: n(fee), setupFee: n(setup), startMonth: start.value || thisMonth(), endMonth: end.value || "", dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)), adBudget: ads.checked, monthlyShares: ms.shares }) }
+    if (type === "monthly") { if (!(n(fee) > 0)) { toast("Enter the monthly fee"); return } Object.assign(data, { monthlyFee: n(fee), setupFee: n(setup), startMonth: start.value || thisMonth(), endMonth: end.value || (stage.value === "ended" ? thisMonth() : ""), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)), adBudget: ads.checked, monthlyShares: ms.shares }) }
     editDeal = null; delete dealTypeDraft[p.id];
     write(() => upd(p.id, { money: data }), "Deal saved");
   };
@@ -3113,30 +3150,44 @@ function ensureMoneyRules() {
 }
 
 const dealProjects = () => ideas.filter(i => (i.status === "approved" || i.status === "completed") && i.money);
+// Fund spending someone paid from their own pocket: the fund owes it back to them until it's marked paid back.
+const fundSpendList = () => Object.entries((fundDoc || {}).spends || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v }));
 function allMoney() {
-  const out = { projects: [], me: { earned: 0, back: 0, paid: 0, balance: 0 }, people: {}, fundIn: 0, month: { expected: 0, received: 0 }, late: [] };
+  const out = { projects: [], me: { earned: 0, back: 0, paid: 0, balance: 0 }, people: {}, fundIn: 0, month: { expected: 0, received: 0 }, late: [],
+    flow: { received: 0, back: 0, fund: 0, earned: 0, waiting: 0, cover: 0 } };
   const nowM = thisMonth();
+  const pp = u => out.people[u] || (out.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
   for (const p of dealProjects()) {
     const r = moneyOf(p); out.projects.push({ p, r }); out.fundIn += r.fund;
-    for (const [u, v] of Object.entries(r.people)) { const t = out.people[u] || (out.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 }); for (const k of ["earned", "back", "paid", "balance"]) t[k] += v[k] }
-    for (const s of r.schedule) if (s.month === nowM && s.label !== "Total") { out.month.expected += s.expected; out.month.received += s.received }
-    for (const s of r.late) out.late.push({ p, s });
+    for (const [u, v] of Object.entries(r.people)) { const t = pp(u); for (const k of ["earned", "back", "paid", "balance"]) t[k] += v[k] }
+    if (!r.proposal) {
+      for (const s of r.schedule) if (s.month === nowM && s.label !== "Total" && s.status !== "upcoming") { out.month.expected += s.expected; out.month.received += s.received }
+      for (const s of r.late) out.late.push({ p, s });
+    }
+    const f = out.flow; f.received += r.received; f.fund += r.fund; f.waiting += r.held + r.unassigned; f.cover += r.fundCover;
+    for (const v of Object.values(r.people)) { f.back += v.back; f.earned += v.earned }
   }
+  // the fund paying people back for things they bought for the team
+  for (const s of fundSpendList()) if (s.paidBy) { const t = pp(s.paidBy); t.back += toP(s.amount); if (s.repaidAt) t.paid += toP(s.amount); t.balance = t.earned + t.back - t.paid }
+  for (const t of Object.values(out.people)) t.balance = t.earned + t.back - t.paid;
   out.me = out.people[me] || out.me;
   return out;
 }
+const goalState = g => g.doneAt ? "done" : toP(g.target) > 0 ? "saving" : "research";
 function fundState(all) {
   const f = fundDoc || {};
-  const spends = Object.entries(f.spends || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v })).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const spends = fundSpendList().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const adj = Object.entries(f.adjust || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v }));
   const spent = spends.reduce((s, x) => s + toP(x.amount), 0), extra = adj.reduce((s, x) => s + toP(x.amount), 0);
   const goals = Object.entries(f.goals || {}).filter(([, v]) => v && v.name).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.order || 0) - (b.order || 0));
-  const subs = Object.entries(f.subs || {}).filter(([, v]) => v && v.name).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.nextDue || "").localeCompare(b.nextDue || ""));
+  const subs = Object.entries(f.subs || {}).filter(([, v]) => v && v.name).map(([id, v]) => ({ id, ...v })).sort((a, b) => (!!a.paused - !!b.paused) || (a.nextDue || "").localeCompare(b.nextDue || ""));
   const balance = all.fundIn + extra - spent;
-  return { spends, adj, spent, extra, goals, subs, balance, holder: (moneyRules || {}).holder || null };
+  const owes = spends.filter(s => s.paidBy && !s.repaidAt), owed = owes.reduce((s, x) => s + toP(x.amount), 0);
+  const perMonth = subs.filter(s => !s.paused).reduce((s, x) => s + (x.cycle === "year" ? Math.round(toP(x.amount) / 12) : toP(x.amount)), 0);
+  return { spends, adj, spent, extra, goals, subs, balance, owes, owed, perMonth, holder: (moneyRules || {}).holder || null };
 }
 const nextDate = (d, cycle) => { const x = new Date(d + "T12:00"); if (cycle === "year") x.setFullYear(x.getFullYear() + 1); else x.setMonth(x.getMonth() + 1); return ymd(x) };
-let fundForm = null, delFund = null, editRules = false;
+let fundForm = null, delFund = null, editRules = false, moneyTab = "overview", goalEdit = null, goalOpen = {}, subPay = null, subEdit = null;
 const fundWrite = (data, ok) => write(() => setDoc(doc(db, "meta", "fund"), data, { merge: true }), ok);
 
 function moneyRulesText(R) {
@@ -3148,35 +3199,60 @@ function moneyRulesText(R) {
     `One-time projects: the deposit pays back costs; the profit is split once the client has fully paid.`,
     `Monthly deals and payments over several months: split every time a payment arrives.`,
     `Monthly deals: the setup fee goes to who built it; each month's fee goes to who ran it that month.`,
+    `A proposal isn't a deal yet: nothing is due or late until the client agrees.`,
     `If a monthly client is ${R.pauseAfterLate} months late, we pause the work until they pay.`,
     `A client's ad budget is their money, not ours. It's tracked separately and never split.`,
-    `If a project loses money, nobody gets a share from it and the team fund covers what's owed back.`,
-    `Everyone can see all the money. Only ${ADMIN_NAME} and each project's planners can add or change amounts.`,
+    `If a project loses money, nobody gets a share from it and the team fund covers what's owed back. The site does this by itself when the deal is over.`,
+    `If you pay for something for the team (like a subscription) from your own pocket, the fund owes it back to you.`,
+    `Everyone can see all the money. Only ${ADMIN_NAME} and each project's planners can add or change amounts. Anyone can add goals and research them.`,
   ];
 }
+// What changed since the last version of the rules, so nobody has to compare by hand.
+function rulesChanges(R) {
+  const pv = R.prev; if (!pv) return [];
+  const names = { fundPct: ["Team fund", "%"], findPct: ["Finder's fee", "%"], finderMonths: ["Finder's fee on monthly deals", " months"], pauseAfterLate: ["Pause after", " months late"], reviewMonths: ["Review every", " months"] };
+  return Object.entries(names).filter(([k]) => pv[k] != null && pv[k] !== R[k]).map(([k, [l, u]]) => `${l}: ${pv[k]}${u} → ${R[k]}${u}`);
+}
+const moneyGo = (p) => { projTab = "money"; location.hash = "project-" + p.id };
 
 function renderMoneyPage() {
   const box = $("#money"); box.replaceChildren();
-  const all = allMoney(), F = fundState(all), R = rulesNow();
+  const all = allMoney(), F = fundState(all), R = rulesNow(), ver = R.version || 1;
+  const agreed = ((people[me] || {}).moneyAgreed || {}).version === ver;
   box.append(el("button", { class: "back", onclick: () => { location.hash = "me" } }, "← Me"), el("h2", { class: "sec-h", style: "margin-top:0" }, "Money"));
 
-  /* rules agreement banner */
-  const agreed = ((people[me] || {}).moneyAgreed || {}).version === (R.version || 1);
-  if (!agreed) box.append(el("div", { class: "notice", style: "margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap" },
-    el("span", { style: "flex:1 1 200px" }, "Please read the team's money rules at the bottom of this page and tap “I agree”."),
-    el("button", { class: "btn small", onclick: () => { const n = document.getElementById("rules"); n && n.scrollIntoView({ behavior: "smooth" }) } }, "Read the rules")));
+  if (!agreed) {
+    const ch = rulesChanges(R);
+    box.append(el("div", { class: "notice agree-note" },
+      el("div", { style: "flex:1 1 220px;display:grid;gap:2px" }, el("b", {}, ch.length ? `The money rules changed (version ${ver})` : "Please read and agree to the money rules"),
+        ch.length ? el("span", {}, ch.join(" · ")) : null),
+      el("button", { class: "btn small", onclick: () => { moneyTab = "rules"; render(); scrollTo(0, 0) } }, "Read and agree")));
+  }
+  box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Money", style: "margin-bottom:14px" },
+    [["overview", "Overview"], ["fund", "Fund & goals"], ["rules", "Rules" + (agreed ? "" : " •")]].map(([k, l]) => el("button", { "aria-pressed": String(moneyTab === k), onclick: () => { moneyTab = k; render() } }, l))));
+  if (moneyTab === "fund") return renderFundTab(box, all, F);
+  if (moneyTab === "rules") return renderRulesTab(box, all, F, R, ver, agreed);
 
   /* my money */
   box.append(el("section", { class: "profile money-hero" },
-    el("div", { class: "profile-main", style: "grid-column:1/-1" }, el("div", { class: "hello" }, "You're owed"), el("h1", {}, fmtEGP(all.me.balance))),
+    el("div", { class: "profile-main", style: "grid-column:1/-1" }, el("div", { class: "hello" }, all.me.balance > 0 ? "You're owed" : "Your balance"), el("h1", {}, fmtEGP(all.me.balance)))),
     el("div", { class: "stats" },
-      el("div", { class: "stat" }, el("b", {}, fmtEGP(all.me.earned)), el("span", {}, "earned in total")),
-      el("div", { class: "stat" }, el("b", {}, fmtEGP(all.me.back)), el("span", {}, "costs paid back")),
-      el("div", { class: "stat" }, el("b", {}, fmtEGP(all.me.paid)), el("span", {}, "already handed to you")))));
-  const mine = all.projects.map(({ p, r }) => ({ p, v: r.people[me] })).filter(x => x.v && (x.v.earned || x.v.back || x.v.paid));
-  if (mine.length) box.append(el("section", { class: "idea", style: "margin-top:12px;gap:0" }, el("h3", { style: "margin-bottom:6px" }, "By project"),
-    mine.map(({ p, v }) => el("button", { class: "mlink", onclick: () => { projTab = "money"; location.hash = "project-" + p.id } },
-      el("span", { class: "mname" }, p.title), el("span", { class: "label" }, `earned ${fmtEGP(v.earned + v.back)} · owed ${fmtEGP(v.balance)}`)))));
+      el("div", { class: "stat" }, el("b", {}, fmtEGP(all.me.earned)), el("span", {}, "earned")),
+      el("div", { class: "stat" }, el("b", {}, fmtEGP(all.me.back)), el("span", {}, "paid back to you for costs")),
+      el("div", { class: "stat" }, el("b", {}, fmtEGP(all.me.paid)), el("span", {}, "already handed to you"))));
+
+  /* where the money went: every pound the clients paid, in one bar */
+  const fl = all.flow;
+  if (fl.received > 0) {
+    const handed = Object.values(all.people).reduce((s, v) => s + v.paid, 0), stillOwed = Object.values(all.people).reduce((s, v) => s + Math.max(0, v.balance), 0);
+    const segs = [["back", "Costs paid back", fl.back], ["fund", "Team fund", Math.max(0, fl.fund)], ["people", "The team's shares", fl.earned], ["wait", "Waiting to be split", fl.waiting]].filter(x => x[2] > 0);
+    const tot = segs.reduce((s, x) => s + x[2], 0) || 1;
+    box.append(el("section", { class: "idea flowcard" },
+      el("div", { class: "row" }, el("h3", {}, "Where the money went"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(fl.received) + " from clients")),
+      el("div", { class: "flowbar", role: "img", "aria-label": segs.map(x => `${x[1]} ${fmtEGP(x[2])}`).join(", ") }, segs.map(([k, , v]) => el("span", { class: "fs-" + k, style: `flex:${v / tot}` }))),
+      el("div", { class: "flowlegend" }, segs.map(([k, l, v]) => el("div", {}, el("i", { class: "fs-" + k }), el("span", {}, l), el("b", {}, fmtEGP(v))))),
+      el("p", { class: "label", style: "margin:0" }, `Of what the team earned and spent: ${fmtEGP(handed)} handed over, ${fmtEGP(stillOwed)} still owed.` + (fl.cover ? ` The fund covered ${fmtEGP(fl.cover)} of losses.` : "") + " Client ad money isn't included: it's never ours.")));
+  }
 
   /* this month */
   box.append(el("h2", { class: "sec-h" }, "This month"));
@@ -3185,68 +3261,186 @@ function renderMoneyPage() {
       el("div", {}, el("b", {}, fmtEGP(all.month.expected)), el("span", {}, "expected from clients")),
       el("div", {}, el("b", {}, fmtEGP(all.month.received)), el("span", {}, "received")),
       el("div", { class: all.late.length ? "late" : "" }, el("b", {}, String(all.late.length)), el("span", {}, all.late.length === 1 ? "late payment" : "late payments"))),
-    all.late.length ? el("div", { style: "display:grid;gap:4px" }, all.late.map(({ p, s }) => el("button", { class: "mlink late", onclick: () => { projTab = "money"; location.hash = "project-" + p.id } },
+    all.late.length ? el("div", { style: "display:grid;gap:4px" }, all.late.map(({ p, s }) => el("button", { class: "mlink late", onclick: () => moneyGo(p) },
       el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, (s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label) + " · " + fmtEGP(s.expected - s.received))))) : null,
     !all.projects.length ? el("p", { style: "margin:0" }, "No deals yet. Set one up on a project's Money tab.") : null));
 
-  /* team fund */
-  box.append(el("h2", { class: "sec-h" }, "Team fund"));
-  const fund = el("section", { class: "idea" },
-    el("div", { class: "row" }, el("div", {}, el("div", { class: "bignum" }, fmtEGP(F.balance)), el("div", { class: "label" }, F.holder ? `Held by ${name(F.holder)}` : `Held by ${ADMIN_NAME}`)), el("span", { class: "spacer" }),
-      isAdmin ? el("button", { class: "btn small", onclick: () => { fundForm = "spend"; render() } }, "Record spending") : null),
-    el("div", { class: "label" }, `${fmtEGP(all.fundIn)} from projects` + (F.extra ? ` · ${fmtEGP(F.extra)} added` : "") + (F.spent ? ` · ${fmtEGP(F.spent)} spent` : "")));
-  box.append(fund);
-  if (isAdmin && fundForm) box.append(fundEntryForm(F));
-
-  /* goals: the balance fills them in order */
-  let left = Math.max(0, F.balance);
-  const goals = el("section", { class: "idea", style: "margin-top:12px" }, el("div", { class: "row" }, el("h3", {}, "Goals"), el("span", { class: "spacer" }), isAdmin ? el("button", { class: "btn small", onclick: () => { fundForm = "goal"; render() } }, "+ Goal") : null));
-  if (!F.goals.length) goals.append(el("p", { style: "margin:0" }, isAdmin ? "Add what you're saving for, like an office." : "No goals yet."));
-  F.goals.forEach((g, k) => {
-    const t = toP(g.target), have = Math.min(left, t); left -= have;
-    goals.append(el("div", { class: "goalrow" },
-      el("div", { class: "row" }, el("span", { class: "mname" }, g.name), el("span", { class: "spacer" }), el("span", { class: "label" }, `${fmtEGP(have)} of ${fmtEGP(t)}`),
-        isAdmin ? (delFund === g.id ? el("button", { class: "linkdel sure", onclick: () => { delFund = null; fundWrite({ goals: { [g.id]: DEL() } }, "Goal removed") } }, "Remove?") : el("button", { class: "linkdel", "aria-label": "Remove goal", onclick: () => { delFund = g.id; render() } }, "✕")) : null),
-      line({ total: 100, done: 0, pct: t ? Math.round(have / t * 100) : 0 }, "x")));
-  });
-  goals.querySelectorAll(".pmeta").forEach(n => n.remove());
-  if (F.goals.length > 1) goals.append(el("p", { class: "label", style: "margin:0" }, "The fund fills the goals in order, top first."));
-  box.append(goals);
-
-  /* subscriptions */
-  const today = todayStr(), soon = ymd(new Date(Date.now() + 30 * 864e5));
-  const dueSoon = F.subs.filter(s => s.nextDue && s.nextDue <= soon).reduce((s, x) => s + toP(x.amount), 0);
-  const subs = el("section", { class: "idea", style: "margin-top:12px" }, el("div", { class: "row" }, el("h3", {}, "Subscriptions"), el("span", { class: "spacer" }), isAdmin ? el("button", { class: "btn small", onclick: () => { fundForm = "sub"; render() } }, "+ Subscription") : null));
-  if (!F.subs.length) subs.append(el("p", { style: "margin:0" }, isAdmin ? "Add the tools the team pays for, and the fund will track them." : "No subscriptions yet."));
-  for (const s of F.subs) subs.append(el("div", { class: "hrow" },
-    el("div", { class: "hmain" }, el("div", { class: "mname" }, s.name), el("div", { class: "due" + (s.nextDue < today ? " late" : s.nextDue <= ymd(new Date(Date.now() + 3 * 864e5)) ? " soon" : "") }, (s.nextDue < today ? "Overdue · " : "Next: ") + fmtDate(s.nextDue))),
-    el("span", { class: "hamt" }, fmtEGP(toP(s.amount)) + (s.cycle === "year" ? "/yr" : "/mo")),
-    isAdmin ? el("button", { class: "btn small", onclick: () => fundWrite({ spends: { [uid()]: { amount: s.amount, date: today, what: s.name + " subscription", sub: s.id, by: me, at: Date.now() } }, subs: { [s.id]: { nextDue: nextDate(s.nextDue || today, s.cycle) } } }, `Paid ${s.name} from the fund`) }, "Paid") : null,
-    isAdmin ? (delFund === s.id ? el("button", { class: "linkdel sure", onclick: () => { delFund = null; fundWrite({ subs: { [s.id]: DEL() } }, "Removed") } }, "Remove?") : el("button", { class: "linkdel", "aria-label": "Remove", onclick: () => { delFund = s.id; render() } }, "✕")) : null));
-  if (dueSoon && dueSoon > F.balance) subs.append(el("div", { class: "notice" }, `Next 30 days of subscriptions: ${fmtEGP(dueSoon)}. The fund only has ${fmtEGP(F.balance)}.`));
-  box.append(subs);
-
-  /* fund history */
-  const hist = [...all.projects.filter(x => x.r.fund).map(({ p, r }) => ({ sign: "+", text: "From " + p.title, amount: r.fund, date: "" })),
-    ...F.adj.map(a => ({ sign: toP(a.amount) < 0 ? "−" : "+", text: a.note || "Added to the fund", amount: Math.abs(toP(a.amount)), date: a.date, id: a.id, coll: "adjust" })),
-    ...F.spends.map(s => ({ sign: "−", text: s.what || "Spent", amount: toP(s.amount), date: s.date, id: s.id, coll: "spends" }))];
-  if (hist.length) box.append(el("details", { class: "removed" }, el("summary", {}, `Fund history (${hist.length})`),
-    el("div", { class: "idea", style: "gap:0;margin-top:10px" }, hist.map(h => el("div", { class: "hrow" }, el("span", { class: "hsign" }, h.sign),
-      el("div", { class: "hmain" }, el("div", {}, h.text), h.date ? el("div", { class: "label" }, fmtDate(h.date)) : null), el("span", { class: "hamt" }, fmtEGP(h.amount)),
-      isAdmin && h.id ? (delFund === h.id ? el("button", { class: "linkdel sure", onclick: () => { delFund = null; fundWrite({ [h.coll]: { [h.id]: DEL() } }, "Removed") } }, "Remove?") : el("button", { class: "linkdel", "aria-label": "Remove", onclick: () => { delFund = h.id; render() } }, "✕")) : null)))));
+  /* deals at a glance */
+  if (all.projects.length) box.append(el("h2", { class: "sec-h" }, "Deals"), el("section", { class: "idea", style: "gap:0" },
+    all.projects.sort((a, b) => (b.r.late.length - a.r.late.length) || (a.r.proposal - b.r.proposal)).map(({ p, r }) => { const [st, cls] = moneyStatus(p, r), mine = r.people[me];
+      return el("button", { class: "mlink", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title), el("span", { class: "row", style: "gap:6px" },
+        mine && mine.balance > 0 ? el("span", { class: "label" }, "you're owed " + fmtEGP(mine.balance)) : null, el("span", { class: "mstat " + cls }, st))) })));
 
   /* everyone's balance (open for trust) */
   const owed = Object.entries(all.people).filter(([, v]) => v.earned || v.back || v.paid).sort((a, b) => b[1].balance - a[1].balance);
   if (owed.length) box.append(el("h2", { class: "sec-h" }, "Everyone"), el("section", { class: "idea", style: "gap:0" },
-    el("div", { class: "mhead" }, el("span", {}, "In EGP"), el("span", {}, "Earned"), el("span", {}, "Paid to them"), el("span", {}, "Owed")),
+    el("div", { class: "mhead" }, el("span", {}, "In EGP"), el("span", {}, "Earned"), el("span", {}, "Handed over"), el("span", {}, "Owed")),
     owed.map(([u, v]) => el("div", { class: "mrow4" }, el("span", { class: "by" }, av(u), el("span", { class: "mname" }, name(u))), el("span", { class: "mval" }, fmtN(v.earned + v.back)), el("span", { class: "mval" }, fmtN(v.paid)), el("span", { class: "mval owed" }, fmtN(v.balance))))));
+}
 
-  /* money rules */
-  const ver = R.version || 1;
-  const rules = el("section", { class: "idea", id: "rules", style: "margin-top:18px" }, el("div", { class: "row" }, el("h3", {}, "Our money rules"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Version " + ver + ((moneyRules || {}).reviewAt ? " \u00b7 review on " + fmtDate(moneyRules.reviewAt) : ""))),
+function renderFundTab(box, all, F) {
+  const today = todayStr();
+  /* the fund */
+  const runway = F.perMonth > 0 ? Math.floor(Math.max(0, F.balance) / F.perMonth) : null;
+  box.append(el("section", { class: "idea fundcard" },
+    el("div", { class: "row", style: "align-items:flex-start" },
+      el("div", {}, el("div", { class: "label" }, "Team fund"), el("div", { class: "bignum" }, fmtEGP(F.balance)), el("div", { class: "label" }, `Held by ${F.holder ? name(F.holder) : ADMIN_NAME}`)),
+      el("span", { class: "spacer" }), isAdmin ? el("button", { class: "btn small", onclick: () => { fundForm = "spend"; render() } }, "Record money in or out") : null),
+    el("div", { class: "adgrid" },
+      el("div", {}, el("b", {}, fmtEGP(all.fundIn)), el("span", {}, "from projects")),
+      el("div", {}, el("b", {}, fmtEGP(F.spent)), el("span", {}, "spent" + (F.extra ? ` \u00b7 ${fmtEGP(F.extra)} added by hand` : ""))),
+      el("div", { class: runway != null && runway < 2 ? "late" : "" }, el("b", {}, runway == null ? "–" : runway > 24 ? "24+" : String(runway)), el("span", {}, runway == null ? "no subscriptions" : "months of subscriptions covered")))));
+  if (isAdmin && fundForm === "spend") box.append(fundEntryForm(F));
+
+  /* the fund owes people who paid from their own pocket */
+  if (F.owes.length) box.append(el("section", { class: "idea", style: "margin-top:12px;gap:0" }, el("div", { class: "row", style: "margin-bottom:6px" }, el("h3", {}, "The fund owes"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(F.owed))),
+    F.owes.map(s => el("div", { class: "hrow" }, av(s.paidBy), el("div", { class: "hmain" }, el("div", {}, `${name(s.paidBy)} paid for ${s.what || "something"}`), el("div", { class: "label" }, fmtDate(s.date))),
+      el("span", { class: "hamt" }, fmtEGP(toP(s.amount))),
+      isAdmin ? el("button", { class: "btn small", onclick: () => fundWrite({ spends: { [s.id]: { repaidAt: Date.now(), repaidBy: me } } }, `Marked as paid back to ${firstName(s.paidBy)}`) }, "Paid back") : null))));
+
+  /* goals */
+  const goals = F.goals.filter(g => goalState(g) !== "done"), done = F.goals.filter(g => goalState(g) === "done");
+  const saving = goals.filter(g => goalState(g) === "saving"), research = goals.filter(g => goalState(g) === "research");
+  let left = Math.max(0, F.balance);
+  const gsec = el("section", { class: "idea", style: "margin-top:12px" }, el("div", { class: "row" }, el("h3", {}, "Goals"), el("span", { class: "spacer" }),
+    el("button", { class: "btn small", onclick: () => { goalEdit = "new"; render() } }, "+ Goal")),
+    el("p", { class: "label", style: "margin:0" }, "Big things we want. Add one even if you don't know the price yet, research it, write what you find, then add the price and the fund starts saving for it."));
+  if (goalEdit === "new") gsec.append(goalForm(null));
+  if (!F.goals.length && goalEdit !== "new") gsec.append(el("p", { style: "margin:0" }, "No goals yet. Office, equipment, a course, a car for client visits: anything big."));
+  if (saving.length) {
+    gsec.append(el("div", { class: "mgroup" }, el("b", {}, "Saving for"), el("span", { class: "pcount" }, saving.length), el("span", { class: "mhint" }, "The fund fills these in order, top first")));
+    saving.forEach((g, k) => { const t = toP(g.target), have = Math.min(left, t); left -= have; gsec.append(goalRow(g, { have, t, k, list: saving })) });
+  }
+  if (research.length) {
+    gsec.append(el("div", { class: "mgroup" }, el("b", {}, "Needs research"), el("span", { class: "pcount" }, research.length), el("span", { class: "mhint" }, "No price yet. Find out what it costs")));
+    research.forEach(g => gsec.append(goalRow(g, {})));
+  }
+  if (done.length) gsec.append(el("details", { class: "removed", style: "margin-top:4px" }, el("summary", {}, `Reached (${done.length})`), done.map(g => goalRow(g, {}))));
+  box.append(gsec);
+
+  /* subscriptions */
+  const soon = ymd(new Date(Date.now() + 30 * 864e5));
+  const active = F.subs.filter(s => !s.paused), dueSoon = active.filter(s => s.nextDue && s.nextDue <= soon).reduce((s, x) => s + toP(x.amount), 0);
+  const ssec = el("section", { class: "idea", style: "margin-top:12px" }, el("div", { class: "row" }, el("h3", {}, "Subscriptions"), el("span", { class: "spacer" }),
+    isAdmin ? el("button", { class: "btn small", onclick: () => { subEdit = "new"; render() } }, "+ Subscription") : null),
+    active.length ? el("p", { class: "label", style: "margin:0" }, `About ${fmtEGP(F.perMonth)} a month (yearly ones spread out)` + (dueSoon ? ` · ${fmtEGP(dueSoon)} due in the next 30 days` : "")) : null);
+  if (subEdit === "new") ssec.append(subForm(null));
+  if (!F.subs.length && subEdit !== "new") ssec.append(el("p", { style: "margin:0" }, isAdmin ? "Add the tools the team pays for. The fund tracks when each one is due and who paid it." : "No subscriptions yet."));
+  for (const s of F.subs) {
+    if (subEdit === s.id) { ssec.append(subForm(s)); continue }
+    const late = !s.paused && s.nextDue && s.nextDue < today, near = !s.paused && s.nextDue && s.nextDue <= ymd(new Date(Date.now() + 3 * 864e5));
+    ssec.append(el("div", { class: "hrow" + (s.paused ? " ad" : "") },
+      el("div", { class: "hmain" }, el("div", { class: "mname" }, s.name, s.note ? el("span", { class: "label", style: "font-weight:500" }, " · " + s.note) : null),
+        el("div", { class: "due" + (late ? " late" : near ? " soon" : "") }, s.paused ? "Paused" : (late ? "Overdue · " : "Next: ") + fmtDate(s.nextDue))),
+      el("span", { class: "hamt" }, fmtEGP(toP(s.amount)) + (s.cycle === "year" ? "/yr" : "/mo")),
+      isAdmin && !s.paused ? el("button", { class: "btn small" + (late || near ? " primary" : ""), onclick: () => { subPay = subPay === s.id ? null : s.id; render() } }, "Paid") : null,
+      isAdmin ? el("button", { class: "linkdel", "aria-label": "Edit " + s.name, title: "Edit", onclick: () => { subEdit = s.id; render() } }, "✎") : null));
+    if (subPay === s.id) ssec.append(subPayChooser(s, today));
+  }
+  if (dueSoon && dueSoon > F.balance) ssec.append(el("div", { class: "notice" }, `Next 30 days of subscriptions: ${fmtEGP(dueSoon)}. The fund only has ${fmtEGP(F.balance)}.`));
+  box.append(ssec);
+
+  /* fund history */
+  const hist = [...all.projects.filter(x => x.r.fund).map(({ p, r }) => ({ sign: r.fund < 0 ? "−" : "+", text: (r.fund < 0 ? "Covered a loss on " : "From ") + p.title, amount: Math.abs(r.fund), date: "" })),
+    ...F.adj.map(a => ({ sign: toP(a.amount) < 0 ? "−" : "+", text: a.note || "Added to the fund", amount: Math.abs(toP(a.amount)), date: a.date, id: a.id, coll: "adjust" })),
+    ...F.spends.map(s => ({ sign: "−", text: (s.what || "Spent") + (s.paidBy ? ` · paid by ${firstName(s.paidBy)}` + (s.repaidAt ? ", paid back" : ", not paid back yet") : ""), amount: toP(s.amount), date: s.date, id: s.id, coll: "spends" }))];
+  if (hist.length) box.append(el("details", { class: "removed" }, el("summary", {}, `Fund history (${hist.length})`),
+    el("div", { class: "idea", style: "gap:0;margin-top:10px" }, hist.map(h => el("div", { class: "hrow" }, el("span", { class: "hsign" }, h.sign),
+      el("div", { class: "hmain" }, el("div", {}, h.text), h.date ? el("div", { class: "label" }, fmtDate(h.date)) : null), el("span", { class: "hamt" }, fmtEGP(h.amount)),
+      isAdmin && h.id ? (delFund === h.id ? el("button", { class: "linkdel sure", onclick: () => { delFund = null; fundWrite({ [h.coll]: { [h.id]: DEL() } }, "Removed") } }, "Remove?") : el("button", { class: "linkdel", "aria-label": "Remove", onclick: () => { delFund = h.id; render() } }, "✕")) : null)))));
+}
+
+function goalRow(g, { have, t, k, list }) {
+  const st = goalState(g), open = goalOpen[g.id] || goalEdit === g.id;
+  if (goalEdit === g.id) return goalForm(g);
+  const move = d => { const other = list[k + d]; if (!other) return; fundWrite({ goals: { [g.id]: { order: other.order || 0 }, [other.id]: { order: g.order || 0 } } }) };
+  const row = el("div", { class: "goalrow" + (st === "done" ? " reached" : "") },
+    el("div", { class: "row", style: "gap:8px" },
+      el("button", { class: "goalname", "aria-expanded": String(!!open), onclick: () => { goalOpen[g.id] = !goalOpen[g.id]; render() } }, g.name),
+      st === "research" ? el("span", { class: "mstat due" }, "Needs research") : st === "done" ? el("span", { class: "mstat paid" }, "✓ Reached " + (g.doneAt ? fmtDay(g.doneAt) : "")) : null,
+      el("span", { class: "spacer" }),
+      st === "saving" ? el("span", { class: "label" }, `${fmtEGP(have)} of ${fmtEGP(t)}`) : null,
+      st === "saving" && isAdmin && list.length > 1 ? el("span", { class: "row", style: "gap:2px" },
+        k > 0 ? el("button", { class: "linkdel", "aria-label": "Move up", onclick: () => move(-1) }, "↑") : null,
+        k < list.length - 1 ? el("button", { class: "linkdel", "aria-label": "Move down", onclick: () => move(1) }, "↓") : null) : null));
+  if (st === "saving") { const tr = line({ total: 100, done: 0, pct: t ? Math.round(have / t * 100) : 0 }, "x"); tr.querySelectorAll(".pmeta").forEach(n => n.remove()); row.append(tr) }
+  if (open) {
+    row.append(el("div", { class: "goaldetail" },
+      g.details ? el("div", { class: "pre" }, linkify(g.details)) : el("p", { class: "label", style: "margin:0" }, "No research written yet."),
+      el("div", { class: "label" }, [g.by ? "Added by " + name(g.by) : null, g.editedBy ? "edited by " + name(g.editedBy) + " " + ago(g.editedAt) : null].filter(Boolean).join(" · ")),
+      el("div", { class: "row", style: "gap:6px" },
+        st !== "done" ? el("button", { class: "btn small", onclick: () => { asstOpen = true; alertsOpen = false; useTemplate({ label: "Research: " + g.name, prompt: goalPrompt(g) }, null) } }, "✦ Research with the assistant") : null,
+        el("span", { class: "spacer" }),
+        el("button", { class: "btn small quiet", onclick: () => { goalEdit = g.id; render() } }, "Edit"),
+        isAdmin && st === "saving" && have >= t ? el("button", { class: "btn small primary", onclick: () => fundWrite({ goals: { [g.id]: { doneAt: Date.now() } }, spends: { [uid()]: { amount: t / 100, what: g.name, date: todayStr(), goal: g.id, by: me, at: Date.now() } } }, `${g.name}: reached and paid from the fund`) }, "Buy it from the fund") : null,
+        isAdmin && st !== "done" ? el("button", { class: "btn small quiet", onclick: () => fundWrite({ goals: { [g.id]: { doneAt: Date.now() } } }, "Marked as reached") }, "Mark reached") : null,
+        isAdmin && st === "done" ? el("button", { class: "btn small quiet", onclick: () => fundWrite({ goals: { [g.id]: { doneAt: DEL() } } }, "Back in the goals") }, "Not reached") : null,
+        isAdmin ? (delFund === g.id ? el("button", { class: "linkdel sure", onclick: () => { delFund = null; fundWrite({ goals: { [g.id]: DEL() } }, "Goal removed") } }, "Remove?") : el("button", { class: "linkdel", "aria-label": "Remove goal", onclick: () => { delFund = g.id; render() } }, "✕")) : null)));
+  }
+  return row;
+}
+const goalPrompt = g => `Research this goal for our team: "${g.name}". We are Ardent Studios, a small team in Egypt that sells websites and Google Ads to clients worldwide.${g.details ? " What we know so far: " + g.details : ""}
+Give us: 1) what it involves and the realistic options (cheap, middle, best), 2) a cost range in EGP for each option, one-time and monthly, 3) the steps to get it, 4) what to watch out for. Keep it short and practical. End with one line: "Suggested target: <number> EGP".`;
+function goalForm(g) {
+  const nm = el("input", { id: "gf-name", class: "noteinput", maxlength: "60", placeholder: "e.g. Office in Cairo" });
+  const tg = moneyInput("gf-target", g && g.target ? g.target : "", "Price in EGP (leave empty if you don't know yet)");
+  const dt = el("textarea", { id: "gf-details", class: "noteinput", rows: "5", maxlength: "5000", placeholder: "Research and details: options, prices you found, links, what it needs…" });
+  if (g) { if (!nm.value) nm.value = g.name || ""; if (!dt.value) dt.value = g.details || "" }
+  const close = () => { goalEdit = null; render() };
+  const save = () => {
+    const n = nm.value.trim(); if (!n) { toast("Give the goal a name"); nm.focus(); return }
+    const t = Number(tg.value);
+    const data = { name: n, target: t > 0 ? Math.round(t * 100) / 100 : null, details: dt.value.trim() };
+    if (g) Object.assign(data, { editedBy: me, editedAt: Date.now() }); else Object.assign(data, { order: Date.now(), by: me, at: Date.now() });
+    goalEdit = null; if (g) goalOpen[g.id] = true;
+    fundWrite({ goals: { [g ? g.id : uid()]: data } }, g ? "Goal saved" : t > 0 ? "Goal added. The fund is saving for it" : "Goal added. Research it and add the price when you know it");
+  };
+  return el("div", { class: "mform goalform" }, el("h3", { style: "font-size:16px" }, g ? "Edit goal" : "New goal"),
+    fieldRow("Goal", nm), fieldRow("Price", tg), fieldRow("Details", dt),
+    el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("button", { class: "btn primary", onclick: save }, g ? "Save" : "Add goal")));
+}
+
+function subPayChooser(s, today) {
+  const who = personSelect("sp-who-" + s.id, "", { members: {} }, "The fund paid it");
+  return el("div", { class: "subpay" }, el("span", {}, `Who paid ${fmtEGP(toP(s.amount))} for ${s.name}?`), who,
+    el("button", { class: "btn small quiet", onclick: () => { subPay = null; render() } }, "Cancel"),
+    el("button", { class: "btn small primary", onclick: () => { const by = who.value || null; subPay = null;
+      fundWrite({ spends: { [uid()]: { amount: s.amount, date: today, what: s.name + " subscription", sub: s.id, paidBy: by, by: me, at: Date.now() } }, subs: { [s.id]: { nextDue: nextDate(s.nextDue || today, s.cycle), lastPaid: today } } },
+        by ? `Saved. The fund owes ${firstName(by)} ${fmtEGP(toP(s.amount))}` : `Paid ${s.name} from the fund`) } }, "Save"));
+}
+function subForm(s) {
+  const today = todayStr();
+  const nm = el("input", { id: "sf-name", class: "noteinput", maxlength: "60", placeholder: "e.g. Claude, Canva, domain" }), am = moneyInput("sf-amount", s ? s.amount : "", "Cost in EGP");
+  const cy = el("select", { class: "mini", id: "sf-cycle" }, el("option", { value: "month" }, "Every month"), el("option", { value: "year" }, "Every year"));
+  const nx = el("input", { id: "sf-next", type: "date", class: "mini", value: (s && s.nextDue) || today });
+  const nt = el("input", { id: "sf-note", class: "noteinput", maxlength: "80", placeholder: "What we use it for, or the price in dollars (optional)" });
+  if (s) { if (!nm.value) nm.value = s.name || ""; cy.value = s.cycle || "month"; if (!nt.value) nt.value = s.note || "" }
+  const close = () => { subEdit = null; render() };
+  const save = () => {
+    if (!nm.value.trim() || !(Number(am.value) > 0)) { toast("Enter a name and a cost"); return }
+    subEdit = null;
+    fundWrite({ subs: { [s ? s.id : uid()]: { name: nm.value.trim(), amount: Number(am.value), cycle: cy.value, nextDue: nx.value || today, note: nt.value.trim() } } }, s ? "Saved" : "Subscription added");
+  };
+  return el("div", { class: "mform goalform" }, el("h3", { style: "font-size:16px" }, s ? "Edit " + s.name : "New subscription"),
+    fieldRow("Name", nm), fieldRow("Cost", am), fieldRow("How often", cy), fieldRow("Next payment", nx), fieldRow("Note", nt),
+    el("div", { class: "row", style: "gap:6px" },
+      s ? el("button", { class: "btn small quiet", onclick: () => { subEdit = null; fundWrite({ subs: { [s.id]: { paused: !s.paused } } }, s.paused ? "Resumed" : "Paused. It's not counted until you resume it") } }, s.paused ? "Resume" : "Pause") : null,
+      s ? (delFund === s.id ? el("button", { class: "linkdel sure", onclick: () => { delFund = null; subEdit = null; fundWrite({ subs: { [s.id]: DEL() } }, "Removed") } }, "Remove?") : el("button", { class: "btn small quiet danger-quiet", onclick: () => { delFund = s.id; render() } }, "Remove")) : null,
+      el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("button", { class: "btn primary", onclick: save }, "Save")));
+}
+
+function renderRulesTab(box, all, F, R, ver, agreed) {
+  const ch = rulesChanges(R);
+  const rules = el("section", { class: "idea", id: "rules" }, el("div", { class: "row" }, el("h3", {}, "Our money rules"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Version " + ver + ((moneyRules || {}).reviewAt ? " · next review " + fmtDate(moneyRules.reviewAt) : ""))),
+    ch.length ? el("div", { class: "notice", style: "margin:0" }, el("b", {}, "What changed in this version: "), ch.join(" · ")) : null,
+    el("div", { class: "adgrid" },
+      el("div", {}, el("b", {}, R.fundPct + "%"), el("span", {}, "team fund")),
+      el("div", {}, el("b", {}, R.findPct + "%"), el("span", {}, "finder's fee")),
+      el("div", {}, el("b", {}, R.reviewMonths + " mo"), el("span", {}, "review cycle"))),
     el("ol", { class: "rules" }, moneyRulesText(R).map(t => el("li", {}, t))));
-  const signed = teamIds().map(u => ({ u, ok: ((people[u] || {}).moneyAgreed || {}).version === ver }));
-  rules.append(el("div", { class: "row", style: "gap:6px" }, signed.map(({ u, ok }) => el("span", { class: "planner" + (ok ? " agreed" : "") }, av(u), name(u), ok ? " ✓" : " …"))));
+  const signed = teamIds().map(u => ({ u, a: (people[u] || {}).moneyAgreed || {} })).map(x => ({ ...x, ok: x.a.version === ver }));
+  rules.append(el("div", { class: "tlabel" }, `Agreed ${signed.filter(x => x.ok).length} of ${signed.length}`),
+    el("div", { class: "row", style: "gap:6px" }, signed.map(({ u, ok, a }) => el("span", { class: "planner" + (ok ? " agreed" : ""), title: ok && a.at ? "Agreed " + fmtDay(a.at) : "Not yet" }, av(u), name(u), ok ? " ✓" : " …"))));
   if (!agreed) rules.append(el("button", { class: "btn primary", id: "agree-btn", onclick: () => {
     // show it straight away; undo if the save is refused
     const before = (people[me] || {}).moneyAgreed, val = { version: ver, at: Date.now() };
@@ -3254,15 +3448,29 @@ function renderMoneyPage() {
     write(() => setDoc(doc(db, "users", me), { moneyAgreed: val }, { merge: true })).then(ok => { if (!ok) { people[me] = { ...(people[me] || {}), moneyAgreed: before }; render() } });
   } }, "I agree"));
   if (isAdmin) {
-    if (!editRules) rules.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => { editRules = true; render() } }, "Change the numbers")));
+    const due = (moneyRules || {}).reviewAt && moneyRules.reviewAt <= todayStr();
+    const nextReview = n => { const d = new Date(); d.setMonth(d.getMonth() + n); return ymd(d) };
+    if (!editRules) rules.append(el("div", { class: "row", style: "gap:8px" }, due ? el("span", { class: "label", style: "color:var(--warn)" }, "Review is due") : null, el("span", { class: "spacer" }),
+      due ? el("button", { class: "btn small", onclick: () => write(() => setDoc(doc(db, "meta", "money"), { reviewAt: nextReview(R.reviewMonths || 2), reviewedAt: Date.now() }, { merge: true }), "Kept the same. Next review in " + (R.reviewMonths || 2) + " months") }, "Keep the same numbers") : null,
+      el("button", { class: "btn quiet small", onclick: () => { editRules = true; render() } }, "Change the numbers")));
     else {
-      const fp = el("input", { id: "r-fund", class: "mini pct", type: "number", min: "0", max: "50", value: R.fundPct }), fd = el("input", { id: "r-find", class: "mini pct", type: "number", min: "0", max: "30", value: R.findPct });
+      const fp = el("input", { id: "r-fund", class: "mini pct", type: "number", min: "0", max: "70", value: R.fundPct }), fd = el("input", { id: "r-find", class: "mini pct", type: "number", min: "0", max: "30", value: R.findPct });
       const fm = el("input", { id: "r-fm", class: "mini pct", type: "number", min: "0", max: "24", value: R.finderMonths }), pa = el("input", { id: "r-pause", class: "mini pct", type: "number", min: "1", max: "6", value: R.pauseAfterLate });
+      const rv = el("input", { id: "r-review", class: "mini pct", type: "number", min: "1", max: "12", value: R.reviewMonths || 2 });
       const holder = personSelect("r-holder", F.holder || me, { members: {} }, null);
-      rules.append(el("div", { class: "mform", style: "display:grid;gap:8px" }, fieldRow("Team fund %", fp), fieldRow("Finder %", fd), fieldRow("Finder months (monthly deals)", fm), fieldRow("Pause after months late", pa), fieldRow("Who holds the fund", holder),
-        el("p", { class: "label", style: "margin:0" }, "Saving creates a new version, and everyone is asked to agree again. Deals already set up keep their own %."),
-        el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: () => { editRules = false; render() } }, "Cancel"),
-          el("button", { class: "btn primary", onclick: () => { editRules = false; write(() => setDoc(doc(db, "meta", "money"), { fundPct: Number(fp.value) || 0, findPct: Number(fd.value) || 0, finderMonths: Number(fm.value) || 0, pauseAfterLate: Number(pa.value) || 2, holder: holder.value || me, version: ver + 1, setAt: Date.now(), reviewAt: (() => { const d = new Date(); d.setMonth(d.getMonth() + (rulesNow().reviewMonths || 2)); return ymd(d) })(), updatedAt: Date.now() }, { merge: true }), "Rules updated. Everyone will be asked to agree again") } }, "Save rules"))));
+      const save = () => {
+        const v = { fundPct: Number(fp.value) || 0, findPct: Number(fd.value) || 0, finderMonths: Number(fm.value) || 0, pauseAfterLate: Number(pa.value) || 2, reviewMonths: Math.max(1, Number(rv.value) || 2) };
+        if (v.fundPct + v.findPct > 80) { toast("Fund and finder together can't be more than 80%: the people doing the work need a share"); return }
+        const changed = ["fundPct", "findPct", "finderMonths", "pauseAfterLate", "reviewMonths"].some(k => v[k] !== R[k]);
+        editRules = false;
+        // only a change to the numbers needs everyone to agree again; changing who holds the fund doesn't
+        write(() => setDoc(doc(db, "meta", "money"), { ...v, holder: holder.value || me, updatedAt: Date.now(),
+          ...(changed ? { version: ver + 1, setAt: Date.now(), reviewAt: nextReview(v.reviewMonths), prev: { fundPct: R.fundPct, findPct: R.findPct, finderMonths: R.finderMonths, pauseAfterLate: R.pauseAfterLate, reviewMonths: R.reviewMonths, version: ver } } : {}) }, { merge: true }),
+          changed ? "Rules updated. Everyone will be asked to agree again" : "Saved");
+      };
+      rules.append(el("div", { class: "mform", style: "display:grid;gap:8px" }, fieldRow("Team fund %", fp), fieldRow("Finder %", fd), fieldRow("Finder months (monthly deals)", fm), fieldRow("Pause after months late", pa), fieldRow("Review every (months)", rv), fieldRow("Who holds the fund", holder),
+        el("p", { class: "label", style: "margin:0" }, "Changing a number makes a new version, and everyone is asked to agree again. Deals already set up keep their own %."),
+        el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: () => { editRules = false; render() } }, "Cancel"), el("button", { class: "btn primary", onclick: save }, "Save rules"))));
     }
   }
   box.append(rules);
@@ -3270,24 +3478,16 @@ function renderMoneyPage() {
 
 function fundEntryForm(F) {
   const today = todayStr(), box = el("section", { class: "idea mform", style: "margin-top:12px" }), close = () => { fundForm = null; render() };
-  if (fundForm === "goal") {
-    const nm = el("input", { id: "fg-name", class: "noteinput", maxlength: "60", placeholder: "e.g. Office" }), tg = moneyInput("fg-target", "", "Target in EGP");
-    box.append(el("h3", {}, "New goal"), fieldRow("Name", nm), fieldRow("Target", tg), el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"),
-      el("button", { class: "btn primary", onclick: () => { if (!nm.value.trim() || !(Number(tg.value) > 0)) { toast("Enter a name and a target"); return } fundForm = null; fundWrite({ goals: { [uid()]: { name: nm.value.trim(), target: Number(tg.value), order: Date.now() } } }, "Goal added") } }, "Add goal")));
-  } else if (fundForm === "sub") {
-    const nm = el("input", { id: "fs-name", class: "noteinput", maxlength: "60", placeholder: "e.g. Claude, Canva" }), am = moneyInput("fs-amount", "", "Cost in EGP");
-    const cy = el("select", { class: "mini", id: "fs-cycle" }, el("option", { value: "month" }, "Every month"), el("option", { value: "year" }, "Every year"));
-    const nx = el("input", { id: "fs-next", type: "date", class: "mini", value: today });
-    box.append(el("h3", {}, "New subscription"), fieldRow("Name", nm), fieldRow("Cost", am), fieldRow("How often", cy), fieldRow("Next payment", nx), el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"),
-      el("button", { class: "btn primary", onclick: () => { if (!nm.value.trim() || !(Number(am.value) > 0)) { toast("Enter a name and a cost"); return } fundForm = null; fundWrite({ subs: { [uid()]: { name: nm.value.trim(), amount: Number(am.value), cycle: cy.value, nextDue: nx.value || today } } }, "Subscription added") } }, "Add")));
-  } else {
-    const am = moneyInput("fx-amount", "", "Amount in EGP"), wh = el("input", { id: "fx-what", class: "noteinput", maxlength: "80", placeholder: "What for? e.g. office deposit" });
-    const kd = el("select", { class: "mini", id: "fx-kind" }, el("option", { value: "spend" }, "Money spent from the fund"), el("option", { value: "add" }, "Money added to the fund"));
-    const dt = el("input", { id: "fx-date", type: "date", class: "mini", value: today });
-    box.append(el("h3", {}, "Fund spending or extra money"), fieldRow("Type", kd), fieldRow("Amount", am), fieldRow("For", wh), fieldRow("Date", dt), el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"),
-      el("button", { class: "btn primary", onclick: () => { const a = Number(am.value); if (!(a > 0)) { toast("Enter an amount"); return } fundForm = null;
-        fundWrite(kd.value === "spend" ? { spends: { [uid()]: { amount: a, what: wh.value.trim(), date: dt.value || today, by: me, at: Date.now() } } } : { adjust: { [uid()]: { amount: a, note: wh.value.trim() || "Added to the fund", date: dt.value || today, by: me, at: Date.now() } } }, "Saved") } }, "Save")));
-  }
+  const am = moneyInput("fx-amount", "", "Amount in EGP"), wh = el("input", { id: "fx-what", class: "noteinput", maxlength: "80", placeholder: "What for? e.g. office deposit" });
+  const kd = el("select", { class: "mini", id: "fx-kind" }, el("option", { value: "spend" }, "Money spent for the team"), el("option", { value: "add" }, "Money added to the fund"));
+  const who = personSelect("fx-who", "", { members: {} }, "From the fund");
+  const whoRow = fieldRow("Paid by", who, el("span", { class: "label" }, "If someone paid from their own pocket, the fund owes it back to them"));
+  kd.addEventListener("change", () => { whoRow.hidden = kd.value !== "spend" });
+  const dt = el("input", { id: "fx-date", type: "date", class: "mini", value: today });
+  box.append(el("h3", {}, "Money in or out of the fund"), fieldRow("Type", kd), fieldRow("Amount", am), fieldRow("For", wh), whoRow, fieldRow("Date", dt), el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"),
+    el("button", { class: "btn primary", onclick: () => { const a = Number(am.value); if (!(a > 0)) { toast("Enter an amount"); return } fundForm = null;
+      fundWrite(kd.value === "spend" ? { spends: { [uid()]: { amount: a, what: wh.value.trim(), date: dt.value || today, paidBy: who.value || null, by: me, at: Date.now() } } } : { adjust: { [uid()]: { amount: a, note: wh.value.trim() || "Added to the fund", date: dt.value || today, by: me, at: Date.now() } } },
+        kd.value === "spend" && who.value ? `Saved. The fund owes ${firstName(who.value)} ${fmtEGP(toP(a))}` : "Saved") } }, "Save")));
   return box;
 }
 

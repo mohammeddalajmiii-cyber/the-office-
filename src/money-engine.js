@@ -7,7 +7,10 @@
      3. finder's fee %      (to whoever brought the client, when it applies)
      4. the rest is split by the agreed shares
    One-time projects: costs are paid back as money arrives, but the profit is only split
-   once the client has fully paid. Monthly and installment deals split every payment. */
+   once the client has fully paid. Monthly and installment deals split every payment.
+   A deal that's only a proposal has no payments due yet, so nothing can be late.
+   When a deal is over (a one-time project fully paid, or any deal marked Ended) and costs
+   are still owed back, the team fund covers them: nobody stays out of pocket. */
 
 const MONEY_DEFAULTS = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 2, version: 2 };
 const toP = x => Math.round((Number(x) || 0) * 100);
@@ -40,7 +43,8 @@ function computeMoney(p, todayStr, rules) {
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.at || 0) - (b.at || 0));
   const payments = list(p.payments), costs = list(p.costs), payouts = list(p.payouts), ads = list(p.ads);
 
-  const res = { type, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0,
+  const proposal = m.stage === "proposal", ended = m.stage === "ended";
+  const res = { type, proposal, ended, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0, fundCover: 0,
     people: {}, unassigned: 0, pending: false, held: 0, preview: null, schedule: [], late: [], monthsUnpaid: 0, ads: { in: 0, spent: 0, held: 0 } };
   const person = u => res.people[u] || (res.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
 
@@ -89,13 +93,19 @@ function computeMoney(p, todayStr, rules) {
       splitProfit(avail, shares, withFinder);
     }
   }
+  // The deal is over and some costs were never earned back: the team fund pays them, so the person isn't out of pocket.
+  const over = ended || (type === "one" && res.expected > 0 && res.received >= res.expected);
+  if (over) for (const q of queue) if (q.left > 0) { res.fundCover += q.left; res.fund -= q.left; if (q.by) person(q.by).back += q.left; else res.unassigned += q.left; q.left = 0 }
   res.costsUnpaid = queue.reduce((s, q) => s + q.left, 0);
 
   // payment schedule and late payments
   const nowM = monthOf(todayStr), day = Number((todayStr || "").slice(8, 10)) || 1, dueDay = Number(m.dueDay) || 5;
   const pastDue = mm => mm < nowM || (mm === nowM && day > dueDay);
   if (type === "monthly" && toP(m.monthlyFee) > 0) {
-    const fee = toP(m.monthlyFee), startM = m.startMonth || nowM, endM = m.endMonth || "";
+    const fee = toP(m.monthlyFee), startM = m.startMonth || nowM;
+    // an ended deal stops at its end month, or else the last month the client paid for
+    const paidMonths = payments.filter(x => x.kind === "monthly" && x.month).map(x => x.month).sort();
+    const endM = m.endMonth || (ended ? m.endedMonth || paidMonths[paidMonths.length - 1] || startM : "");
     if (toP(m.setupFee) > 0) {
       const got = payments.filter(x => x.kind === "setup").reduce((s, x) => s + toP(x.amount), 0);
       res.schedule.push({ label: "Setup fee", month: startM, expected: toP(m.setupFee), received: got, status: got >= toP(m.setupFee) ? "paid" : pastDue(startM) ? "late" : "due" });
@@ -118,6 +128,10 @@ function computeMoney(p, todayStr, rules) {
   } else if (type === "one" && res.expected > 0) {
     res.schedule.push({ label: "Total", month: nowM, expected: res.expected, received: res.received, status: res.received >= res.expected ? "paid" : "due" });
   }
+  // a proposal hasn't been agreed yet: nothing is due or late, and nothing is expected this month
+  if (proposal) for (const s of res.schedule) if (s.status === "late" || s.status === "due") s.status = "upcoming";
+  if (proposal && type === "monthly") res.expected = 0;
+  if (ended) for (const s of res.schedule) if (s.status === "upcoming" || s.status === "due") s.status = s.received >= s.expected ? "paid" : "late";
   res.late = res.schedule.filter(s => s.status === "late");
   res.monthsUnpaid = type === "monthly" ? res.late.filter(s => s.label !== "Setup fee").length : 0;
 
