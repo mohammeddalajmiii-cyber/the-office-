@@ -30,11 +30,12 @@ service cloud.firestore {
       allow read: if isTeam();
       allow write: if isTeam() && request.auth.uid == uid;
     }
-    // private messages: only the two people in the conversation
+    // private messages: only the two people in the conversation (two team members, or a team member and a partner)
     match /dms/{tid} {
-      allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+      allow read: if (isTeam() || isPartner()) && (request.auth.uid in tid.split("_") || request.auth.uid in resource.data.members);
+      allow write: if (isTeam() || isPartner()) && request.auth.uid in tid.split("_");
       match /msgs/{mid} {
-        allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+        allow read, write: if (isTeam() || isPartner()) && request.auth.uid in tid.split("_");
       }
     }
     // files sent in chat, stored in pieces

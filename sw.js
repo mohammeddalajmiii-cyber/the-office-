@@ -10,7 +10,15 @@ self.addEventListener("push", e => {
     // If someone is looking at the site right now, the page shows it in the bell and plays its own sound.
     const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const looking = wins.some(c => c.visibilityState === "visible" && c.focused);
-    if (looking && !d.force) { wins.forEach(c => c.postMessage({ type: "push", ...d })); return }
+    if (looking && !d.force) {
+      wins.forEach(c => c.postMessage({ type: "push", ...d }));
+      // Browsers (Safari on iPhone above all) stop delivering alerts to a site that receives them without
+      // showing anything. So show it quietly and close it at once: the open page already shows its own card.
+      const tag = d.tag || "quiet-" + Date.now();
+      await self.registration.showNotification(d.title || "Pitch Room", { body: d.body || "", tag, silent: true, icon: d.icon || "torch-192.png", badge: "torch-badge.png", data: { go: d.go || "me" } });
+      (await self.registration.getNotifications({ tag })).forEach(n => n.close());
+      return;
+    }
     await self.registration.showNotification(d.title || "Pitch Room", {
       body: d.body || "Something new in Pitch Room",
       icon: d.icon || "torch-192.png",   // the person's photo when there is one

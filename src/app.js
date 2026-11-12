@@ -1673,7 +1673,10 @@ function watchDm(u) {
 // after sending or deleting in a private chat, keep the conversation's summary up to date
 function touchThread(u, last) {
   const tid = dmId(u), members = [me, u].sort();
-  const data = { members, ...(last ? { lastAt: last.at, lastBy: me, lastText: msgSummary(last).slice(0, 120) } : {}), seen: { [me]: Date.now() } };
+  const pm = pmByUid(u), myPhoto = (people[me] || {}).photo || (myProfile && myProfile.photo) || "";
+  const data = { members, ...(last ? { lastAt: last.at, lastBy: me, lastText: msgSummary(last).slice(0, 120) } : {}), seen: { [me]: Date.now() },
+    names: { [me]: realName(me) || (myProfile && myProfile.name) || "", [u]: chatName(u) }, roles: { [me]: "team", [u]: pm ? "partner" : "team" },
+    photos: { [me]: /^https:\/\//.test(myPhoto) && myPhoto.length < 400 ? myPhoto : "" }, ...(pm ? { gid: pm.gid } : {}) };
   return setDoc(doc(db, "dms", tid), data, { merge: true });
 }
 
@@ -1682,6 +1685,7 @@ let chatSel = null;      // message whose actions are showing
 let chatReply = null;    // message being replied to
 let chatEdit = null;     // own message being edited
 let chatDel = null;      // own message waiting for delete confirmation
+let chatReactPick = null, chatEmojiOpen = false;
 const seenKey = () => "chatSeen:" + me;
 const getSeen = () => { try { return +localStorage.getItem(seenKey()) || 0 } catch { return 0 } };
 const setSeen = v => { try { localStorage.setItem(seenKey(), String(v)) } catch { } };
@@ -1689,6 +1693,8 @@ const msgById = id => curList().find(m => m.id === id);
 const snippet = t => (t || "").replace(/\s+/g, " ").slice(0, 90) + ((t || "").length > 90 ? "…" : "");
 
 $("#chatform").addEventListener("submit", e => { e.preventDefault(); sendChat() });
+$("#chat-emoji").onclick = () => { chatEmojiOpen = !chatEmojiOpen; const host = $("#chat-emoji-panel"); host.hidden = !chatEmojiOpen; host.replaceChildren(chatEmojiOpen ? emojiPanel(e => insertAtCursor($("#chat-input"), e)) : "") };
+$("#chat-input").addEventListener("input", () => autoGrow($("#chat-input")));
 $("#chat-input").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat() }
   if (e.key === "Escape" && (chatReply || chatEdit)) { e.preventDefault(); cancelChatMode() }
@@ -1711,7 +1717,7 @@ async function sendChat() {
     return;
   }
   if (!text && !pending.length) return;
-  inp.value = "";
+  inp.value = ""; autoGrow(inp); if (chatEmojiOpen) $("#chat-emoji").click();
   await fbReady;
   let replyTo = chatReply && msgById(chatReply) ? chatReply : null;
   chatReply = null;
@@ -1722,7 +1728,8 @@ async function sendChat() {
     try {
       for (let i = 0; i < files.length; i++) {
         setUploadStatus(`Sending ${files.length > 1 ? `file ${i + 1} of ${files.length}` : files[i].f.name}\u2026`);
-        const file = await uploadFile(await prepareFile(files[i].f), pct => setUploadStatus(`Sending ${files[i].f.name}\u2026 ${pct}%`));
+        const pm = dmTo ? pmByUid(dmTo) : null;
+        const file = await uploadFile(await prepareFile(files[i].f), pct => setUploadStatus(`Sending ${files[i].f.name}\u2026 ${pct}%`), pm ? { gid: pm.gid } : {});
         const data = { by: me, text: "", at: Date.now(), file };
         if (replyTo) { data.replyTo = replyTo; replyTo = null }
         await setDoc(msgRef(uid()), data); last = data;
@@ -1955,18 +1962,24 @@ function renderChat() {
 
   /* who you're talking to: the team, or one person privately */
   const head = $("#chat-head"); head.replaceChildren();
-  const others = teamIds().filter(u => u !== me && people[u]);
-  if (dm && !others.includes(dm)) others.push(dm);
   const lastWith = u => (dmThreads.find(t => t.id === dmId(u)) || {}).lastAt || 0;
-  others.sort((a, b) => lastWith(b) - lastWith(a) || realName(a).localeCompare(realName(b)));
+  const others = teamIds().filter(u => u !== me && people[u]);
+  // partners you can message: they have signed in at least once, or already wrote to you
+  const partners = [...new Set([...pMembers.filter(m => m.uid && m.active !== false).map(m => m.uid), ...dmThreads.filter(t => Object.values(t.roles || {}).includes("partner")).map(otherOf)])].filter(u => u !== me && !others.includes(u));
+  if (dm && !others.includes(dm) && !partners.includes(dm)) (isPartnerUid(dm) ? partners : others).push(dm);
+  const byRecent = (a, b) => lastWith(b) - lastWith(a) || chatName(a).localeCompare(chatName(b));
+  others.sort(byRecent); partners.sort(byRecent);
+  const chip = u => { const t = dmThreads.find(x => x.id === dmId(u)); const n = t && dmUnread(t) && dm !== u;
+    return el("button", { class: "pchip" + (isPartnerUid(u) ? " partnerchip" : ""), role: "tab", "aria-pressed": String(dm === u), title: "Private chat with " + chatName(u), onclick: () => { location.hash = "dm-" + u } }, chatAv(u), chatName(u).split(" ")[0], n ? el("span", { class: "count" }, "1") : null) };
   head.append(el("div", { class: "pchips chat-people", role: "tablist", "aria-label": "Chats" },
-    el("button", { class: "pchip", role: "tab", "aria-pressed": String(!dm), onclick: () => { location.hash = "chat" } }, "Team", teamUnread && dm ? el("span", { class: "count" }, teamUnread) : null),
-    others.map(u => { const t = dmThreads.find(x => x.id === dmId(u)); const n = t && dmUnread(t) && dm !== u;
-      return el("button", { class: "pchip", role: "tab", "aria-pressed": String(dm === u), title: "Private chat with " + realName(u), onclick: () => { location.hash = "dm-" + u } }, av(u), firstName(u), n ? el("span", { class: "count" }, "1") : null) })));
+    el("button", { class: "pchip", role: "tab", "aria-pressed": String(!dm), onclick: () => { location.hash = "chat" } }, el("span", { class: "teamdot", "aria-hidden": "true" }, "#"), "Team", teamUnread && dm ? el("span", { class: "count" }, teamUnread) : null),
+    others.map(chip),
+    partners.length ? el("span", { class: "chipsep" }, "Partners") : null,
+    partners.map(chip)));
   head.append(el("div", { class: "chat-who" }, dm
-    ? [el("span", { class: "lock", "aria-hidden": "true" }, "🔒"), el("span", {}, "Private with ", el("b", {}, firstName(dm)), " · only you two see this")]
-    : el("span", {}, "Team chat · tap a name to talk privately")));
-  $("#chat-input").placeholder = dm ? "Message " + firstName(dm) + " privately" : "Message the team";
+    ? [chatAv(dm), el("span", { class: "who-n" }, el("b", {}, chatName(dm)), roleBadge(dm)), el("span", { class: "who-lock" }, "🔒 only you two see this")]
+    : [el("span", { class: "teamdot big", "aria-hidden": "true" }, "#"), el("span", { class: "who-n" }, el("b", {}, "Team chat"), el("span", { class: "label" }, `${Object.keys(people).length} people · tap a name to talk privately`))]));
+  $("#chat-input").placeholder = dm ? "Message " + chatName(dm).split(" ")[0] + (isPartnerUid(dm) ? " (partner)" : "") : "Message the team";
 
   /* reply / edit bar above the input */
   if (chatReply && !msgById(chatReply)) chatReply = null;
@@ -1987,29 +2000,41 @@ function renderChat() {
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
   const prevTop = log.scrollTop;
   log.replaceChildren();
-  if (dm && dmOff) log.append(el("div", { class: "empty", style: "margin:auto" }, isAdmin ? "Private chats need an update to the database rules in Firebase before they work." : `Private chats aren't switched on yet. Ask ${ADMIN_NAME} to update the database rules.`));
-  else if (!list.length) log.append(el("div", { class: "empty", style: "margin:auto" }, dm ? `No messages with ${firstName(dm)} yet. Say hi, only you two will see it.` : "No messages yet. Say hi to the team."));
+  if (dm && dmOff) log.append(el("div", { class: "empty", style: "margin:auto;display:grid;gap:8px;justify-items:center" }, isAdmin
+    ? [el("span", {}, "Private chats" + (isPartnerUid(dm) ? " with partners" : "") + " need the latest database rules. Copy them, paste them in Firebase › Firestore › Rules, and press Publish."), el("button", { class: "btn small primary", onclick: () => copyText(PARTNER_RULES, "Rules copied. Paste them in Firebase › Firestore › Rules, then Publish") }, "Copy the rules"), el("a", { class: "btn small", href: "https://console.firebase.google.com/project/the-office-ab723/firestore/rules", target: "_blank", rel: "noopener noreferrer" }, "Open Firebase rules")]
+    : `Private chats aren't switched on yet. Ask ${ADMIN_NAME} to update the database rules.`));
+  else if (!list.length) log.append(el("div", { class: "empty", style: "margin:auto" }, dm ? `No messages with ${chatName(dm).split(" ")[0]} yet. Say hi, only you two will see it.` : "No messages yet. Say hi to the team."));
+  // in a private chat: has the other person seen my last message?
+  const dmT = dm ? dmThreads.find(t => t.id === dmId(dm)) : null, lastMine = dm ? [...list].reverse().find(m => m.by === me) : null;
+  const seenLast = !!(dmT && lastMine && ((dmT.seen || {})[dm] || 0) >= lastMine.at);
   let lastDay = "", lastBy = "", lastAt = 0;
   for (const m of list) {
     const day = new Date(m.at).toDateString();
     if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
     const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60 * 1000 && !m.replyTo;
-    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, name(m.by)));
+    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, chatName(m.by), dm && isPartnerUid(m.by) ? el("span", { class: "rolebadge partner" }, "Partner") : null));
     const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     const orig = m.replyTo ? msgById(m.replyTo) : null;
     const quote = m.replyTo ? el("button", { type: "button", class: "quote", onclick: e => { e.stopPropagation(); if (orig) jumpTo(orig.id) } },
-      el("strong", {}, orig ? name(orig.by) : "Message"), el("span", {}, orig ? msgSummary(orig) : "This message was deleted")) : null;
+      el("strong", {}, orig ? chatName(orig.by) : "Message"), el("span", {}, orig ? msgSummary(orig) : "This message was deleted")) : null;
     const sel = chatSel === m.id;
-    const bubble = el("div", { class: "bubble", tabindex: "0", role: "button", "aria-label": "Message options", "aria-expanded": String(sel),
+    const bubble = el("div", { class: "bubble" + (isEmojiOnly(m.text) && !m.file && !quote ? " emoji-only" : ""), tabindex: "0", role: "button", "aria-label": "Message options", "aria-expanded": String(sel),
       onclick: () => { if (String(getSelection())) return; chatSel = sel ? null : m.id; chatDel = null; render() },
       onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); chatSel = sel ? null : m.id; chatDel = null; render() } } },
-      quote, m.file ? attachmentEl(m.file) : null, m.text ? el("span", {}, m.text) : null, el("span", { class: "msg-time" }, (m.edited ? "edited · " : "") + time));
+      quote, m.file ? attachmentEl(m.file) : null, m.text ? msgBody(m.text) : null, el("span", { class: "msg-time" }, (m.edited ? "edited · " : "") + time));
+    const react = (e, on) => write(() => updateDoc(msgRef(m.id), { [`reacts.${emojiKey(e)}.${me}`]: on ? true : DEL() }));
     const row = el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") + (sel ? " selected" : ""), id: "msg-" + m.id },
-      mine ? null : (grouped ? el("span", { class: "av-space" }) : av(m.by)), bubble);
+      mine ? null : (grouped ? el("span", { class: "av-space" }) : chatAv(m.by)), el("div", { class: "bubwrap" }, bubble, reactRow(m, react)));
     log.append(row);
+    if (lastMine === m && seenLast) log.append(el("div", { class: "seen" }, "Seen"));
     if (sel) {
       const act = (label, fn, cls = "") => el("button", { type: "button", class: "act " + cls, onclick: e => { e.stopPropagation(); fn() } }, label);
+      const has = e => !!((m.reacts || {})[emojiKey(e)] || {})[me];
+      log.append(el("div", { class: "reactbar" + (mine ? " mine" : "") }, QUICK_REACTS.map(e => el("button", { type: "button", class: "emo" + (has(e) ? " on" : ""), "aria-label": "React " + e, onclick: ev => { ev.stopPropagation(); chatSel = null; react(e, !has(e)) } }, e)),
+        el("button", { type: "button", class: "emo more", "aria-label": "More emoji", onclick: ev => { ev.stopPropagation(); chatReactPick = chatReactPick === m.id ? null : m.id; render() } }, "+")));
+      if (chatReactPick === m.id) log.append(el("div", { class: "msg-actions" + (mine ? " mine" : "") }, emojiPanel(e => { chatReactPick = null; chatSel = null; react(e, !has(e)) })));
       log.append(el("div", { class: "msg-actions" + (mine ? " mine" : "") },
+        m.text ? act("Copy", () => { copyText(m.text, "Copied"); chatSel = null; render() }) : null,
         act("Reply", () => { chatReply = m.id; chatEdit = null; chatSel = null; render(); $("#chat-input").focus() }),
         mine ? act("Edit", () => { chatEdit = m.id; chatReply = null; chatSel = null; $("#chat-input").value = m.text; render(); const i = $("#chat-input"); i.focus(); i.setSelectionRange(i.value.length, i.value.length) }) : null,
         mine ? (chatDel === m.id
@@ -2020,6 +2045,94 @@ function renderChat() {
     lastDay = day; lastBy = m.by; lastAt = m.at;
   }
   log.scrollTop = atBottom || !prevTop ? log.scrollHeight : prevTop;
+}
+
+/* ----- chat kit: emoji, reactions and a chat view shared by the team chat, partner groups and partner messages ----- */
+const EMOJI = {
+  "Smileys": "😀 😃 😄 😁 😆 😅 😂 🤣 😊 🙂 😉 😍 🥰 😘 😎 🤩 🥳 🤔 🤨 😐 😴 😮 😲 😳 🥺 😢 😭 😤 😡 🤯 😱 🙄 😬 🤫 🤗 🫡 😇 🤓 🫠 🙃",
+  "Hands": "👍 👎 👌 ✌️ 🤞 🤝 👏 🙌 🙏 💪 👋 ✋ 👀 🫶 ☝️ 👉 👈 🤙",
+  "Work": "✅ ☑️ ❌ ⚠️ ⏳ ⏰ 📅 📌 📎 📝 📊 📈 💡 🔥 🚀 🎯 🏆 💰 💵 💳 📞 💻 📱 🎨 🎬 📸 🔧 🛠️ 📦 🧾 📣 🔗",
+  "Hearts & fun": "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💯 ✨ ⭐ 🌟 🎉 🎊 🥂 ☕ 🍕 🌙 ☀️ 🙈 💀 🫣",
+};
+const QUICK_REACTS = ["👍", "❤️", "😂", "🔥", "🙏", "😮"];
+const emojiKey = e => [...e].map(c => c.codePointAt(0).toString(16)).join("_");
+const emojiOf = k => { try { return k.split("_").map(h => String.fromCodePoint(parseInt(h, 16))).join("") } catch { return "" } };
+const isEmojiOnly = t => !!t && t.length <= 24 && /\p{Extended_Pictographic}/u.test(t) && /^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|‍|️|\s)+$/u.test(t);
+const recentEmoji = () => { try { return JSON.parse(localStorage.getItem("recentEmoji") || "[]") } catch { return [] } };
+function useEmoji(e) { try { localStorage.setItem("recentEmoji", JSON.stringify([e, ...recentEmoji().filter(x => x !== e)].slice(0, 16))) } catch { } }
+function emojiPanel(onPick) {
+  const rec = recentEmoji();
+  const groups = [...(rec.length ? [["Recent", rec]] : []), ...Object.entries(EMOJI).map(([k, v]) => [k, v.split(" ")])];
+  return el("div", { class: "emojipanel", role: "dialog", "aria-label": "Emoji", onmousedown: e => e.preventDefault() },
+    groups.map(([g, list]) => el("div", { class: "emg" }, el("div", { class: "emg-h" }, g),
+      el("div", { class: "emg-l" }, list.map(e => el("button", { type: "button", class: "emo", "aria-label": e, onclick: ev => { ev.stopPropagation(); useEmoji(e); onPick(e) } }, e))))));
+}
+function insertAtCursor(inp, text) {
+  const s = inp.selectionStart ?? inp.value.length, e = inp.selectionEnd ?? inp.value.length;
+  inp.value = inp.value.slice(0, s) + text + inp.value.slice(e);
+  const pos = s + text.length; try { inp.focus(); inp.setSelectionRange(pos, pos) } catch { }
+  inp.dispatchEvent(new Event("input"));
+}
+// grow a message box with its text, up to a few lines
+function autoGrow(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 140) + "px" }
+// reactions under a message: tap one to add or take back yours
+function reactRow(m, toggle) {
+  const r = Object.entries(m.reacts || {}).map(([k, who]) => ({ e: emojiOf(k), k, n: Object.values(who || {}).filter(Boolean).length, mine: !!(who || {})[me], who: Object.keys(who || {}).filter(u => who[u]) })).filter(x => x.n && x.e);
+  if (!r.length) return null;
+  return el("div", { class: "reacts" }, r.map(x => el("button", { type: "button", class: "react" + (x.mine ? " mine" : ""), title: x.who.map(u => u === me ? "You" : chatName(u)).join(", "), onclick: e => { e.stopPropagation(); toggle && toggle(x.e, !x.mine) } }, x.e, x.n > 1 ? el("b", {}, x.n) : null)));
+}
+const msgBody = t => el("span", { class: "msg-text" + (isEmojiOnly(t) ? " big" : "") }, linkify(t));
+
+// Who someone is in a chat: team member or partner (with their group)
+const pmByUid = u => (typeof pMembers !== "undefined" ? pMembers : []).find(m => m.uid === u);
+const threadNames = u => { for (const t of (typeof dmThreads !== "undefined" ? dmThreads : []).concat(typeof pDms !== "undefined" ? pDms : [])) if ((t.names || {})[u]) return t.names[u]; return "" };
+const chatName = u => u === me ? "You" : realName(u) || (pmByUid(u) || {}).name || threadNames(u) || "Someone";
+const isPartnerUid = u => !!pmByUid(u) || ((typeof dmThreads !== "undefined" ? dmThreads : []).find(t => (t.roles || {})[u]) || { roles: {} }).roles[u] === "partner";
+function chatAv(u, photo) {
+  if (people[u]) return av(u);
+  const pm = pmByUid(u); return postAv(photo || (pm && pm.photo) || "");
+}
+const roleBadge = (u, gname) => isPartnerUid(u) ? el("span", { class: "rolebadge partner" }, "Partner" + (gname || (pmByUid(u) ? " · " + groupName(pmByUid(u).gid) : ""))) : el("span", { class: "rolebadge" }, "Team");
+
+/* A simple chat view for partner groups and partner messages.
+   items: { id, by, name, photo, role: "team" | "partner", text, at, file, system, canDelete } */
+function chatView(items, { onDelete, empty } = {}) {
+  const log = el("div", { class: "chatlog cv" });
+  if (!items.length) log.append(el("div", { class: "empty", style: "margin:auto" }, empty || "No messages yet. Say hi."));
+  let lastDay = "", lastBy = "", lastAt = 0;
+  for (const m of items) {
+    const day = new Date(m.at).toDateString();
+    if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
+    lastDay = day;
+    if (m.system) { log.append(el("div", { class: "sysline" }, m.text)); lastBy = ""; continue }
+    const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60e3;
+    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, m.name || "Someone", m.role === "team" ? el("span", { class: "rolebadge" }, "Ardent team") : el("span", { class: "rolebadge partner" }, "Partner")));
+    const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    log.append(el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") },
+      mine ? null : (grouped ? el("span", { class: "av-space" }) : postAv(m.photo)),
+      el("div", { class: "bubble" + (isEmojiOnly(m.text) && !m.file ? " emoji-only" : "") }, m.file ? attachmentEl(m.file) : null, m.text ? msgBody(m.text) : null,
+        el("span", { class: "msg-time" }, time, m.canDelete && onDelete ? el("button", { type: "button", class: "msg-del", "aria-label": "Delete message", onclick: e => { e.stopPropagation(); onDelete(m) } }, "✕") : null))));
+    lastBy = m.by; lastAt = m.at;
+  }
+  requestAnimationFrame(() => { log.scrollTop = log.scrollHeight });
+  return log;
+}
+// The box at the bottom of a chat: emoji, text, send. Enter sends on a computer; Shift+Enter makes a new line.
+const composerOpen = {};
+function chatComposer(id, placeholder, onSend) {
+  const ta = el("textarea", { id, class: "noteinput", rows: "1", maxlength: "1000", placeholder, "aria-label": "Message" });
+  ta.addEventListener("input", () => autoGrow(ta));
+  const send = () => { const t = ta.value.trim(); if (!t) return; ta.value = ""; autoGrow(ta); composerOpen[id] = false; onSend(t) };
+  ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && matchMedia("(min-width:760px)").matches) { e.preventDefault(); send() } });
+  const wrap = el("div", { class: "cv-compose" });
+  const panelHost = el("div", { class: "cv-emoji" });
+  const toggle = () => { composerOpen[id] = !composerOpen[id]; panelHost.replaceChildren(composerOpen[id] ? emojiPanel(e => insertAtCursor(ta, e)) : "") };
+  if (composerOpen[id]) panelHost.append(emojiPanel(e => insertAtCursor(ta, e)));
+  wrap.append(panelHost, el("div", { class: "chatform" },
+    el("button", { type: "button", class: "attach", "aria-label": "Emoji", title: "Emoji", onclick: toggle }, "\u{1F642}"),
+    ta, el("button", { type: "button", class: "btn primary", id: id + "-send", onclick: send }, "Send")));
+  setTimeout(() => autoGrow(ta), 0);
+  return wrap;
 }
 
 /* ----- project priority ----- */
@@ -2233,7 +2346,7 @@ function buildAlerts() {
   for (const n of unseenNews()) add("news:" + n.id, n.at || new Date(n.date + "T09:00").getTime(), n.by || null, (n.by ? `${firstName(n.by)} posted: ` : "New in Pitch Room: ") + n.title, "me");
   { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, rulesChanges(rulesNow()).length ? "The money rules changed: " + rulesChanges(rulesNow()).join(", ") + ". Please read and agree" : "Please read and agree to the team's money rules", "money-rules") }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
-  for (const t of dmThreads) if (dmUnread(t)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, t.lastBy, `${name(t.lastBy)} sent you a private message: ${(t.lastText || "").slice(0, 60)}`, "dm-" + t.lastBy);
+  for (const t of dmThreads) if (dmUnread(t)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, people[t.lastBy] ? t.lastBy : null, `${chatName(t.lastBy)}${isPartnerUid(t.lastBy) ? " (partner)" : ""} sent you a private message: ${(t.lastText || "").slice(0, 60)}`, "dm-" + t.lastBy);
   for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
   return out.sort((a, b) => b.at - a.at).slice(0, 50);
 }
@@ -2442,7 +2555,7 @@ function renderSettings() {
   box.append(sec("s-help", "Help", "Quick fixes when something isn't right.", el("div", { class: "idea", style: "gap:0" },
     item("Get the latest version", "If a new feature isn't showing up.", el("button", { class: "btn small", onclick: () => location.replace(location.pathname + "?v=" + Date.now() + location.hash) }, "Reload")),
     item("Refresh this device", "If something looks wrong or out of date. Your work is safe: it's all saved online.", el("button", { class: "btn small", onclick: () => { clearCache(); location.replace(location.pathname + "?v=" + Date.now() + "#me") } }, "Refresh")),
-    standalone ? null : item("Put Pitch Room on your home screen", isIOS() ? "On iPhone: tap Share, then Add to Home Screen. Needed for alerts on iPhone." : "In your browser menu, choose Install app or Add to Home screen. It opens like an app.", null),
+    installGuide(),
     item("Share the site link", SITE_LINK, el("button", { class: "btn small", onclick: async () => { try { await navigator.clipboard.writeText(SITE_LINK); toast("Link copied") } catch { toast(SITE_LINK, 5000) } } }, "Copy")),
     adminId && adminId[0] !== me ? item("Still stuck?", `Message ${ADMIN_NAME} privately.`, el("button", { class: "btn small", onclick: () => { location.hash = "dm-" + adminId[0] } }, "Message")) : null,
     item("Version", typeof BUILD_ID !== "undefined" ? BUILD_ID.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2}).*/, "$3/$2/$1 $4:$5") : "", null))));

@@ -6,9 +6,9 @@ Rings phones and laptops for new alerts even when Pitch Room is closed. It runs 
 
 1. Sign up at dash.cloudflare.com (free).
 2. Go to **Workers & Pages → Create → Create Worker**, name it `pitch-room-push`, click **Deploy**.
-3. Click **Edit code**, delete everything, paste the whole of `pitch-room-push-worker.js` (the copy with the key filled in; it is not in this repo), then **Deploy**.
+3. In Pitch Room: **Me → Settings → Alerts → Set up the alert server → Copy server code** (it comes with a fresh key filled in). In Cloudflare click **Edit code**, delete everything, paste, then **Deploy**.
 4. Copy the worker's address (like `https://pitch-room-push.yourname.workers.dev`).
-5. In Pitch Room: **Me → Settings → Alerts on this device**, paste it into **Push server**, click **Save**, then **Turn on**.
+5. Back in **Set up the alert server**, paste it in step 5 and click **Save and test**, then **Turn on**.
 6. Each teammate opens Settings on each phone and laptop and taps **Turn on**. On iPhone, they first add Pitch Room to the Home Screen and open it from there.
 
 ## How it works

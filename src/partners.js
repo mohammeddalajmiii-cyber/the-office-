@@ -47,11 +47,12 @@ service cloud.firestore {
       allow read: if isTeam();
       allow write: if isTeam() && request.auth.uid == uid;
     }
-    // private messages: only the two people in the conversation
+    // private messages: only the two people in the conversation (two team members, or a team member and a partner)
     match /dms/{tid} {
-      allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+      allow read: if (isTeam() || isPartner()) && (request.auth.uid in tid.split("_") || request.auth.uid in resource.data.members);
+      allow write: if (isTeam() || isPartner()) && request.auth.uid in tid.split("_");
       match /msgs/{mid} {
-        allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+        allow read, write: if (isTeam() || isPartner()) && request.auth.uid in tid.split("_");
       }
     }
     // files sent in chat, stored in pieces
@@ -118,6 +119,7 @@ service cloud.firestore {
 
 let partnerMode = false;          // true when the signed-in person is a partner, not on the team
 let pGroups = [], pMembers = [], pLeads = [], pPosts = [];
+let pDms = [], pDmOff = false, pDmMsgs = {}, pDmStop = null, pDmFor = null;   // a partner's private chats with team members
 let pErr = null, pLoaded = false;
 let pMe = null, pGroup = null, pGroupGone = false, pGroupUnsubs = [], pGid = null;
 let pgTab = "updates", plFilter = {}, pQuery = {}, pSel = {}, pDelGroup = null, pDelMember = null, pImport = {}, pImportText = {}, pImportOpen = {};
@@ -139,6 +141,12 @@ function groupFeed(gid, posts, leads) {
   for (const p of posts) if (p.gid === gid) out.push({ kind: "post", at: p.at || 0, p });
   for (const l of leads) if (l.gid === gid) for (const h of historyOf(l)) out.push({ kind: "call", at: h.at || 0, l, h });
   return out.sort((a, b) => b.at - a.at);
+}
+function groupChatItems(gid, canDelete) {
+  const out = [];
+  for (const p of pPosts) if (p.gid === gid) out.push({ id: p.id, by: p.by, name: p.by === me ? "You" : (p.name || "Someone"), photo: p.photo, role: p.team ? "team" : "partner", text: p.text || "", at: p.at || 0, canDelete: canDelete(p), ref: p });
+  for (const l of pLeads) if (l.gid === gid) for (const h of historyOf(l)) out.push({ system: true, at: h.at || 0, text: `\u260E ${h.by === me ? "You" : (h.name || "Someone")} marked ${leadTitle(l)} as ${LEAD_NAME[h.s] || "updated"}${h.note ? ": " + h.note : ""}` });
+  return out.sort((a, b) => a.at - b.at).slice(-250);
 }
 function feedItem(it, { canDelete } = {}) {
   if (it.kind === "post") {
@@ -310,12 +318,13 @@ function rulesCard(open) {
     el("h3", {}, open ? "One step left: lock the partner area" : "Database rules for partners"),
     el("p", { class: "label", style: "margin:0" }, "The site hides your projects from partners, but the database rules are what actually block them. Do this once:"),
     el("ol", { class: "rules", style: "margin:0;padding-left:20px;font-size:14px" },
-      el("li", {}, "Open console.firebase.google.com → the-office project → Firestore Database → Rules."),
+      el("li", {}, "Tap Open Firebase rules (or console.firebase.google.com \u203a the-office project \u203a Firestore Database \u203a Rules)."),
       el("li", {}, "Delete everything there and paste the text below."),
       el("li", {}, "Press Publish, then reload this page.")),
     ta,
     el("div", { class: "row" }, el("span", { class: "spacer" }),
-      el("button", { class: "btn primary small", onclick: async () => { try { await navigator.clipboard.writeText(PARTNER_RULES); toast("Rules copied") } catch { ta.select(); toast("Select all and copy") } } }, "Copy rules")));
+      el("a", { class: "btn small", href: "https://console.firebase.google.com/project/the-office-ab723/firestore/rules", target: "_blank", rel: "noopener noreferrer" }, "Open Firebase rules"),
+      el("button", { class: "btn primary small", onclick: () => copyText(PARTNER_RULES, "Rules copied. Paste them in Firebase, then Publish") }, "Copy rules")));
 }
 
 function renderPartnersTeam(gid) {
@@ -372,12 +381,11 @@ function renderPartnerGroupTeam(box, gid) {
 
   if (pgTab === "updates") {
     pSetSeen(gid);
-    const ta = el("textarea", { class: "noteinput", id: "pgmsg-" + gid, rows: "2", maxlength: "1000", placeholder: `Message everyone in ${g.name}: news, a new offer, tips` });
-    box.append(el("div", { class: "compose", style: "margin-top:12px" }, ta, el("div", { class: "row" }, el("span", { class: "spacer" }),
-      el("button", { class: "btn primary", onclick: () => { const t = ta.value.trim(); if (!t) return; ta.value = "";
-        write(() => setDoc(doc(db, "pposts", uid()), { gid, by: me, name: teamName(), photo: photoOf(me) === AV ? "" : photoOf(me), team: true, text: t, at: Date.now() }), "Sent to " + g.name) } }, "Send"))));
-    const feed = groupFeed(gid, pPosts, pLeads);
-    box.append(el("div", { class: "pfeed", style: "margin-top:14px" }, feed.length ? feed.slice(0, 150).map(it => feedItem(it, { canDelete: () => true })) : el("div", { class: "empty" }, "No updates yet. When partners post or log calls, it shows up here.")));
+    box.append(el("div", { class: "chat-who", style: "margin-top:12px" }, el("span", { class: "teamdot big" }, "#"), el("span", { class: "who-n" }, el("b", {}, g.name + " group"), el("span", { class: "label" }, `The Ardent team and the ${people.length} ${people.length === 1 ? "partner" : "partners"} in ${g.name}`))),
+      chatView(groupChatItems(gid, () => true), { onDelete: m => write(() => deleteDoc(doc(db, "pposts", m.id)), "Message deleted"), empty: "No messages yet. Say hi to the partners in " + g.name + "." }),
+      chatComposer("pgmsg-" + gid, `Message everyone in ${g.name}`, t => write(() => setDoc(doc(db, "pposts", uid()), { gid, by: me, name: teamName(), photo: photoOf(me) === AV ? "" : photoOf(me), team: true, text: t, at: Date.now() }))),
+      ...(people.filter(m => m.uid).length ? [el("div", { class: "row", style: "gap:6px;margin-top:10px" }, el("span", { class: "label" }, "Message privately:"),
+        people.filter(m => m.uid).map(m => el("button", { class: "pchip partnerchip", onclick: () => { location.hash = "dm-" + m.uid } }, postAv(m.photo), (m.name || m.email).split(" ")[0])))] : []));
   }
 
   if (pgTab === "leads") {
@@ -516,7 +524,7 @@ async function partnerCheck(email) {
 }
 function partnerStop() {
   pGroupUnsubs.forEach(f => f()); pGroupUnsubs = []; pGid = null; pGroup = null; pMe = null;
-  pLeads = []; pPosts = []; partnerMode = false; $("#partner").hidden = true; partnerProjectsStop();
+  pLeads = []; pPosts = []; pDms = []; pDmMsgs = {}; if (pDmStop) { pDmStop(); pDmStop = null; pDmFor = null } partnerMode = false; $("#partner").hidden = true; partnerProjectsStop();
 }
 function startPartner(u, pm) {
   partnerMode = true; isAdmin = false; pMe = pm;
@@ -531,7 +539,8 @@ function startPartner(u, pm) {
   }, e => { if (e.code === "permission-denied") partnerEnded(u) }));
   partnerGroupSubs(pm.gid);
   partnerProjectSubs(pm.id);
-  if (!["leads", "updates", "info", "projects"].includes(location.hash.slice(1))) history.replaceState(null, "", "#leads");
+  unsubs.push(onSnapshot(query(collection(db, "dms"), where("members", "array-contains", me)), q => { pDms = q.docs.map(d => ({ id: d.id, ...d.data() })); pDmOff = false; render() }, () => { pDmOff = true; render() }));
+  if (!["leads", "updates", "info", "projects"].includes(location.hash.slice(1)) && !location.hash.startsWith("#pdm-")) history.replaceState(null, "", "#leads");
   render();
 }
 function partnerEnded(u) {
@@ -565,11 +574,14 @@ function keepPartnerInputs(fn) {
 }
 function renderPortal() { keepPartnerInputs(renderPortalNow) }
 function renderPortalNow() {
-  let v = location.hash.slice(1); if (!["leads", "updates", "info", "projects"].includes(v)) v = "leads";
+  let v = location.hash.slice(1), dmWith = null;
+  if (v.startsWith("pdm-")) { dmWith = v.slice(4); v = "updates" }
+  if (!["leads", "updates", "info", "projects"].includes(v)) v = "leads";
   const open = myPTasks.filter(t => !t.done).length, cpj = $("#pc-projects"); if (cpj) { cpj.hidden = !open; cpj.textContent = open }
   for (const b of document.querySelectorAll("#partner .tab")) b.setAttribute("aria-selected", b.dataset.pview === v);
   const seen = pGetSeen("p-updates");
-  const unread = pPosts.filter(p => p.team && (p.at || 0) > seen).length;
+  const dmUnreadN = pDms.filter(t => t.lastBy && t.lastBy !== me && (t.lastAt || 0) > ((t.seen || {})[me] || 0)).length;
+  const unread = pPosts.filter(p => p.team && (p.at || 0) > seen).length + dmUnreadN;
   const cu = $("#pc-updates"); cu.hidden = !unread || v === "updates"; cu.textContent = unread;
   const callN = pLeads.filter(l => TO_CALL.includes(l.status || "new")).length;
   const cl = $("#pc-leads"); cl.hidden = !callN; cl.textContent = callN > 99 ? "99+" : callN;
@@ -585,16 +597,7 @@ function renderPortalNow() {
       el("div", { style: "margin-top:14px" }, stats(pLeads)));
     box.append(...leadList(pLeads, "p", { team: false, who: partnerName() }).filter(Boolean));
   }
-  if (v === "updates") {
-    pSetSeen("p-updates");
-    const ta = el("textarea", { class: "noteinput", id: "p-msg", rows: "3", maxlength: "1000", placeholder: "Tell the team how it's going: calls today, good leads, questions" });
-    box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Updates"),
-      el("div", { class: "compose" }, ta, el("div", { class: "row" }, el("span", { class: "label" }, "Only the Ardent Studios team and your group see this."), el("span", { class: "spacer" }),
-        el("button", { class: "btn primary", onclick: () => { const t = ta.value.trim(); if (!t) return; ta.value = "";
-          write(() => setDoc(doc(db, "pposts", uid()), { gid: pGid, by: me, name: partnerName(), photo: (myProfile && myProfile.photo) || "", team: false, text: t, at: Date.now() }), "Sent to the team") } }, "Send"))));
-    const feed = groupFeed(pGid, pPosts, pLeads);
-    box.append(el("div", { class: "pfeed", style: "margin-top:14px" }, feed.length ? feed.slice(0, 150).map(it => feedItem(it, { canDelete: p => p.by === me })) : el("div", { class: "empty" }, "No updates yet.")));
-  }
+  if (v === "updates") renderPartnerChat(box, dmWith);
   if (v === "info") {
     const links = Object.entries(pGroup.links || {}).filter(([, x]) => x).map(([id, x]) => ({ id, ...x })).sort((a, b) => (a.at || 0) - (b.at || 0));
     box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Info"),
@@ -632,4 +635,46 @@ function pickGroupFile(gid, labelInput) {
     } catch (e) { toast(e && e.message === "too big" ? `${f.name} is too big. The limit is 5 MB per file.` : "That file didn't upload. Check your connection and try again.") }
   };
   document.body.append(inp); inp.click();
+}
+
+/* ---------- partner side: chat with the group and private messages with the team ---------- */
+function pWatchDm(tid) {
+  if (tid === pDmFor) return;
+  if (pDmStop) { pDmStop(); pDmStop = null }
+  pDmFor = tid; if (!tid) return;
+  pDmStop = onSnapshot(query(collection(db, "dms", tid, "msgs"), orderBy("at"), limitToLast(300)), q => { pDmMsgs[tid] = q.docs.map(d => ({ id: d.id, ...d.data() })); render() }, () => { pDmOff = true; render() });
+}
+function renderPartnerChat(box, dmWith) {
+  const other = t => (t.members || []).find(x => x !== me) || me;
+  const t = dmWith ? pDms.find(x => other(x) === dmWith) : null;
+  pWatchDm(t ? t.id : null);
+  if (!dmWith) pSetSeen("p-updates");
+  if (t && t.lastBy !== me && (t.lastAt || 0) > ((t.seen || {})[me] || 0)) setDoc(doc(db, "dms", t.id), { seen: { [me]: Date.now() } }, { merge: true }).catch(() => {});
+  const seenG = pGetSeen("p-updates"), gUnread = pPosts.filter(p => p.team && (p.at || 0) > seenG).length;
+  const threads = [...pDms].sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
+  box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Chat"),
+    el("div", { class: "pchips chat-people" },
+      el("button", { class: "pchip", "aria-pressed": String(!dmWith), onclick: () => { location.hash = "updates" } }, el("span", { class: "teamdot" }, "#"), pGroup.name, gUnread && dmWith ? el("span", { class: "count" }, gUnread) : null),
+      threads.length ? el("span", { class: "chipsep" }, "Ardent team") : null,
+      threads.map(x => { const u = other(x), n = x.lastBy && x.lastBy !== me && (x.lastAt || 0) > ((x.seen || {})[me] || 0) && dmWith !== u;
+        return el("button", { class: "pchip", "aria-pressed": String(dmWith === u), onclick: () => { location.hash = "pdm-" + u } }, postAv((x.photos || {})[u]), ((x.names || {})[u] || "Team").split(" ")[0], n ? el("span", { class: "count" }, "1") : null) })));
+  if (!dmWith) {
+    box.append(el("div", { class: "chat-who" }, el("span", { class: "teamdot big" }, "#"), el("span", { class: "who-n" }, el("b", {}, pGroup.name + " group"), el("span", { class: "label" }, "You, the other partners here and the Ardent Studios team"))),
+      chatView(groupChatItems(pGid, p => p.by === me), { onDelete: m => write(() => deleteDoc(doc(db, "pposts", m.id)), "Message deleted"), empty: "No messages yet. Tell the team how it's going: calls today, good leads, questions." }),
+      chatComposer("p-msg", "Message the team and your group", txt => write(() => setDoc(doc(db, "pposts", uid()), { gid: pGid, by: me, name: partnerName(), photo: (myProfile && myProfile.photo) || "", team: false, text: txt, at: Date.now() }))),
+      ...(threads.length ? [] : [el("p", { class: "label", style: "margin:10px 2px 0;text-transform:none;letter-spacing:0" }, "When someone from the team messages you privately, it shows up here too.")]));
+    return;
+  }
+  if (!t) { box.append(el("div", { class: "empty" }, pDmOff ? "Private messages aren't switched on yet. Ask the team to update the database rules." : "Loading…")); return }
+  const nm = (t.names || {})[dmWith] || "Ardent team";
+  box.append(el("div", { class: "chat-who" }, postAv((t.photos || {})[dmWith]), el("span", { class: "who-n" }, el("b", {}, nm), el("span", { class: "rolebadge" }, "Ardent team")), el("span", { class: "who-lock" }, "\u{1F512} only you two see this")));
+  const msgs = (pDmMsgs[t.id] || []).map(m => ({ id: m.id, by: m.by, name: m.by === me ? "You" : (t.names || {})[m.by] || nm, photo: (t.photos || {})[m.by], role: (t.roles || {})[m.by] || "team", text: m.text || "", at: m.at || 0, file: m.file }));
+  box.append(chatView(msgs, { empty: "No messages yet." }),
+    chatComposer("pdm-" + dmWith, "Message " + nm.split(" ")[0], txt => {
+      const at = Date.now();
+      write(async () => {
+        await setDoc(doc(db, "dms", t.id, "msgs", uid()), { by: me, text: txt, at });
+        await setDoc(doc(db, "dms", t.id), { lastAt: at, lastBy: me, lastText: txt.slice(0, 120), seen: { [me]: at }, names: { [me]: partnerName() }, roles: { [me]: "partner" }, photos: { [me]: (myProfile && myProfile.photo && myProfile.photo.length < 400) ? myProfile.photo : "" } }, { merge: true });
+      });
+    }));
 }

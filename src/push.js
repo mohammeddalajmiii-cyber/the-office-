@@ -7,7 +7,7 @@
 
 var pushUrl = "", pushKey = null, pushOn = false, pushBusy = false, pushErr = "";
 var pushBaseline = null, pushTimer = null;
-var PUSH_KINDS = ["ready", "idea", "done", "planner", "task", "help", "note", "goal", "blk", "file", "link", "meet", "start", "news", "dm", "reply", "chat"];
+var PUSH_KINDS = ["fin", "ready", "idea", "done", "planner", "task", "help", "note", "goal", "blk", "file", "link", "meet", "start", "news", "dm", "reply", "chat"];
 
 const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && window.isSecureContext;
 const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -22,7 +22,7 @@ const urlB64ToBytes = s => { const b = atob(s.replace(/-/g, "+").replace(/_/g, "
 // Called when meta/push changes and when the team's site starts.
 function pushConfig(d) {
   const url = (d && d.url) || "";
-  if (url !== pushUrl) { pushUrl = url; pushKey = null }
+  if (url !== pushUrl) { pushUrl = url; pushKey = null; pushServerState = "" }
   pushCheck();
 }
 
@@ -32,7 +32,9 @@ async function pushCheck() {
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    if (!sub || Notification.permission !== "granted") { pushOn = false; render(); return }
+    if (Notification.permission !== "granted") { pushOn = false; render(); return }
+    // still allowed, but the browser dropped the connection (cleared data, an update): reconnect by itself
+    if (!sub) { if ((people[me] || {}).pushSubs && ((people[me] || {}).pushSubs || {})[pushDeviceId()]) await pushEnable(true); else { pushOn = false; render() } return }
     const key = await pushServerKey();
     const subKey = sub.options && sub.options.applicationServerKey ? btoaUrl(sub.options.applicationServerKey) : null;
     if (key && subKey && subKey !== key) { await sub.unsubscribe(); pushOn = false; await pushEnable(true); return }
@@ -117,7 +119,12 @@ async function pushSend(msgs) {
 
 async function pushTest() {
   const r = await pushSend([{ to: me, title: "Pitch Room", body: "Test alert: this device rings even when the site is closed.", tag: "test-" + Date.now(), go: "settings", force: true }]);
-  toast(r && r.sent ? "Sent. Close or hide the site to see it next time" : "The test didn't go through. Check the push server address", 4000);
+  if (!r) return toast("Couldn't reach the alert server. Check your internet" + (isAdmin ? ", and the server address below" : `, or tell ${ADMIN_NAME}`), 5000);
+  if (r.error) return toast(r.error === "Not allowed" ? "The server said you're not allowed. Sign out and in again" : "The alert server had a problem: " + r.error, 5000);
+  if (r.sent) return toast("Sent! It should pop up now. Next time, close the site to see how alerts arrive", 4500);
+  // nothing delivered: this device's connection is missing or expired, so make a fresh one
+  await pushReconnect();
+  toast(pushOn ? "This device's connection had expired. Fixed: send the test again" : "Couldn't deliver to this device. Open Something not working? below", 5000);
 }
 
 /* What my action means for each teammate. Same wording and keys as their bell (buildAlerts),
@@ -135,16 +142,22 @@ function pushAlertsFor(u) {
     if (pl && typeof pl === "object" && pl.by === me) add("planner:" + p.id, pl.at, `Made you a planner of ${p.title}`, "plan-" + p.id);
     if (p.status !== "approved") continue;
     for (const t of tasksOf(p)) {
-      if (!isAssignee(t, u)) continue;
-      if (t.assignedBy === me) add("task:" + t.id + ":" + t.assignedAt, t.assignedAt, `Gave you a task: ${t.text} · ${p.title}`, "me");
+      if (!isAssignee(t, u)) {
+        // a task they gave out: tell them when I finish it or leave a note
+        if (t.assignedBy !== u || !isAssignee(t, me)) continue;
+        if (t.done && t.doneBy === me) add("fin:" + t.id + ":" + (t.doneAt || 0), t.doneAt, `Finished "${t.text}" (${p.title})`, taskLink(p, t));
+        for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by === me) add("note:" + nid, n.at, `Left a note on a task you gave out: ${t.text}`, taskLink(p, t));
+        continue;
+      }
+      if (t.assignedBy === me) add("task:" + t.id + ":" + t.assignedAt, t.assignedAt, `Gave you a task: ${t.text} · ${p.title}`, taskLink(p, t));
       const h = (t.helpers || {})[u];
-      if (h && h.by === me) add("help:" + t.id, h.at, `Added you to a task: ${t.text} · ${p.title}`, "me");
-      for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by === me) add("note:" + nid, n.at, `Left a note on your task: ${t.text}`, "plan-" + p.id);
+      if (h && h.by === me) add("help:" + t.id, h.at, `Added you to a task: ${t.text} · ${p.title}`, taskLink(p, t));
+      for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by === me) add("note:" + nid, n.at, `Left a note on your task: ${t.text}`, taskLink(p, t));
       if (!t.done) {
         const w = waitInfo(p, t);
         if (w.deps.length && !w.open.length) {
           const last = w.deps.reduce((a, d) => (d.doneAt || 0) > (a.doneAt || 0) ? d : a, w.deps[0]);
-          if (last.doneBy === me) add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, `Finished "${last.text}", so you can start "${t.text}"`, "project-" + p.id);
+          if (last.doneBy === me) add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, `Finished "${last.text}", so you can start "${t.text}"`, taskLink(p, t));
         }
       }
     }
@@ -277,33 +290,225 @@ function pingCard(a) {
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", e => { if (e.data && e.data.type === "push") chime() });
 
-// Settings: alerts on this device, plus the push server address for the admin.
+// Settings: a guided setup for alerts on this device, with fixes for the usual problems and
+// copy buttons for anything that has to be pasted. The admin also gets the one-time server setup.
+var pushServerState = "", pushGuide = null, pushFix = null, pushCodeBusy = false;
+const SETUP_LINK = "https://mohammeddalajmiii-cyber.github.io/the-office-/";
+const devKind = () => { const ua = navigator.userAgent;
+  if (isIOS()) return "ios"; if (/Android/i.test(ua)) return "android";
+  if (/Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox/.test(ua)) return "macsafari";
+  return "computer" };
+const browserName = () => { const ua = navigator.userAgent; return /Edg\//.test(ua) ? "Edge" : /Firefox/.test(ua) ? "Firefox" : /Chrome|CriOS/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : "your browser" };
+async function copyText(t, ok) { try { await navigator.clipboard.writeText(t); toast(ok || "Copied") } catch { const ta = el("textarea", { style: "position:fixed;opacity:0" }); ta.value = t; document.body.append(ta); ta.select(); try { document.execCommand("copy"); toast(ok || "Copied") } catch { toast("Couldn't copy. Select it and copy by hand", 4000) } ta.remove() } }
+const copyBox = (text, label) => el("div", { class: "copybox" }, el("code", {}, text), el("button", { class: "btn small", onclick: () => copyText(text, (label || "Copied")) }, "Copy"));
+
+// Is the team's alert server answering? Checked once per visit to Settings.
+async function pushServerCheck() {
+  if (!pushBase()) { pushServerState = "none"; return }
+  pushServerState = "checking";
+  try { pushKey = null; await pushServerKey(); pushServerState = "ok" }
+  catch (e) { pushServerState = /no key/i.test(String(e && e.message)) ? "nokey" : "down" }
+  render();
+}
+// Turn this device off and on again: fixes an expired or broken connection.
+async function pushReconnect() {
+  try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe() } catch { }
+  pushOn = false; await pushEnable(true);
+}
+// Only this device keeps getting alerts for my account (old phones and browsers stop).
+async function pushOnlyThisDevice() {
+  const mine = ((people[me] || {}).pushSubs || {})[pushDeviceId()];
+  const others = Object.keys((people[me] || {}).pushSubs || {}).filter(k => k !== pushDeviceId());
+  if (!others.length) { toast("Only this device is connected"); return }
+  await write(() => setDoc(doc(db, "users", me), { pushSubs: Object.fromEntries(others.map(k => [k, DEL()])) }, { merge: true }), `Removed ${others.length} old device${others.length > 1 ? "s" : ""}. Turn alerts on again on any device you still use`);
+  people[me] = { ...(people[me] || {}), pushSubs: mine ? { [pushDeviceId()]: mine } : {} };
+}
+// The server code with a fresh key filled in, ready to paste into Cloudflare. The key stays on this device so copying again gives the same one.
+async function pushWorkerCode() {
+  let jwk = null; try { jwk = JSON.parse(localStorage.getItem("pushVapid") || "null") } catch { }
+  if (!jwk) {
+    const k = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const j = await crypto.subtle.exportKey("jwk", k.privateKey); jwk = { kty: j.kty, crv: j.crv, x: j.x, y: j.y, d: j.d };
+    try { localStorage.setItem("pushVapid", JSON.stringify(jwk)) } catch { }
+  }
+  const src = await (await fetch("push-server/worker.js?v=" + Date.now(), { cache: "no-store" })).text();
+  if (!src.includes("const VAPID = null;")) throw new Error("template");
+  return src.replace("const VAPID = null;", "const VAPID = " + JSON.stringify(jwk) + ";   // secret: don't share this code");
+}
+function teamSetupMessage() {
+  return `Turn on Pitch Room alerts (2 minutes, do it on your phone AND your laptop):
+1. Open ${SETUP_LINK}
+   iPhone: open it in Safari, tap Share > Add to Home Screen, then open Pitch Room from the new icon.
+   Android: open it in Chrome (menu > Add to Home screen is best).
+   Laptop: open it in Chrome or Edge.
+2. Go to Me > Settings > Alerts and tap Turn on, then Allow.
+3. Tap Send a test. You should hear it ring.
+Stuck? Settings > Alerts has a fix for every problem.`;
+}
+
+const STEPS_FN = () => ({
+  ios: { name: "iPhone or iPad", steps: [
+    ["Open the site in Safari", "Alerts on iPhone only work from the Home Screen app, and it has to be added from Safari.", copyBox(SETUP_LINK, "Link copied. Paste it in Safari")],
+    ["Add it to your Home Screen", "Tap the Share button (the square with an arrow), scroll down, tap Add to Home Screen, then Add."],
+    ["Open Pitch Room from the new icon", "Not from Safari. It opens full screen, like an app."],
+    ["Turn on alerts", "Come back here (Me › Settings › Alerts), tap Turn on, then Allow."],
+    ["Send a test", "Then lock the phone. Alerts arrive with your iPhone's sound."]],
+    note: "Needs iOS 16.4 or newer (Settings › General › About)." },
+  android: { name: "Android", steps: [
+    ["Open the site in Chrome", "Other browsers on Android often don't ring.", copyBox(SETUP_LINK, "Link copied. Paste it in Chrome")],
+    ["Add it to your Home screen (best)", "Tap ⋮ at the top right, then Add to Home screen or Install app."],
+    ["Turn on alerts", "Tap Turn on below, then Allow."],
+    ["Send a test", "Then close the app. Alerts ring with your phone's notification sound."]] },
+  computer: { name: "Computer (Chrome or Edge)", steps: [
+    ["Open the site in Chrome or Edge", "They ring even with every Pitch Room tab closed, as long as the browser is running.", copyBox(SETUP_LINK, "Link copied")],
+    ["Turn on alerts", "Tap Turn on below, then Allow in the box near the address bar."],
+    ["Send a test", "Then close the tab. Windows and Mac show it in the corner with a sound."],
+    ["Keep it in the background", "Chrome: Settings › System › Continue running background apps when Chrome is closed: on."]] },
+  macsafari: { name: "Mac (Safari)", steps: [
+    ["Open the site in Safari", "Needs macOS 13 or newer. Chrome on Mac works too.", copyBox(SETUP_LINK, "Link copied")],
+    ["Best: add it to the Dock", "File › Add to Dock. It then rings even when Safari is closed."],
+    ["Turn on alerts", "Tap Turn on below, then Allow."],
+    ["Send a test", "Alerts show at the top right of the screen."]] },
+});
+function blockedFix(kind) {
+  const b = browserName();
+  if (kind === "ios") return el("ol", { class: "fixsteps" }, el("li", {}, "Open the iPhone Settings app › Notifications › Pitch Room."), el("li", {}, "Turn on Allow Notifications, Sounds and Lock Screen."),
+    el("li", {}, "Not in the list? Delete the Pitch Room icon from your Home Screen, add it again from Safari, open it and tap Turn on."));
+  if (kind === "android") return el("ol", { class: "fixsteps" }, el("li", {}, "In Chrome, tap the icon left of the address › Permissions › Notifications › Allow."),
+    el("li", {}, "Or: phone Settings › Apps › Chrome (or Pitch Room) › Notifications › turn everything on."), el("li", {}, "Come back and tap Turn on."));
+  if (kind === "macsafari") return el("ol", { class: "fixsteps" }, el("li", {}, "Safari › Settings › Websites › Notifications."), el("li", {}, "Find mohammeddalajmiii-cyber.github.io and set it to Allow."), el("li", {}, "Reload this page and tap Turn on."));
+  const url = b === "Edge" ? "edge://settings/content/notifications" : b === "Firefox" ? "about:preferences#privacy" : "chrome://settings/content/notifications";
+  return el("ol", { class: "fixsteps" }, el("li", {}, "Click the icon left of the address bar (ⓘ or the sliders) › Notifications › Allow, then reload."),
+    el("li", {}, `Or paste this in a new ${b} tab and move this site from Not allowed to Allowed:`, copyBox(url, "Copied. Paste it in the address bar")),
+    el("li", {}, "Reload this page and tap Turn on."));
+}
+function soundFix(kind) {
+  return el("ol", { class: "fixsteps" }, ...({
+    ios: ["Settings › Notifications › Pitch Room: Sounds on, style Banners.", "Turn off Focus or Do Not Disturb (swipe down from the top right), or allow Pitch Room in it.", "Check the ring/silent switch on the side of the phone."],
+    android: ["Settings › Apps › Chrome (or Pitch Room) › Notifications: set the sound and Pop on screen.", "Turn off Do Not Disturb.", "Settings › Apps › Chrome › Battery: Unrestricted, so the phone doesn't put it to sleep."],
+    macsafari: ["System Settings › Notifications › Safari (or Pitch Room): Allow notifications, style Alerts, Play sound on.", "Turn off Focus / Do Not Disturb in the menu bar."],
+    computer: navigator.platform.startsWith("Win") ? ["Windows Settings › System › Notifications: on, and on for " + browserName() + ", with sound.", "Turn off Do not disturb (Focus) in the same place.", "Keep " + browserName() + " running in the background."] :
+      ["System Settings › Notifications › " + (browserName() === "Edge" ? "Microsoft Edge" : "Google Chrome") + ": Allow notifications, style Alerts, Play sound on.", "Turn off Focus / Do Not Disturb.", "Keep " + browserName() + " running in the background."],
+  }[kind]).map(t => el("li", {}, t)));
+}
+
 function pushSettings() {
   const perm = "Notification" in window ? Notification.permission : "unsupported";
-  const box = el("section", { class: "idea" }, el("h3", {}, "Alerts on this device"));
-  let line, btns = [];
-  if (pushOn && perm === "granted") {
-    line = "On. This device rings with its alert sound for new tasks, messages and replies, even when Pitch Room is closed.";
-    btns = [el("button", { class: "btn small", onclick: pushTest }, "Send a test"), el("button", { class: "btn quiet small", disabled: pushBusy, onclick: pushDisable }, "Turn off")];
-  } else if (perm === "denied") line = "Blocked in your browser settings. Allow notifications for this site there, then come back and turn them on.";
-  else if (isIOS() && !isHomeScreenApp()) line = "On iPhone and iPad: tap Share, then Add to Home Screen. Open Pitch Room from the new icon and turn alerts on there.";
-  else if (!pushSupported()) line = perm === "unsupported" ? "This browser can't show alerts. The bell still works." : "This browser only shows pop-ups while the site is open.";
-  else if (!pushBase()) line = perm === "granted" ? "On while the site is open. Ringing when it's closed isn't set up yet." : "Off. Turn on to get pop-ups while the site is open.";
-  else { line = "Off. Turn on to get alerts with sound on this phone or computer, even when Pitch Room is closed."; btns = [el("button", { class: "btn primary small", disabled: pushBusy, onclick: () => pushEnable() }, pushBusy ? "Turning on…" : "Turn on")] }
-  if (!pushBase() && perm === "default" && pushSupported()) btns = [el("button", { class: "btn primary small", onclick: enableDeviceAlerts }, "Turn on")];
-  btns.push(el("button", { class: "btn quiet small", onclick: () => { chimeAt = 0; pingCard({ title: realName(me) || "Pitch Room", who: me, sub: "now", text: "This is how a new alert looks and sounds", go: "" }); chime() } }, "Try it"));
-  box.append(el("div", { class: "row", style: "gap:8px" }, el("span", { style: "flex:1 1 220px" }, line), ...btns));
-  if (pushOn) box.append(el("p", { style: "font-size:12.5px;color:var(--muted);margin:6px 0 0" }, "Turn it on once on each phone and computer you use. If you hear nothing, check the device isn't on silent or Do Not Disturb, and that your browser is allowed to make notification sounds."));
+  const kind = devKind(), showKind = pushGuide || kind, iosNeedsApp = kind === "ios" && !isHomeScreenApp();
+  if (!pushServerState) setTimeout(pushServerCheck, 0);
+  const box = el("section", { class: "idea alertsetup" }, el("div", { class: "row" }, el("h3", {}, "Alerts on this device"), el("span", { class: "spacer" }),
+    el("span", { class: "mstat " + (pushOn && perm === "granted" ? "paid" : "due") }, pushOn && perm === "granted" ? "✓ On" : "Off")));
+
+  // the checklist: each line says what's wrong and the one thing to do about it
+  const srv = pushServerState, check = (ok, title, sub, ...act) => el("div", { class: "chk " + (ok === true ? "ok" : ok === false ? "bad" : "wait") },
+    el("span", { class: "chk-i" }, ok === true ? "✓" : ok === false ? "!" : "•"), el("div", { class: "chk-t" }, el("b", {}, title), sub ? el("span", {}, sub) : null), act.length ? el("div", { class: "chk-a" }, ...act) : null);
+  const list = el("div", { class: "chklist" });
+  list.append(check(srv === "ok" ? true : srv === "checking" || !srv ? null : false, "Alert server",
+    srv === "ok" ? "Working. It rings phones and computers when the site is closed." : srv === "checking" || !srv ? "Checking…" : srv === "none" ? (isAdmin ? "Not set up yet. It's free and takes 5 minutes: see Set up the alert server below." : `Not set up yet. ${ADMIN_NAME} sets it up once for everyone.`)
+      : srv === "nokey" ? (isAdmin ? "The server has no key. Copy the server code again (step 3 below) and deploy it." : `The server needs fixing. Tell ${ADMIN_NAME}.`) : "Not answering right now. Check your internet, then try again.",
+    srv === "down" ? el("button", { class: "btn small", onclick: () => { pushServerState = ""; render() } }, "Check again") : null));
+  list.append(check(pushSupported() ? true : false, "This " + (kind === "ios" ? (isHomeScreenApp() ? "Home Screen app" : "browser") : "browser"),
+    pushSupported() ? browserName() + " can get alerts." : iosNeedsApp ? "On iPhone, alerts only work from the Home Screen app. Follow the iPhone steps below." : "This browser can't get alerts. Use Chrome or Edge (or Safari on iPhone and Mac)."));
+  list.append(check(perm === "granted" ? true : perm === "denied" ? false : null, "Permission",
+    perm === "granted" ? "Allowed." : perm === "denied" ? "Blocked. See Blocked by mistake below to allow it again." : "Not asked yet. Tap Turn on and choose Allow."));
+  const devs = Object.keys((people[me] || {}).pushSubs || {}).length;
+  list.append(check(pushOn ? true : null, "This device", pushOn ? `Connected. ${devs > 1 ? `You get alerts on ${devs} devices.` : "Do the same on your other phone or computer."}` : "Not connected yet.",
+    pushOn ? el("button", { class: "btn small primary", onclick: pushTest }, "Send a test")
+      : pushSupported() && perm !== "denied" && srv !== "none" ? el("button", { class: "btn small primary", disabled: pushBusy, onclick: () => pushEnable() }, pushBusy ? "Turning on…" : "Turn on") : null));
+  box.append(list);
+  box.append(el("div", { class: "row", style: "gap:8px" }, el("span", { class: "label", style: "flex:1 1 200px;text-transform:none;letter-spacing:0" }, "Turn it on once on each phone and computer you use."),
+    el("button", { class: "btn quiet small", onclick: () => { chimeAt = 0; pingCard({ title: realName(me) || "Pitch Room", who: me, sub: "now", text: "This is how a new alert looks and sounds", go: "" }); chime() } }, "Preview"),
+    pushOn ? el("button", { class: "btn quiet small", disabled: pushBusy, onclick: pushDisable }, "Turn off") : null));
+
+  // step by step for this kind of device (switchable, to help someone else)
+  const STEPS = STEPS_FN(), g = STEPS[showKind];
+  box.append(el("details", { class: "setdetails", open: !pushOn }, el("summary", {}, el("b", {}, "How to set it up"), el("span", { class: "label" }, g.name)),
+    el("div", { class: "seg seg-sm", role: "group", "aria-label": "Device", style: "margin-bottom:10px;flex-wrap:wrap" }, Object.entries(STEPS).map(([k, v]) => el("button", { "aria-pressed": String(showKind === k), onclick: () => { pushGuide = k; render() } }, v.name.replace(" (Chrome or Edge)", "").replace(" or iPad", "")))),
+    el("ol", { class: "setsteps" }, g.steps.map(([t, d, extra]) => el("li", {}, el("b", {}, t), el("span", {}, d), extra || null))),
+    g.note ? el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, g.note) : null));
+
+  // fixes for what usually goes wrong
+  const fixes = [
+    ["blocked", "Blocked by mistake", () => blockedFix(kind)],
+    ["test", "The test didn't arrive", () => el("ol", { class: "fixsteps" }, el("li", {}, "Tap Reconnect this device. It fixes an expired connection."), el("li", {}, "Send the test again, then close or hide the site."),
+      el("li", {}, "Still nothing? Check sound and Focus below.", el("div", { class: "row", style: "margin-top:6px" }, el("button", { class: "btn small primary", disabled: pushBusy, onclick: async () => { await pushReconnect(); if (pushOn) toast("Reconnected. Send a test now") } }, "Reconnect this device"))))],
+    ["sound", "It arrives but makes no sound", () => soundFix(kind)],
+    ["stopped", "It worked before, then stopped", () => el("ol", { class: "fixsteps" }, el("li", {}, "Open Pitch Room once: it reconnects by itself when it can."), el("li", {}, "If not, tap Reconnect this device in The test didn't arrive."),
+      el("li", {}, "Getting alerts on an old phone you don't use? Keep only this device, then turn alerts on again on the others.", el("div", { class: "row", style: "margin-top:6px" }, el("button", { class: "btn small", onclick: pushOnlyThisDevice }, "Keep only this device"))))],
+    ["ios", "iPhone: there's no Turn on button", () => el("ol", { class: "fixsteps" }, el("li", {}, "You're in Safari, not the Home Screen app. Follow the iPhone steps above."), el("li", {}, "Update iOS if it's older than 16.4."))],
+  ];
+  box.append(el("details", { class: "setdetails" }, el("summary", {}, el("b", {}, "Something not working?"), el("span", { class: "label" }, "Quick fixes")),
+    el("div", { class: "fixlist" }, fixes.map(([k, t, body]) => el("div", { class: "fix" + (pushFix === k ? " open" : "") },
+      el("button", { class: "fix-h", "aria-expanded": String(pushFix === k), onclick: () => { pushFix = pushFix === k ? null : k; render() } }, t), pushFix === k ? body() : null)))));
+
+  // who on the team gets alerts, so nobody silently misses them
+  const crew = teamIds().filter(u => (people[u] || {}).email);
+  if (crew.length > 1) box.append(el("details", { class: "setdetails" }, el("summary", {}, el("b", {}, "Who gets alerts"), el("span", { class: "label" }, `${crew.filter(u => Object.keys((people[u] || {}).pushSubs || {}).length).length} of ${crew.length} people`)),
+    el("div", { style: "display:grid;gap:4px" }, crew.map(u => { const n = Object.keys((people[u] || {}).pushSubs || {}).length;
+      return el("div", { class: "teamrow" }, av(u), el("span", { class: "teammail" }, name(u)), el("span", { class: n ? "done-badge" : "label" }, n ? `${n} device${n > 1 ? "s" : ""}` : "Not on yet")) })),
+    el("div", { class: "row", style: "margin-top:8px" }, el("span", { class: "label", style: "flex:1 1 200px;text-transform:none;letter-spacing:0" }, "Send this to anyone who isn't on yet:"),
+      el("button", { class: "btn small", onclick: () => copyText(teamSetupMessage(), "Message copied. Paste it in WhatsApp or the chat") }, "Copy setup message"))));
+
+  // the one-time server setup (admin only)
   if (isAdmin) {
-    const inp = el("input", { class: "noteinput", style: "flex:1 1 240px", placeholder: "https://pitch-room-push.yourname.workers.dev", "aria-label": "Push server address", value: pushUrl });
+    const inp = el("input", { class: "noteinput", style: "flex:1 1 240px", placeholder: "https://pitch-room-push.yourname.workers.dev", "aria-label": "Alert server address", value: pushUrl });
     const save = async () => {
-      const v = inp.value.trim().replace(/\/+$/, "");
+      let v = inp.value.trim().replace(/\/+$/, ""); if (v && !/^https?:\/\//.test(v)) v = "https://" + v;
       if (v && !/^https:\/\/[^\s]+$/.test(v)) { toast("That should start with https://"); return }
-      if (v) { try { const j = await (await fetch(v + "/key", { cache: "no-store" })).json(); if (!j.key) throw 0 } catch { toast("Couldn't reach a push server at that address", 4000); return } }
-      write(() => setDoc(doc(db, "meta", "push"), { url: v, by: me, at: Date.now() }, { merge: true }), v ? "Push server saved. Now turn on alerts on this device" : "Push server removed");
+      if (v) { try { const j = await (await fetch(v + "/key", { cache: "no-store" })).json(); if (!j.key) { toast(j.error === "This server has no key yet" ? "The server has no key. Copy the code from step 3 again, paste it and Deploy" : "That address answered, but it isn't the alert server", 5000); return } } catch { toast("Couldn't reach a server at that address. Check it was deployed, and copy the address exactly", 5000); return } }
+      await write(() => setDoc(doc(db, "meta", "push"), { url: v, by: me, at: Date.now() }, { merge: true }), v ? "Alert server connected. Now tap Turn on" : "Alert server removed");
+      pushServerState = ""; render();
     };
-    box.append(el("div", { class: "row", style: "margin-top:10px;gap:8px" }, el("span", { style: "font-size:13px;color:var(--muted);flex:1 1 100%" }, "Push server (only you see this)"),
-      inp, el("button", { class: "btn small", onclick: save }, "Save")));
+    const getCode = async () => { if (pushCodeBusy) return; pushCodeBusy = true; render();
+      try { const code = await pushWorkerCode(); await copyText(code, "Server code copied. Paste it in Cloudflare (step 4)") }
+      catch { toast("Couldn't make the code. Check your internet and try again", 4500) } finally { pushCodeBusy = false; render() } };
+    const dl = async () => { try { const code = await pushWorkerCode(); const a = el("a", { href: URL.createObjectURL(new Blob([code], { type: "text/javascript" })), download: "pitch-room-push-worker.js" }); document.body.append(a); a.click(); a.remove() } catch { toast("Couldn't make the file") } };
+    box.append(el("details", { class: "setdetails", open: srv === "none" || srv === "nokey" }, el("summary", {}, el("b", {}, "Set up the alert server"), el("span", { class: "label" }, srv === "ok" ? "Done ✓ · only you see this" : "Once, for the whole team · only you see this")),
+      el("ol", { class: "setsteps" },
+        el("li", {}, el("b", {}, "Make a free Cloudflare account"), el("span", {}, "Free plan is plenty (100,000 alerts a day)."), el("a", { class: "btn small", href: "https://dash.cloudflare.com/sign-up", target: "_blank", rel: "noopener noreferrer" }, "Open Cloudflare")),
+        el("li", {}, el("b", {}, "Create a Worker"), el("span", {}, "Workers & Pages › Create › Create Worker (Start with Hello World). Name it:"), copyBox("pitch-room-push", "Name copied"), el("span", {}, "Then click Deploy.")),
+        el("li", {}, el("b", {}, "Copy the server code"), el("span", {}, "It comes with your own secret key already filled in. Don't share it or put it on GitHub."),
+          el("div", { class: "row", style: "gap:6px" }, el("button", { class: "btn small primary", disabled: pushCodeBusy, onclick: getCode }, pushCodeBusy ? "Making it…" : "Copy server code"), el("button", { class: "btn small quiet", onclick: dl }, "Download it instead"))),
+        el("li", {}, el("b", {}, "Paste it into the Worker"), el("span", {}, "Click Edit code, select everything and delete it, paste, then click Deploy.")),
+        el("li", {}, el("b", {}, "Paste the Worker's address here"), el("span", {}, "It's shown on the Worker's page, like https://pitch-room-push.yourname.workers.dev"),
+          el("div", { class: "row", style: "gap:8px" }, inp, el("button", { class: "btn small primary", onclick: save }, "Save and test"))),
+        el("li", {}, el("b", {}, "Turn it on and tell the team"), el("span", {}, "Tap Turn on above, send a test, then copy the setup message in Who gets alerts and send it to everyone."))),
+      el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Copying the code again on this device gives the same key. If you copy it on another device, everyone's alerts reconnect by themselves the next time they open the site.")));
   }
   return box;
+}
+
+/* ----- put Pitch Room on the Home Screen, the Dock or the desktop, like an app ----- */
+var installEvt = null, installGuideKind = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; try { render() } catch { } });
+window.addEventListener("appinstalled", () => { installEvt = null; toast("Pitch Room is installed. Open it from your apps"); try { render() } catch { } });
+const INSTALL = () => ({
+  ios: ["iPhone or iPad", [
+    ["Open the site in Safari", "It has to be Safari for this step.", copyBox(SETUP_LINK, "Link copied. Paste it in Safari")],
+    ["Tap the Share button", "The square with an arrow: at the bottom on iPhone, at the top on iPad."],
+    ["Tap Add to Home Screen, then Add", "Scroll down the list if you don't see it."],
+    ["Open Pitch Room from the new icon", "From now on, always open it from there. It's also the only way alerts work on iPhone."]]],
+  android: ["Android", [
+    ["Open the site in Chrome", "", copyBox(SETUP_LINK, "Link copied. Paste it in Chrome")],
+    ["Tap ⋮ (top right), then Add to Home screen", "Some phones say Install app. Choose Install."],
+    ["Open Pitch Room from the new icon", "It opens full screen, without the browser bars."]]],
+  windows: ["Windows", [
+    ["Open the site in Chrome or Edge", "", copyBox(SETUP_LINK, "Link copied")],
+    ["Install it", "Chrome: ⋮ › Cast, save and share › Install page as app › Install. Edge: ⋯ › Apps › Install this site as an app."],
+    ["Pin it", "It opens in its own window and is in the Start menu. Right-click its icon on the taskbar › Pin to taskbar."],
+    ["Just want a desktop shortcut?", "Make the browser window smaller, then drag the icon left of the address onto your desktop."]]],
+  mac: ["Mac", [
+    ["Safari (macOS 14 or newer)", "Open the site, then File › Add to Dock › Add.", copyBox(SETUP_LINK, "Link copied")],
+    ["Or Chrome", "⋮ › Cast, save and share › Install page as app › Install. It goes in your Applications folder."],
+    ["Keep it in the Dock", "While it's open, right-click its Dock icon › Options › Keep in Dock."]]],
+});
+function installGuide() {
+  const kind = installGuideKind || (devKind() === "ios" ? "ios" : devKind() === "android" ? "android" : /Mac/.test(navigator.platform) ? "mac" : "windows");
+  const all = INSTALL(), [label, steps] = all[kind];
+  const installed = isHomeScreenApp();
+  return el("details", { class: "setdetails", open: false }, el("summary", {}, el("b", {}, "Install Pitch Room as an app"), el("span", { class: "label" }, installed ? "Done ✓ you're using the app" : "Home Screen, Dock or desktop")),
+    installEvt && !installed ? el("div", { class: "row", style: "margin-bottom:10px" }, el("span", { style: "flex:1 1 200px;font-size:14px" }, "Your browser can install it in one tap."), el("button", { class: "btn primary small", onclick: async () => { const e = installEvt; installEvt = null; e.prompt(); try { await e.userChoice } catch { } render() } }, "Install now")) : null,
+    el("div", { class: "seg seg-sm", role: "group", "aria-label": "Device", style: "margin-bottom:10px;flex-wrap:wrap" }, Object.entries(all).map(([k, v]) => el("button", { "aria-pressed": String(kind === k), onclick: () => { installGuideKind = k; render() } }, v[0].replace(" or iPad", "")))),
+    el("ol", { class: "setsteps" }, steps.map(([t, d, extra]) => el("li", {}, el("b", {}, t), d ? el("span", {}, d) : null, extra || null))),
+    el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, `Installed or not, it's the same Pitch Room: everything stays in sync. Share it with: ${SETUP_LINK}`));
 }

@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261112172848">
+<meta name="build" content="20261112174943">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -802,6 +802,83 @@ input,select,textarea{background-color:var(--field)}
 .projset .renameblock{border-bottom:0;padding-bottom:0}
 .projset .danger{margin:0;padding:0;border:0}
 
+/* alerts setup: a checklist, steps and fixes */
+.alertsetup{gap:12px}
+.chklist{display:grid;gap:2px;border:1px solid var(--line);border-radius:14px;padding:4px 12px}
+.chk{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.chk:first-child{border-top:0}
+.chk-i{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font:800 13px/1 var(--body);background:var(--line);color:var(--muted)}
+.chk.ok .chk-i{background:var(--keep-soft);color:var(--keep)}
+.chk.bad .chk-i{background:var(--drop-soft);color:var(--drop)}
+.chk-t{flex:1 1 200px;display:grid;gap:1px;min-width:0}
+.chk-t b{font-size:14.5px}
+.chk-t span{font-size:13px;color:var(--muted)}
+.chk-a{display:flex;gap:6px;margin-left:auto}
+.setsteps{margin:0;padding-left:22px;display:grid;gap:12px}
+.setsteps li{padding-left:4px}
+.setsteps li::marker{font-weight:800;color:var(--accent)}
+.setsteps li>b{display:block;font-size:14.5px}
+.setsteps li>span{display:block;font-size:13.5px;color:var(--muted);margin:2px 0 6px}
+.fixsteps{margin:8px 0 4px;padding-left:20px;display:grid;gap:6px;font-size:14px}
+.copybox{display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:6px 6px 6px 10px;margin:4px 0;min-width:0}
+.copybox code{flex:1;min-width:0;font:12.5px/1.4 ui-monospace,Menlo,monospace;overflow-wrap:anywhere;color:var(--ink)}
+.fixlist{display:grid;gap:4px}
+.fix{border:1px solid var(--line);border-radius:12px;padding:2px 12px}
+.fix-h{width:100%;text-align:left;border:0;background:none;color:var(--ink);font:600 14px/1.3 var(--body);padding:10px 0;cursor:pointer}
+.fix-h::after{content:" \203A";color:var(--muted)}
+.fix.open .fix-h::after{content:" \2304"}
+.fix.open{background:var(--field)}
+
+/* chat: header, people, roles, emoji, reactions */
+.chat-who{display:flex;align-items:center;gap:10px;padding:8px 10px;margin:2px 0 8px;white-space:normal;overflow:visible;background:var(--surface);border:1px solid var(--line);border-radius:16px;font-size:13px}
+.chat-who>.av,.chat-who>img{width:34px;height:34px;flex:none}
+.who-n{display:grid;gap:1px;min-width:0;flex:1}
+.who-n b{font-size:15px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who-n .label{text-transform:none;letter-spacing:0}
+.who-lock{font-size:12px;color:var(--muted);white-space:nowrap}
+.teamdot{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:7px;background:var(--fill);color:#fff;font:800 12px/1 var(--body);flex:none}
+.teamdot.big{width:34px;height:34px;border-radius:11px;font-size:16px}
+.pchip[aria-pressed="true"] .teamdot{background:rgba(255,255,255,.22)}
+.rolebadge{display:inline-block;justify-self:start;font:700 10.5px/1 var(--body);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-left:6px;vertical-align:1px;white-space:nowrap}
+.who-n .rolebadge{margin-left:0}
+.rolebadge.partner{background:var(--warn-soft);color:var(--warn)}
+.chipsep{flex:none;align-self:center;font:700 10.5px/1 var(--body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:0 4px 0 8px;border-left:1px solid var(--line);margin-left:4px}
+.partnerchip:not([aria-pressed="true"]){border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.bubwrap{display:grid;gap:3px;min-width:0;justify-items:start}
+.msg.mine .bubwrap{justify-items:end}
+.bubble .msg-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.bubble .notelink{color:inherit;text-decoration:underline;font-weight:600}
+.bubble.emoji-only{background:none!important;padding:0 2px}
+.bubble.emoji-only .msg-text{font-size:38px;line-height:1.15}
+.bubble.emoji-only .msg-time{color:var(--muted);opacity:1}
+.reacts{display:flex;gap:4px;flex-wrap:wrap;margin-top:-2px}
+.react{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:2px 7px;font-size:13px;line-height:1.3;cursor:pointer}
+.react b{font:700 11.5px/1 var(--body);color:var(--muted)}
+.react.mine{border-color:var(--accent);background:var(--accent-soft)}
+.reactbar{display:flex;gap:2px;align-self:flex-start;margin:2px 0 2px 30px;padding:4px;border-radius:999px;background:var(--solid);border:1px solid var(--line);box-shadow:0 6px 20px rgba(0,0,0,.2)}
+.reactbar.mine{align-self:flex-end;margin-left:0}
+.emo{border:0;background:none;font-size:22px;line-height:1;width:38px;height:38px;border-radius:50%;cursor:pointer;display:grid;place-items:center;transition:transform .12s,background .12s}
+.emo:hover,.emo.on{background:var(--accent-soft)}
+.emo:active{transform:scale(.88)}
+.emo.more{font:700 18px/1 var(--body);color:var(--muted)}
+.emojipanel{max-height:240px;overflow-y:auto;background:var(--solid);border:1px solid var(--line);border-radius:16px;padding:8px 8px 4px;box-shadow:0 10px 30px rgba(0,0,0,.25);width:min(100%,380px);box-sizing:border-box}
+.emg-h{font:700 10.5px/1 var(--body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:6px 4px}
+.emg-l{display:grid;grid-template-columns:repeat(auto-fill,minmax(36px,1fr))}
+.emojipanel .emo{width:auto;height:36px;font-size:21px;border-radius:10px}
+.cv-emoji{display:flex}
+.cv-emoji:empty{display:none}
+.msg-actions .emojipanel{margin:2px 0}
+.seen{align-self:flex-end;font-size:11.5px;color:var(--muted);margin:-1px 4px 4px}
+.sysline{align-self:center;max-width:92%;text-align:center;font-size:12px;color:var(--muted);background:color-mix(in srgb,var(--surface) 70%,transparent);border-radius:999px;padding:4px 10px;margin:4px 0;overflow-wrap:anywhere}
+.chatlog.cv{height:auto;min-height:200px;max-height:calc(100dvh - 400px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));margin-bottom:8px}
+@media (min-width:760px){.chatlog.cv{max-height:calc(100dvh - 380px)}}
+.cv-compose{display:grid;gap:8px}
+.cv-compose textarea{resize:none;max-height:140px}
+.msg-del{border:0;background:none;color:inherit;opacity:.6;font-size:11px;margin-left:6px;padding:0;cursor:pointer}
+.msg-del:hover{opacity:1}
+#chat-input{overflow-y:auto}
+.idea>.setdetails{padding:12px 0;border-top:1px solid var(--line)}
+
 /* ===== Phones: a floating glass dock, lighter top bar, bigger tap targets ===== */
 @media (max-width:759px){
   :root{--r:20px;--dock:72px}
@@ -862,7 +939,7 @@ input,select,textarea{background-color:var(--field)}
   .phasebar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   .ph{flex:none}
 
-  .chatlog{height:calc(100dvh - 312px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));min-height:260px;border-radius:var(--r);padding:12px}
+  .chatlog{height:calc(100dvh - 372px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));min-height:240px;border-radius:var(--r);padding:12px}
   .chatform{gap:8px;align-items:flex-end}
   .alerts{top:calc(env(safe-area-inset-top,0px) + 62px)}
 }
@@ -1093,12 +1170,14 @@ input,select,textarea{background-color:var(--field)}
     <div class="chatbox">
       <div class="chat-head" id="chat-head"></div>
       <div class="chatlog" id="chatlog" aria-live="polite"></div>
+      <div class="cv-emoji" id="chat-emoji-panel" hidden></div>
       <div class="chat-context" id="chat-context" hidden></div>
       <div class="attach-list" id="attach-list" hidden></div>
       <div class="upload-status" id="upload-status" hidden></div>
       <form class="chatform" id="chatform">
         <button type="button" class="attach" id="chat-attach" aria-label="Attach files" title="Attach photos or files"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
         <input type="file" id="chat-file" multiple hidden>
+        <button type="button" class="attach" id="chat-emoji" aria-label="Emoji" title="Emoji">&#x1F642;</button>
         <textarea id="chat-input" rows="1" maxlength="1000" placeholder="Message the team" aria-label="Message"></textarea>
         <button class="btn primary" id="chat-send">Send</button>
       </form>
@@ -1113,7 +1192,7 @@ input,select,textarea{background-color:var(--field)}
   </header>
   <nav class="nav pnav" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" data-pview="leads"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg></span>Numbers <span class="count" id="pc-leads" hidden>0</span></button>
-    <button class="tab" role="tab" data-pview="updates"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Updates <span class="count" id="pc-updates" hidden>0</span></button>
+    <button class="tab" role="tab" data-pview="updates"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Chat <span class="count" id="pc-updates" hidden>0</span></button>
     <button class="tab" role="tab" data-pview="projects"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>Projects <span class="count" id="pc-projects" hidden>0</span></button>
     <button class="tab" role="tab" data-pview="info"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></span>Info</button>
   </nav>
@@ -1144,7 +1223,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261112172848";
+const BUILD_ID = "20261112174943";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -1356,11 +1435,12 @@ service cloud.firestore {
       allow read: if isTeam();
       allow write: if isTeam() && request.auth.uid == uid;
     }
-    // private messages: only the two people in the conversation
+    // private messages: only the two people in the conversation (two team members, or a team member and a partner)
     match /dms/{tid} {
-      allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+      allow read: if (isTeam() || isPartner()) && (request.auth.uid in tid.split("_") || request.auth.uid in resource.data.members);
+      allow write: if (isTeam() || isPartner()) && request.auth.uid in tid.split("_");
       match /msgs/{mid} {
-        allow read, write: if isTeam() && request.auth.uid in tid.split("_");
+        allow read, write: if (isTeam() || isPartner()) && request.auth.uid in tid.split("_");
       }
     }
     // files sent in chat, stored in pieces
@@ -1427,6 +1507,7 @@ service cloud.firestore {
 
 let partnerMode = false;          // true when the signed-in person is a partner, not on the team
 let pGroups = [], pMembers = [], pLeads = [], pPosts = [];
+let pDms = [], pDmOff = false, pDmMsgs = {}, pDmStop = null, pDmFor = null;   // a partner's private chats with team members
 let pErr = null, pLoaded = false;
 let pMe = null, pGroup = null, pGroupGone = false, pGroupUnsubs = [], pGid = null;
 let pgTab = "updates", plFilter = {}, pQuery = {}, pSel = {}, pDelGroup = null, pDelMember = null, pImport = {}, pImportText = {}, pImportOpen = {};
@@ -1448,6 +1529,12 @@ function groupFeed(gid, posts, leads) {
   for (const p of posts) if (p.gid === gid) out.push({ kind: "post", at: p.at || 0, p });
   for (const l of leads) if (l.gid === gid) for (const h of historyOf(l)) out.push({ kind: "call", at: h.at || 0, l, h });
   return out.sort((a, b) => b.at - a.at);
+}
+function groupChatItems(gid, canDelete) {
+  const out = [];
+  for (const p of pPosts) if (p.gid === gid) out.push({ id: p.id, by: p.by, name: p.by === me ? "You" : (p.name || "Someone"), photo: p.photo, role: p.team ? "team" : "partner", text: p.text || "", at: p.at || 0, canDelete: canDelete(p), ref: p });
+  for (const l of pLeads) if (l.gid === gid) for (const h of historyOf(l)) out.push({ system: true, at: h.at || 0, text: `\u260E ${h.by === me ? "You" : (h.name || "Someone")} marked ${leadTitle(l)} as ${LEAD_NAME[h.s] || "updated"}${h.note ? ": " + h.note : ""}` });
+  return out.sort((a, b) => a.at - b.at).slice(-250);
 }
 function feedItem(it, { canDelete } = {}) {
   if (it.kind === "post") {
@@ -1619,12 +1706,13 @@ function rulesCard(open) {
     el("h3", {}, open ? "One step left: lock the partner area" : "Database rules for partners"),
     el("p", { class: "label", style: "margin:0" }, "The site hides your projects from partners, but the database rules are what actually block them. Do this once:"),
     el("ol", { class: "rules", style: "margin:0;padding-left:20px;font-size:14px" },
-      el("li", {}, "Open console.firebase.google.com → the-office project → Firestore Database → Rules."),
+      el("li", {}, "Tap Open Firebase rules (or console.firebase.google.com \u203a the-office project \u203a Firestore Database \u203a Rules)."),
       el("li", {}, "Delete everything there and paste the text below."),
       el("li", {}, "Press Publish, then reload this page.")),
     ta,
     el("div", { class: "row" }, el("span", { class: "spacer" }),
-      el("button", { class: "btn primary small", onclick: async () => { try { await navigator.clipboard.writeText(PARTNER_RULES); toast("Rules copied") } catch { ta.select(); toast("Select all and copy") } } }, "Copy rules")));
+      el("a", { class: "btn small", href: "https://console.firebase.google.com/project/the-office-ab723/firestore/rules", target: "_blank", rel: "noopener noreferrer" }, "Open Firebase rules"),
+      el("button", { class: "btn primary small", onclick: () => copyText(PARTNER_RULES, "Rules copied. Paste them in Firebase, then Publish") }, "Copy rules")));
 }
 
 function renderPartnersTeam(gid) {
@@ -1681,12 +1769,11 @@ function renderPartnerGroupTeam(box, gid) {
 
   if (pgTab === "updates") {
     pSetSeen(gid);
-    const ta = el("textarea", { class: "noteinput", id: "pgmsg-" + gid, rows: "2", maxlength: "1000", placeholder: `Message everyone in ${g.name}: news, a new offer, tips` });
-    box.append(el("div", { class: "compose", style: "margin-top:12px" }, ta, el("div", { class: "row" }, el("span", { class: "spacer" }),
-      el("button", { class: "btn primary", onclick: () => { const t = ta.value.trim(); if (!t) return; ta.value = "";
-        write(() => setDoc(doc(db, "pposts", uid()), { gid, by: me, name: teamName(), photo: photoOf(me) === AV ? "" : photoOf(me), team: true, text: t, at: Date.now() }), "Sent to " + g.name) } }, "Send"))));
-    const feed = groupFeed(gid, pPosts, pLeads);
-    box.append(el("div", { class: "pfeed", style: "margin-top:14px" }, feed.length ? feed.slice(0, 150).map(it => feedItem(it, { canDelete: () => true })) : el("div", { class: "empty" }, "No updates yet. When partners post or log calls, it shows up here.")));
+    box.append(el("div", { class: "chat-who", style: "margin-top:12px" }, el("span", { class: "teamdot big" }, "#"), el("span", { class: "who-n" }, el("b", {}, g.name + " group"), el("span", { class: "label" }, `The Ardent team and the ${people.length} ${people.length === 1 ? "partner" : "partners"} in ${g.name}`))),
+      chatView(groupChatItems(gid, () => true), { onDelete: m => write(() => deleteDoc(doc(db, "pposts", m.id)), "Message deleted"), empty: "No messages yet. Say hi to the partners in " + g.name + "." }),
+      chatComposer("pgmsg-" + gid, `Message everyone in ${g.name}`, t => write(() => setDoc(doc(db, "pposts", uid()), { gid, by: me, name: teamName(), photo: photoOf(me) === AV ? "" : photoOf(me), team: true, text: t, at: Date.now() }))),
+      ...(people.filter(m => m.uid).length ? [el("div", { class: "row", style: "gap:6px;margin-top:10px" }, el("span", { class: "label" }, "Message privately:"),
+        people.filter(m => m.uid).map(m => el("button", { class: "pchip partnerchip", onclick: () => { location.hash = "dm-" + m.uid } }, postAv(m.photo), (m.name || m.email).split(" ")[0])))] : []));
   }
 
   if (pgTab === "leads") {
@@ -1825,7 +1912,7 @@ async function partnerCheck(email) {
 }
 function partnerStop() {
   pGroupUnsubs.forEach(f => f()); pGroupUnsubs = []; pGid = null; pGroup = null; pMe = null;
-  pLeads = []; pPosts = []; partnerMode = false; $("#partner").hidden = true; partnerProjectsStop();
+  pLeads = []; pPosts = []; pDms = []; pDmMsgs = {}; if (pDmStop) { pDmStop(); pDmStop = null; pDmFor = null } partnerMode = false; $("#partner").hidden = true; partnerProjectsStop();
 }
 function startPartner(u, pm) {
   partnerMode = true; isAdmin = false; pMe = pm;
@@ -1840,7 +1927,8 @@ function startPartner(u, pm) {
   }, e => { if (e.code === "permission-denied") partnerEnded(u) }));
   partnerGroupSubs(pm.gid);
   partnerProjectSubs(pm.id);
-  if (!["leads", "updates", "info", "projects"].includes(location.hash.slice(1))) history.replaceState(null, "", "#leads");
+  unsubs.push(onSnapshot(query(collection(db, "dms"), where("members", "array-contains", me)), q => { pDms = q.docs.map(d => ({ id: d.id, ...d.data() })); pDmOff = false; render() }, () => { pDmOff = true; render() }));
+  if (!["leads", "updates", "info", "projects"].includes(location.hash.slice(1)) && !location.hash.startsWith("#pdm-")) history.replaceState(null, "", "#leads");
   render();
 }
 function partnerEnded(u) {
@@ -1874,11 +1962,14 @@ function keepPartnerInputs(fn) {
 }
 function renderPortal() { keepPartnerInputs(renderPortalNow) }
 function renderPortalNow() {
-  let v = location.hash.slice(1); if (!["leads", "updates", "info", "projects"].includes(v)) v = "leads";
+  let v = location.hash.slice(1), dmWith = null;
+  if (v.startsWith("pdm-")) { dmWith = v.slice(4); v = "updates" }
+  if (!["leads", "updates", "info", "projects"].includes(v)) v = "leads";
   const open = myPTasks.filter(t => !t.done).length, cpj = $("#pc-projects"); if (cpj) { cpj.hidden = !open; cpj.textContent = open }
   for (const b of document.querySelectorAll("#partner .tab")) b.setAttribute("aria-selected", b.dataset.pview === v);
   const seen = pGetSeen("p-updates");
-  const unread = pPosts.filter(p => p.team && (p.at || 0) > seen).length;
+  const dmUnreadN = pDms.filter(t => t.lastBy && t.lastBy !== me && (t.lastAt || 0) > ((t.seen || {})[me] || 0)).length;
+  const unread = pPosts.filter(p => p.team && (p.at || 0) > seen).length + dmUnreadN;
   const cu = $("#pc-updates"); cu.hidden = !unread || v === "updates"; cu.textContent = unread;
   const callN = pLeads.filter(l => TO_CALL.includes(l.status || "new")).length;
   const cl = $("#pc-leads"); cl.hidden = !callN; cl.textContent = callN > 99 ? "99+" : callN;
@@ -1894,16 +1985,7 @@ function renderPortalNow() {
       el("div", { style: "margin-top:14px" }, stats(pLeads)));
     box.append(...leadList(pLeads, "p", { team: false, who: partnerName() }).filter(Boolean));
   }
-  if (v === "updates") {
-    pSetSeen("p-updates");
-    const ta = el("textarea", { class: "noteinput", id: "p-msg", rows: "3", maxlength: "1000", placeholder: "Tell the team how it's going: calls today, good leads, questions" });
-    box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Updates"),
-      el("div", { class: "compose" }, ta, el("div", { class: "row" }, el("span", { class: "label" }, "Only the Ardent Studios team and your group see this."), el("span", { class: "spacer" }),
-        el("button", { class: "btn primary", onclick: () => { const t = ta.value.trim(); if (!t) return; ta.value = "";
-          write(() => setDoc(doc(db, "pposts", uid()), { gid: pGid, by: me, name: partnerName(), photo: (myProfile && myProfile.photo) || "", team: false, text: t, at: Date.now() }), "Sent to the team") } }, "Send"))));
-    const feed = groupFeed(pGid, pPosts, pLeads);
-    box.append(el("div", { class: "pfeed", style: "margin-top:14px" }, feed.length ? feed.slice(0, 150).map(it => feedItem(it, { canDelete: p => p.by === me })) : el("div", { class: "empty" }, "No updates yet.")));
-  }
+  if (v === "updates") renderPartnerChat(box, dmWith);
   if (v === "info") {
     const links = Object.entries(pGroup.links || {}).filter(([, x]) => x).map(([id, x]) => ({ id, ...x })).sort((a, b) => (a.at || 0) - (b.at || 0));
     box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Info"),
@@ -1941,6 +2023,48 @@ function pickGroupFile(gid, labelInput) {
     } catch (e) { toast(e && e.message === "too big" ? `${f.name} is too big. The limit is 5 MB per file.` : "That file didn't upload. Check your connection and try again.") }
   };
   document.body.append(inp); inp.click();
+}
+
+/* ---------- partner side: chat with the group and private messages with the team ---------- */
+function pWatchDm(tid) {
+  if (tid === pDmFor) return;
+  if (pDmStop) { pDmStop(); pDmStop = null }
+  pDmFor = tid; if (!tid) return;
+  pDmStop = onSnapshot(query(collection(db, "dms", tid, "msgs"), orderBy("at"), limitToLast(300)), q => { pDmMsgs[tid] = q.docs.map(d => ({ id: d.id, ...d.data() })); render() }, () => { pDmOff = true; render() });
+}
+function renderPartnerChat(box, dmWith) {
+  const other = t => (t.members || []).find(x => x !== me) || me;
+  const t = dmWith ? pDms.find(x => other(x) === dmWith) : null;
+  pWatchDm(t ? t.id : null);
+  if (!dmWith) pSetSeen("p-updates");
+  if (t && t.lastBy !== me && (t.lastAt || 0) > ((t.seen || {})[me] || 0)) setDoc(doc(db, "dms", t.id), { seen: { [me]: Date.now() } }, { merge: true }).catch(() => {});
+  const seenG = pGetSeen("p-updates"), gUnread = pPosts.filter(p => p.team && (p.at || 0) > seenG).length;
+  const threads = [...pDms].sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
+  box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Chat"),
+    el("div", { class: "pchips chat-people" },
+      el("button", { class: "pchip", "aria-pressed": String(!dmWith), onclick: () => { location.hash = "updates" } }, el("span", { class: "teamdot" }, "#"), pGroup.name, gUnread && dmWith ? el("span", { class: "count" }, gUnread) : null),
+      threads.length ? el("span", { class: "chipsep" }, "Ardent team") : null,
+      threads.map(x => { const u = other(x), n = x.lastBy && x.lastBy !== me && (x.lastAt || 0) > ((x.seen || {})[me] || 0) && dmWith !== u;
+        return el("button", { class: "pchip", "aria-pressed": String(dmWith === u), onclick: () => { location.hash = "pdm-" + u } }, postAv((x.photos || {})[u]), ((x.names || {})[u] || "Team").split(" ")[0], n ? el("span", { class: "count" }, "1") : null) })));
+  if (!dmWith) {
+    box.append(el("div", { class: "chat-who" }, el("span", { class: "teamdot big" }, "#"), el("span", { class: "who-n" }, el("b", {}, pGroup.name + " group"), el("span", { class: "label" }, "You, the other partners here and the Ardent Studios team"))),
+      chatView(groupChatItems(pGid, p => p.by === me), { onDelete: m => write(() => deleteDoc(doc(db, "pposts", m.id)), "Message deleted"), empty: "No messages yet. Tell the team how it's going: calls today, good leads, questions." }),
+      chatComposer("p-msg", "Message the team and your group", txt => write(() => setDoc(doc(db, "pposts", uid()), { gid: pGid, by: me, name: partnerName(), photo: (myProfile && myProfile.photo) || "", team: false, text: txt, at: Date.now() }))),
+      ...(threads.length ? [] : [el("p", { class: "label", style: "margin:10px 2px 0;text-transform:none;letter-spacing:0" }, "When someone from the team messages you privately, it shows up here too.")]));
+    return;
+  }
+  if (!t) { box.append(el("div", { class: "empty" }, pDmOff ? "Private messages aren't switched on yet. Ask the team to update the database rules." : "Loading…")); return }
+  const nm = (t.names || {})[dmWith] || "Ardent team";
+  box.append(el("div", { class: "chat-who" }, postAv((t.photos || {})[dmWith]), el("span", { class: "who-n" }, el("b", {}, nm), el("span", { class: "rolebadge" }, "Ardent team")), el("span", { class: "who-lock" }, "\u{1F512} only you two see this")));
+  const msgs = (pDmMsgs[t.id] || []).map(m => ({ id: m.id, by: m.by, name: m.by === me ? "You" : (t.names || {})[m.by] || nm, photo: (t.photos || {})[m.by], role: (t.roles || {})[m.by] || "team", text: m.text || "", at: m.at || 0, file: m.file }));
+  box.append(chatView(msgs, { empty: "No messages yet." }),
+    chatComposer("pdm-" + dmWith, "Message " + nm.split(" ")[0], txt => {
+      const at = Date.now();
+      write(async () => {
+        await setDoc(doc(db, "dms", t.id, "msgs", uid()), { by: me, text: txt, at });
+        await setDoc(doc(db, "dms", t.id), { lastAt: at, lastBy: me, lastText: txt.slice(0, 120), seen: { [me]: at }, names: { [me]: partnerName() }, roles: { [me]: "partner" }, photos: { [me]: (myProfile && myProfile.photo && myProfile.photo.length < 400) ? myProfile.photo : "" } }, { merge: true });
+      });
+    }));
 }
 
 /* ---------- Clients and per-project partners ----------
@@ -2267,7 +2391,7 @@ function accessSection() {
 
 var pushUrl = "", pushKey = null, pushOn = false, pushBusy = false, pushErr = "";
 var pushBaseline = null, pushTimer = null;
-var PUSH_KINDS = ["ready", "idea", "done", "planner", "task", "help", "note", "goal", "blk", "file", "link", "meet", "start", "news", "dm", "reply", "chat"];
+var PUSH_KINDS = ["fin", "ready", "idea", "done", "planner", "task", "help", "note", "goal", "blk", "file", "link", "meet", "start", "news", "dm", "reply", "chat"];
 
 const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && window.isSecureContext;
 const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -2282,7 +2406,7 @@ const urlB64ToBytes = s => { const b = atob(s.replace(/-/g, "+").replace(/_/g, "
 // Called when meta/push changes and when the team's site starts.
 function pushConfig(d) {
   const url = (d && d.url) || "";
-  if (url !== pushUrl) { pushUrl = url; pushKey = null }
+  if (url !== pushUrl) { pushUrl = url; pushKey = null; pushServerState = "" }
   pushCheck();
 }
 
@@ -2292,7 +2416,9 @@ async function pushCheck() {
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    if (!sub || Notification.permission !== "granted") { pushOn = false; render(); return }
+    if (Notification.permission !== "granted") { pushOn = false; render(); return }
+    // still allowed, but the browser dropped the connection (cleared data, an update): reconnect by itself
+    if (!sub) { if ((people[me] || {}).pushSubs && ((people[me] || {}).pushSubs || {})[pushDeviceId()]) await pushEnable(true); else { pushOn = false; render() } return }
     const key = await pushServerKey();
     const subKey = sub.options && sub.options.applicationServerKey ? btoaUrl(sub.options.applicationServerKey) : null;
     if (key && subKey && subKey !== key) { await sub.unsubscribe(); pushOn = false; await pushEnable(true); return }
@@ -2377,7 +2503,12 @@ async function pushSend(msgs) {
 
 async function pushTest() {
   const r = await pushSend([{ to: me, title: "Pitch Room", body: "Test alert: this device rings even when the site is closed.", tag: "test-" + Date.now(), go: "settings", force: true }]);
-  toast(r && r.sent ? "Sent. Close or hide the site to see it next time" : "The test didn't go through. Check the push server address", 4000);
+  if (!r) return toast("Couldn't reach the alert server. Check your internet" + (isAdmin ? ", and the server address below" : `, or tell ${ADMIN_NAME}`), 5000);
+  if (r.error) return toast(r.error === "Not allowed" ? "The server said you're not allowed. Sign out and in again" : "The alert server had a problem: " + r.error, 5000);
+  if (r.sent) return toast("Sent! It should pop up now. Next time, close the site to see how alerts arrive", 4500);
+  // nothing delivered: this device's connection is missing or expired, so make a fresh one
+  await pushReconnect();
+  toast(pushOn ? "This device's connection had expired. Fixed: send the test again" : "Couldn't deliver to this device. Open Something not working? below", 5000);
 }
 
 /* What my action means for each teammate. Same wording and keys as their bell (buildAlerts),
@@ -2395,16 +2526,22 @@ function pushAlertsFor(u) {
     if (pl && typeof pl === "object" && pl.by === me) add("planner:" + p.id, pl.at, `Made you a planner of ${p.title}`, "plan-" + p.id);
     if (p.status !== "approved") continue;
     for (const t of tasksOf(p)) {
-      if (!isAssignee(t, u)) continue;
-      if (t.assignedBy === me) add("task:" + t.id + ":" + t.assignedAt, t.assignedAt, `Gave you a task: ${t.text} · ${p.title}`, "me");
+      if (!isAssignee(t, u)) {
+        // a task they gave out: tell them when I finish it or leave a note
+        if (t.assignedBy !== u || !isAssignee(t, me)) continue;
+        if (t.done && t.doneBy === me) add("fin:" + t.id + ":" + (t.doneAt || 0), t.doneAt, `Finished "${t.text}" (${p.title})`, taskLink(p, t));
+        for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by === me) add("note:" + nid, n.at, `Left a note on a task you gave out: ${t.text}`, taskLink(p, t));
+        continue;
+      }
+      if (t.assignedBy === me) add("task:" + t.id + ":" + t.assignedAt, t.assignedAt, `Gave you a task: ${t.text} · ${p.title}`, taskLink(p, t));
       const h = (t.helpers || {})[u];
-      if (h && h.by === me) add("help:" + t.id, h.at, `Added you to a task: ${t.text} · ${p.title}`, "me");
-      for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by === me) add("note:" + nid, n.at, `Left a note on your task: ${t.text}`, "plan-" + p.id);
+      if (h && h.by === me) add("help:" + t.id, h.at, `Added you to a task: ${t.text} · ${p.title}`, taskLink(p, t));
+      for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by === me) add("note:" + nid, n.at, `Left a note on your task: ${t.text}`, taskLink(p, t));
       if (!t.done) {
         const w = waitInfo(p, t);
         if (w.deps.length && !w.open.length) {
           const last = w.deps.reduce((a, d) => (d.doneAt || 0) > (a.doneAt || 0) ? d : a, w.deps[0]);
-          if (last.doneBy === me) add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, `Finished "${last.text}", so you can start "${t.text}"`, "project-" + p.id);
+          if (last.doneBy === me) add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, `Finished "${last.text}", so you can start "${t.text}"`, taskLink(p, t));
         }
       }
     }
@@ -2537,35 +2674,227 @@ function pingCard(a) {
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", e => { if (e.data && e.data.type === "push") chime() });
 
-// Settings: alerts on this device, plus the push server address for the admin.
+// Settings: a guided setup for alerts on this device, with fixes for the usual problems and
+// copy buttons for anything that has to be pasted. The admin also gets the one-time server setup.
+var pushServerState = "", pushGuide = null, pushFix = null, pushCodeBusy = false;
+const SETUP_LINK = "https://mohammeddalajmiii-cyber.github.io/the-office-/";
+const devKind = () => { const ua = navigator.userAgent;
+  if (isIOS()) return "ios"; if (/Android/i.test(ua)) return "android";
+  if (/Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox/.test(ua)) return "macsafari";
+  return "computer" };
+const browserName = () => { const ua = navigator.userAgent; return /Edg\//.test(ua) ? "Edge" : /Firefox/.test(ua) ? "Firefox" : /Chrome|CriOS/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : "your browser" };
+async function copyText(t, ok) { try { await navigator.clipboard.writeText(t); toast(ok || "Copied") } catch { const ta = el("textarea", { style: "position:fixed;opacity:0" }); ta.value = t; document.body.append(ta); ta.select(); try { document.execCommand("copy"); toast(ok || "Copied") } catch { toast("Couldn't copy. Select it and copy by hand", 4000) } ta.remove() } }
+const copyBox = (text, label) => el("div", { class: "copybox" }, el("code", {}, text), el("button", { class: "btn small", onclick: () => copyText(text, (label || "Copied")) }, "Copy"));
+
+// Is the team's alert server answering? Checked once per visit to Settings.
+async function pushServerCheck() {
+  if (!pushBase()) { pushServerState = "none"; return }
+  pushServerState = "checking";
+  try { pushKey = null; await pushServerKey(); pushServerState = "ok" }
+  catch (e) { pushServerState = /no key/i.test(String(e && e.message)) ? "nokey" : "down" }
+  render();
+}
+// Turn this device off and on again: fixes an expired or broken connection.
+async function pushReconnect() {
+  try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe() } catch { }
+  pushOn = false; await pushEnable(true);
+}
+// Only this device keeps getting alerts for my account (old phones and browsers stop).
+async function pushOnlyThisDevice() {
+  const mine = ((people[me] || {}).pushSubs || {})[pushDeviceId()];
+  const others = Object.keys((people[me] || {}).pushSubs || {}).filter(k => k !== pushDeviceId());
+  if (!others.length) { toast("Only this device is connected"); return }
+  await write(() => setDoc(doc(db, "users", me), { pushSubs: Object.fromEntries(others.map(k => [k, DEL()])) }, { merge: true }), `Removed ${others.length} old device${others.length > 1 ? "s" : ""}. Turn alerts on again on any device you still use`);
+  people[me] = { ...(people[me] || {}), pushSubs: mine ? { [pushDeviceId()]: mine } : {} };
+}
+// The server code with a fresh key filled in, ready to paste into Cloudflare. The key stays on this device so copying again gives the same one.
+async function pushWorkerCode() {
+  let jwk = null; try { jwk = JSON.parse(localStorage.getItem("pushVapid") || "null") } catch { }
+  if (!jwk) {
+    const k = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const j = await crypto.subtle.exportKey("jwk", k.privateKey); jwk = { kty: j.kty, crv: j.crv, x: j.x, y: j.y, d: j.d };
+    try { localStorage.setItem("pushVapid", JSON.stringify(jwk)) } catch { }
+  }
+  const src = await (await fetch("push-server/worker.js?v=" + Date.now(), { cache: "no-store" })).text();
+  if (!src.includes("const VAPID = null;")) throw new Error("template");
+  return src.replace("const VAPID = null;", "const VAPID = " + JSON.stringify(jwk) + ";   // secret: don't share this code");
+}
+function teamSetupMessage() {
+  return `Turn on Pitch Room alerts (2 minutes, do it on your phone AND your laptop):
+1. Open ${SETUP_LINK}
+   iPhone: open it in Safari, tap Share > Add to Home Screen, then open Pitch Room from the new icon.
+   Android: open it in Chrome (menu > Add to Home screen is best).
+   Laptop: open it in Chrome or Edge.
+2. Go to Me > Settings > Alerts and tap Turn on, then Allow.
+3. Tap Send a test. You should hear it ring.
+Stuck? Settings > Alerts has a fix for every problem.`;
+}
+
+const STEPS_FN = () => ({
+  ios: { name: "iPhone or iPad", steps: [
+    ["Open the site in Safari", "Alerts on iPhone only work from the Home Screen app, and it has to be added from Safari.", copyBox(SETUP_LINK, "Link copied. Paste it in Safari")],
+    ["Add it to your Home Screen", "Tap the Share button (the square with an arrow), scroll down, tap Add to Home Screen, then Add."],
+    ["Open Pitch Room from the new icon", "Not from Safari. It opens full screen, like an app."],
+    ["Turn on alerts", "Come back here (Me › Settings › Alerts), tap Turn on, then Allow."],
+    ["Send a test", "Then lock the phone. Alerts arrive with your iPhone's sound."]],
+    note: "Needs iOS 16.4 or newer (Settings › General › About)." },
+  android: { name: "Android", steps: [
+    ["Open the site in Chrome", "Other browsers on Android often don't ring.", copyBox(SETUP_LINK, "Link copied. Paste it in Chrome")],
+    ["Add it to your Home screen (best)", "Tap ⋮ at the top right, then Add to Home screen or Install app."],
+    ["Turn on alerts", "Tap Turn on below, then Allow."],
+    ["Send a test", "Then close the app. Alerts ring with your phone's notification sound."]] },
+  computer: { name: "Computer (Chrome or Edge)", steps: [
+    ["Open the site in Chrome or Edge", "They ring even with every Pitch Room tab closed, as long as the browser is running.", copyBox(SETUP_LINK, "Link copied")],
+    ["Turn on alerts", "Tap Turn on below, then Allow in the box near the address bar."],
+    ["Send a test", "Then close the tab. Windows and Mac show it in the corner with a sound."],
+    ["Keep it in the background", "Chrome: Settings › System › Continue running background apps when Chrome is closed: on."]] },
+  macsafari: { name: "Mac (Safari)", steps: [
+    ["Open the site in Safari", "Needs macOS 13 or newer. Chrome on Mac works too.", copyBox(SETUP_LINK, "Link copied")],
+    ["Best: add it to the Dock", "File › Add to Dock. It then rings even when Safari is closed."],
+    ["Turn on alerts", "Tap Turn on below, then Allow."],
+    ["Send a test", "Alerts show at the top right of the screen."]] },
+});
+function blockedFix(kind) {
+  const b = browserName();
+  if (kind === "ios") return el("ol", { class: "fixsteps" }, el("li", {}, "Open the iPhone Settings app › Notifications › Pitch Room."), el("li", {}, "Turn on Allow Notifications, Sounds and Lock Screen."),
+    el("li", {}, "Not in the list? Delete the Pitch Room icon from your Home Screen, add it again from Safari, open it and tap Turn on."));
+  if (kind === "android") return el("ol", { class: "fixsteps" }, el("li", {}, "In Chrome, tap the icon left of the address › Permissions › Notifications › Allow."),
+    el("li", {}, "Or: phone Settings › Apps › Chrome (or Pitch Room) › Notifications › turn everything on."), el("li", {}, "Come back and tap Turn on."));
+  if (kind === "macsafari") return el("ol", { class: "fixsteps" }, el("li", {}, "Safari › Settings › Websites › Notifications."), el("li", {}, "Find mohammeddalajmiii-cyber.github.io and set it to Allow."), el("li", {}, "Reload this page and tap Turn on."));
+  const url = b === "Edge" ? "edge://settings/content/notifications" : b === "Firefox" ? "about:preferences#privacy" : "chrome://settings/content/notifications";
+  return el("ol", { class: "fixsteps" }, el("li", {}, "Click the icon left of the address bar (ⓘ or the sliders) › Notifications › Allow, then reload."),
+    el("li", {}, `Or paste this in a new ${b} tab and move this site from Not allowed to Allowed:`, copyBox(url, "Copied. Paste it in the address bar")),
+    el("li", {}, "Reload this page and tap Turn on."));
+}
+function soundFix(kind) {
+  return el("ol", { class: "fixsteps" }, ...({
+    ios: ["Settings › Notifications › Pitch Room: Sounds on, style Banners.", "Turn off Focus or Do Not Disturb (swipe down from the top right), or allow Pitch Room in it.", "Check the ring/silent switch on the side of the phone."],
+    android: ["Settings › Apps › Chrome (or Pitch Room) › Notifications: set the sound and Pop on screen.", "Turn off Do Not Disturb.", "Settings › Apps › Chrome › Battery: Unrestricted, so the phone doesn't put it to sleep."],
+    macsafari: ["System Settings › Notifications › Safari (or Pitch Room): Allow notifications, style Alerts, Play sound on.", "Turn off Focus / Do Not Disturb in the menu bar."],
+    computer: navigator.platform.startsWith("Win") ? ["Windows Settings › System › Notifications: on, and on for " + browserName() + ", with sound.", "Turn off Do not disturb (Focus) in the same place.", "Keep " + browserName() + " running in the background."] :
+      ["System Settings › Notifications › " + (browserName() === "Edge" ? "Microsoft Edge" : "Google Chrome") + ": Allow notifications, style Alerts, Play sound on.", "Turn off Focus / Do Not Disturb.", "Keep " + browserName() + " running in the background."],
+  }[kind]).map(t => el("li", {}, t)));
+}
+
 function pushSettings() {
   const perm = "Notification" in window ? Notification.permission : "unsupported";
-  const box = el("section", { class: "idea" }, el("h3", {}, "Alerts on this device"));
-  let line, btns = [];
-  if (pushOn && perm === "granted") {
-    line = "On. This device rings with its alert sound for new tasks, messages and replies, even when Pitch Room is closed.";
-    btns = [el("button", { class: "btn small", onclick: pushTest }, "Send a test"), el("button", { class: "btn quiet small", disabled: pushBusy, onclick: pushDisable }, "Turn off")];
-  } else if (perm === "denied") line = "Blocked in your browser settings. Allow notifications for this site there, then come back and turn them on.";
-  else if (isIOS() && !isHomeScreenApp()) line = "On iPhone and iPad: tap Share, then Add to Home Screen. Open Pitch Room from the new icon and turn alerts on there.";
-  else if (!pushSupported()) line = perm === "unsupported" ? "This browser can't show alerts. The bell still works." : "This browser only shows pop-ups while the site is open.";
-  else if (!pushBase()) line = perm === "granted" ? "On while the site is open. Ringing when it's closed isn't set up yet." : "Off. Turn on to get pop-ups while the site is open.";
-  else { line = "Off. Turn on to get alerts with sound on this phone or computer, even when Pitch Room is closed."; btns = [el("button", { class: "btn primary small", disabled: pushBusy, onclick: () => pushEnable() }, pushBusy ? "Turning on…" : "Turn on")] }
-  if (!pushBase() && perm === "default" && pushSupported()) btns = [el("button", { class: "btn primary small", onclick: enableDeviceAlerts }, "Turn on")];
-  btns.push(el("button", { class: "btn quiet small", onclick: () => { chimeAt = 0; pingCard({ title: realName(me) || "Pitch Room", who: me, sub: "now", text: "This is how a new alert looks and sounds", go: "" }); chime() } }, "Try it"));
-  box.append(el("div", { class: "row", style: "gap:8px" }, el("span", { style: "flex:1 1 220px" }, line), ...btns));
-  if (pushOn) box.append(el("p", { style: "font-size:12.5px;color:var(--muted);margin:6px 0 0" }, "Turn it on once on each phone and computer you use. If you hear nothing, check the device isn't on silent or Do Not Disturb, and that your browser is allowed to make notification sounds."));
+  const kind = devKind(), showKind = pushGuide || kind, iosNeedsApp = kind === "ios" && !isHomeScreenApp();
+  if (!pushServerState) setTimeout(pushServerCheck, 0);
+  const box = el("section", { class: "idea alertsetup" }, el("div", { class: "row" }, el("h3", {}, "Alerts on this device"), el("span", { class: "spacer" }),
+    el("span", { class: "mstat " + (pushOn && perm === "granted" ? "paid" : "due") }, pushOn && perm === "granted" ? "✓ On" : "Off")));
+
+  // the checklist: each line says what's wrong and the one thing to do about it
+  const srv = pushServerState, check = (ok, title, sub, ...act) => el("div", { class: "chk " + (ok === true ? "ok" : ok === false ? "bad" : "wait") },
+    el("span", { class: "chk-i" }, ok === true ? "✓" : ok === false ? "!" : "•"), el("div", { class: "chk-t" }, el("b", {}, title), sub ? el("span", {}, sub) : null), act.length ? el("div", { class: "chk-a" }, ...act) : null);
+  const list = el("div", { class: "chklist" });
+  list.append(check(srv === "ok" ? true : srv === "checking" || !srv ? null : false, "Alert server",
+    srv === "ok" ? "Working. It rings phones and computers when the site is closed." : srv === "checking" || !srv ? "Checking…" : srv === "none" ? (isAdmin ? "Not set up yet. It's free and takes 5 minutes: see Set up the alert server below." : `Not set up yet. ${ADMIN_NAME} sets it up once for everyone.`)
+      : srv === "nokey" ? (isAdmin ? "The server has no key. Copy the server code again (step 3 below) and deploy it." : `The server needs fixing. Tell ${ADMIN_NAME}.`) : "Not answering right now. Check your internet, then try again.",
+    srv === "down" ? el("button", { class: "btn small", onclick: () => { pushServerState = ""; render() } }, "Check again") : null));
+  list.append(check(pushSupported() ? true : false, "This " + (kind === "ios" ? (isHomeScreenApp() ? "Home Screen app" : "browser") : "browser"),
+    pushSupported() ? browserName() + " can get alerts." : iosNeedsApp ? "On iPhone, alerts only work from the Home Screen app. Follow the iPhone steps below." : "This browser can't get alerts. Use Chrome or Edge (or Safari on iPhone and Mac)."));
+  list.append(check(perm === "granted" ? true : perm === "denied" ? false : null, "Permission",
+    perm === "granted" ? "Allowed." : perm === "denied" ? "Blocked. See Blocked by mistake below to allow it again." : "Not asked yet. Tap Turn on and choose Allow."));
+  const devs = Object.keys((people[me] || {}).pushSubs || {}).length;
+  list.append(check(pushOn ? true : null, "This device", pushOn ? `Connected. ${devs > 1 ? `You get alerts on ${devs} devices.` : "Do the same on your other phone or computer."}` : "Not connected yet.",
+    pushOn ? el("button", { class: "btn small primary", onclick: pushTest }, "Send a test")
+      : pushSupported() && perm !== "denied" && srv !== "none" ? el("button", { class: "btn small primary", disabled: pushBusy, onclick: () => pushEnable() }, pushBusy ? "Turning on…" : "Turn on") : null));
+  box.append(list);
+  box.append(el("div", { class: "row", style: "gap:8px" }, el("span", { class: "label", style: "flex:1 1 200px;text-transform:none;letter-spacing:0" }, "Turn it on once on each phone and computer you use."),
+    el("button", { class: "btn quiet small", onclick: () => { chimeAt = 0; pingCard({ title: realName(me) || "Pitch Room", who: me, sub: "now", text: "This is how a new alert looks and sounds", go: "" }); chime() } }, "Preview"),
+    pushOn ? el("button", { class: "btn quiet small", disabled: pushBusy, onclick: pushDisable }, "Turn off") : null));
+
+  // step by step for this kind of device (switchable, to help someone else)
+  const STEPS = STEPS_FN(), g = STEPS[showKind];
+  box.append(el("details", { class: "setdetails", open: !pushOn }, el("summary", {}, el("b", {}, "How to set it up"), el("span", { class: "label" }, g.name)),
+    el("div", { class: "seg seg-sm", role: "group", "aria-label": "Device", style: "margin-bottom:10px;flex-wrap:wrap" }, Object.entries(STEPS).map(([k, v]) => el("button", { "aria-pressed": String(showKind === k), onclick: () => { pushGuide = k; render() } }, v.name.replace(" (Chrome or Edge)", "").replace(" or iPad", "")))),
+    el("ol", { class: "setsteps" }, g.steps.map(([t, d, extra]) => el("li", {}, el("b", {}, t), el("span", {}, d), extra || null))),
+    g.note ? el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, g.note) : null));
+
+  // fixes for what usually goes wrong
+  const fixes = [
+    ["blocked", "Blocked by mistake", () => blockedFix(kind)],
+    ["test", "The test didn't arrive", () => el("ol", { class: "fixsteps" }, el("li", {}, "Tap Reconnect this device. It fixes an expired connection."), el("li", {}, "Send the test again, then close or hide the site."),
+      el("li", {}, "Still nothing? Check sound and Focus below.", el("div", { class: "row", style: "margin-top:6px" }, el("button", { class: "btn small primary", disabled: pushBusy, onclick: async () => { await pushReconnect(); if (pushOn) toast("Reconnected. Send a test now") } }, "Reconnect this device"))))],
+    ["sound", "It arrives but makes no sound", () => soundFix(kind)],
+    ["stopped", "It worked before, then stopped", () => el("ol", { class: "fixsteps" }, el("li", {}, "Open Pitch Room once: it reconnects by itself when it can."), el("li", {}, "If not, tap Reconnect this device in The test didn't arrive."),
+      el("li", {}, "Getting alerts on an old phone you don't use? Keep only this device, then turn alerts on again on the others.", el("div", { class: "row", style: "margin-top:6px" }, el("button", { class: "btn small", onclick: pushOnlyThisDevice }, "Keep only this device"))))],
+    ["ios", "iPhone: there's no Turn on button", () => el("ol", { class: "fixsteps" }, el("li", {}, "You're in Safari, not the Home Screen app. Follow the iPhone steps above."), el("li", {}, "Update iOS if it's older than 16.4."))],
+  ];
+  box.append(el("details", { class: "setdetails" }, el("summary", {}, el("b", {}, "Something not working?"), el("span", { class: "label" }, "Quick fixes")),
+    el("div", { class: "fixlist" }, fixes.map(([k, t, body]) => el("div", { class: "fix" + (pushFix === k ? " open" : "") },
+      el("button", { class: "fix-h", "aria-expanded": String(pushFix === k), onclick: () => { pushFix = pushFix === k ? null : k; render() } }, t), pushFix === k ? body() : null)))));
+
+  // who on the team gets alerts, so nobody silently misses them
+  const crew = teamIds().filter(u => (people[u] || {}).email);
+  if (crew.length > 1) box.append(el("details", { class: "setdetails" }, el("summary", {}, el("b", {}, "Who gets alerts"), el("span", { class: "label" }, `${crew.filter(u => Object.keys((people[u] || {}).pushSubs || {}).length).length} of ${crew.length} people`)),
+    el("div", { style: "display:grid;gap:4px" }, crew.map(u => { const n = Object.keys((people[u] || {}).pushSubs || {}).length;
+      return el("div", { class: "teamrow" }, av(u), el("span", { class: "teammail" }, name(u)), el("span", { class: n ? "done-badge" : "label" }, n ? `${n} device${n > 1 ? "s" : ""}` : "Not on yet")) })),
+    el("div", { class: "row", style: "margin-top:8px" }, el("span", { class: "label", style: "flex:1 1 200px;text-transform:none;letter-spacing:0" }, "Send this to anyone who isn't on yet:"),
+      el("button", { class: "btn small", onclick: () => copyText(teamSetupMessage(), "Message copied. Paste it in WhatsApp or the chat") }, "Copy setup message"))));
+
+  // the one-time server setup (admin only)
   if (isAdmin) {
-    const inp = el("input", { class: "noteinput", style: "flex:1 1 240px", placeholder: "https://pitch-room-push.yourname.workers.dev", "aria-label": "Push server address", value: pushUrl });
+    const inp = el("input", { class: "noteinput", style: "flex:1 1 240px", placeholder: "https://pitch-room-push.yourname.workers.dev", "aria-label": "Alert server address", value: pushUrl });
     const save = async () => {
-      const v = inp.value.trim().replace(/\/+$/, "");
+      let v = inp.value.trim().replace(/\/+$/, ""); if (v && !/^https?:\/\//.test(v)) v = "https://" + v;
       if (v && !/^https:\/\/[^\s]+$/.test(v)) { toast("That should start with https://"); return }
-      if (v) { try { const j = await (await fetch(v + "/key", { cache: "no-store" })).json(); if (!j.key) throw 0 } catch { toast("Couldn't reach a push server at that address", 4000); return } }
-      write(() => setDoc(doc(db, "meta", "push"), { url: v, by: me, at: Date.now() }, { merge: true }), v ? "Push server saved. Now turn on alerts on this device" : "Push server removed");
+      if (v) { try { const j = await (await fetch(v + "/key", { cache: "no-store" })).json(); if (!j.key) { toast(j.error === "This server has no key yet" ? "The server has no key. Copy the code from step 3 again, paste it and Deploy" : "That address answered, but it isn't the alert server", 5000); return } } catch { toast("Couldn't reach a server at that address. Check it was deployed, and copy the address exactly", 5000); return } }
+      await write(() => setDoc(doc(db, "meta", "push"), { url: v, by: me, at: Date.now() }, { merge: true }), v ? "Alert server connected. Now tap Turn on" : "Alert server removed");
+      pushServerState = ""; render();
     };
-    box.append(el("div", { class: "row", style: "margin-top:10px;gap:8px" }, el("span", { style: "font-size:13px;color:var(--muted);flex:1 1 100%" }, "Push server (only you see this)"),
-      inp, el("button", { class: "btn small", onclick: save }, "Save")));
+    const getCode = async () => { if (pushCodeBusy) return; pushCodeBusy = true; render();
+      try { const code = await pushWorkerCode(); await copyText(code, "Server code copied. Paste it in Cloudflare (step 4)") }
+      catch { toast("Couldn't make the code. Check your internet and try again", 4500) } finally { pushCodeBusy = false; render() } };
+    const dl = async () => { try { const code = await pushWorkerCode(); const a = el("a", { href: URL.createObjectURL(new Blob([code], { type: "text/javascript" })), download: "pitch-room-push-worker.js" }); document.body.append(a); a.click(); a.remove() } catch { toast("Couldn't make the file") } };
+    box.append(el("details", { class: "setdetails", open: srv === "none" || srv === "nokey" }, el("summary", {}, el("b", {}, "Set up the alert server"), el("span", { class: "label" }, srv === "ok" ? "Done ✓ · only you see this" : "Once, for the whole team · only you see this")),
+      el("ol", { class: "setsteps" },
+        el("li", {}, el("b", {}, "Make a free Cloudflare account"), el("span", {}, "Free plan is plenty (100,000 alerts a day)."), el("a", { class: "btn small", href: "https://dash.cloudflare.com/sign-up", target: "_blank", rel: "noopener noreferrer" }, "Open Cloudflare")),
+        el("li", {}, el("b", {}, "Create a Worker"), el("span", {}, "Workers & Pages › Create › Create Worker (Start with Hello World). Name it:"), copyBox("pitch-room-push", "Name copied"), el("span", {}, "Then click Deploy.")),
+        el("li", {}, el("b", {}, "Copy the server code"), el("span", {}, "It comes with your own secret key already filled in. Don't share it or put it on GitHub."),
+          el("div", { class: "row", style: "gap:6px" }, el("button", { class: "btn small primary", disabled: pushCodeBusy, onclick: getCode }, pushCodeBusy ? "Making it…" : "Copy server code"), el("button", { class: "btn small quiet", onclick: dl }, "Download it instead"))),
+        el("li", {}, el("b", {}, "Paste it into the Worker"), el("span", {}, "Click Edit code, select everything and delete it, paste, then click Deploy.")),
+        el("li", {}, el("b", {}, "Paste the Worker's address here"), el("span", {}, "It's shown on the Worker's page, like https://pitch-room-push.yourname.workers.dev"),
+          el("div", { class: "row", style: "gap:8px" }, inp, el("button", { class: "btn small primary", onclick: save }, "Save and test"))),
+        el("li", {}, el("b", {}, "Turn it on and tell the team"), el("span", {}, "Tap Turn on above, send a test, then copy the setup message in Who gets alerts and send it to everyone."))),
+      el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Copying the code again on this device gives the same key. If you copy it on another device, everyone's alerts reconnect by themselves the next time they open the site.")));
   }
   return box;
+}
+
+/* ----- put Pitch Room on the Home Screen, the Dock or the desktop, like an app ----- */
+var installEvt = null, installGuideKind = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; try { render() } catch { } });
+window.addEventListener("appinstalled", () => { installEvt = null; toast("Pitch Room is installed. Open it from your apps"); try { render() } catch { } });
+const INSTALL = () => ({
+  ios: ["iPhone or iPad", [
+    ["Open the site in Safari", "It has to be Safari for this step.", copyBox(SETUP_LINK, "Link copied. Paste it in Safari")],
+    ["Tap the Share button", "The square with an arrow: at the bottom on iPhone, at the top on iPad."],
+    ["Tap Add to Home Screen, then Add", "Scroll down the list if you don't see it."],
+    ["Open Pitch Room from the new icon", "From now on, always open it from there. It's also the only way alerts work on iPhone."]]],
+  android: ["Android", [
+    ["Open the site in Chrome", "", copyBox(SETUP_LINK, "Link copied. Paste it in Chrome")],
+    ["Tap ⋮ (top right), then Add to Home screen", "Some phones say Install app. Choose Install."],
+    ["Open Pitch Room from the new icon", "It opens full screen, without the browser bars."]]],
+  windows: ["Windows", [
+    ["Open the site in Chrome or Edge", "", copyBox(SETUP_LINK, "Link copied")],
+    ["Install it", "Chrome: ⋮ › Cast, save and share › Install page as app › Install. Edge: ⋯ › Apps › Install this site as an app."],
+    ["Pin it", "It opens in its own window and is in the Start menu. Right-click its icon on the taskbar › Pin to taskbar."],
+    ["Just want a desktop shortcut?", "Make the browser window smaller, then drag the icon left of the address onto your desktop."]]],
+  mac: ["Mac", [
+    ["Safari (macOS 14 or newer)", "Open the site, then File › Add to Dock › Add.", copyBox(SETUP_LINK, "Link copied")],
+    ["Or Chrome", "⋮ › Cast, save and share › Install page as app › Install. It goes in your Applications folder."],
+    ["Keep it in the Dock", "While it's open, right-click its Dock icon › Options › Keep in Dock."]]],
+});
+function installGuide() {
+  const kind = installGuideKind || (devKind() === "ios" ? "ios" : devKind() === "android" ? "android" : /Mac/.test(navigator.platform) ? "mac" : "windows");
+  const all = INSTALL(), [label, steps] = all[kind];
+  const installed = isHomeScreenApp();
+  return el("details", { class: "setdetails", open: false }, el("summary", {}, el("b", {}, "Install Pitch Room as an app"), el("span", { class: "label" }, installed ? "Done ✓ you're using the app" : "Home Screen, Dock or desktop")),
+    installEvt && !installed ? el("div", { class: "row", style: "margin-bottom:10px" }, el("span", { style: "flex:1 1 200px;font-size:14px" }, "Your browser can install it in one tap."), el("button", { class: "btn primary small", onclick: async () => { const e = installEvt; installEvt = null; e.prompt(); try { await e.userChoice } catch { } render() } }, "Install now")) : null,
+    el("div", { class: "seg seg-sm", role: "group", "aria-label": "Device", style: "margin-bottom:10px;flex-wrap:wrap" }, Object.entries(all).map(([k, v]) => el("button", { "aria-pressed": String(kind === k), onclick: () => { installGuideKind = k; render() } }, v[0].replace(" or iPad", "")))),
+    el("ol", { class: "setsteps" }, steps.map(([t, d, extra]) => el("li", {}, el("b", {}, t), d ? el("span", {}, d) : null, extra || null))),
+    el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, `Installed or not, it's the same Pitch Room: everything stays in sync. Share it with: ${SETUP_LINK}`));
 }
 
 // Firebase is loaded in the background so the page can draw right away from the last saved copy.
@@ -4243,7 +4572,10 @@ function watchDm(u) {
 // after sending or deleting in a private chat, keep the conversation's summary up to date
 function touchThread(u, last) {
   const tid = dmId(u), members = [me, u].sort();
-  const data = { members, ...(last ? { lastAt: last.at, lastBy: me, lastText: msgSummary(last).slice(0, 120) } : {}), seen: { [me]: Date.now() } };
+  const pm = pmByUid(u), myPhoto = (people[me] || {}).photo || (myProfile && myProfile.photo) || "";
+  const data = { members, ...(last ? { lastAt: last.at, lastBy: me, lastText: msgSummary(last).slice(0, 120) } : {}), seen: { [me]: Date.now() },
+    names: { [me]: realName(me) || (myProfile && myProfile.name) || "", [u]: chatName(u) }, roles: { [me]: "team", [u]: pm ? "partner" : "team" },
+    photos: { [me]: /^https:\/\//.test(myPhoto) && myPhoto.length < 400 ? myPhoto : "" }, ...(pm ? { gid: pm.gid } : {}) };
   return setDoc(doc(db, "dms", tid), data, { merge: true });
 }
 
@@ -4252,6 +4584,7 @@ let chatSel = null;      // message whose actions are showing
 let chatReply = null;    // message being replied to
 let chatEdit = null;     // own message being edited
 let chatDel = null;      // own message waiting for delete confirmation
+let chatReactPick = null, chatEmojiOpen = false;
 const seenKey = () => "chatSeen:" + me;
 const getSeen = () => { try { return +localStorage.getItem(seenKey()) || 0 } catch { return 0 } };
 const setSeen = v => { try { localStorage.setItem(seenKey(), String(v)) } catch { } };
@@ -4259,6 +4592,8 @@ const msgById = id => curList().find(m => m.id === id);
 const snippet = t => (t || "").replace(/\s+/g, " ").slice(0, 90) + ((t || "").length > 90 ? "…" : "");
 
 $("#chatform").addEventListener("submit", e => { e.preventDefault(); sendChat() });
+$("#chat-emoji").onclick = () => { chatEmojiOpen = !chatEmojiOpen; const host = $("#chat-emoji-panel"); host.hidden = !chatEmojiOpen; host.replaceChildren(chatEmojiOpen ? emojiPanel(e => insertAtCursor($("#chat-input"), e)) : "") };
+$("#chat-input").addEventListener("input", () => autoGrow($("#chat-input")));
 $("#chat-input").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat() }
   if (e.key === "Escape" && (chatReply || chatEdit)) { e.preventDefault(); cancelChatMode() }
@@ -4281,7 +4616,7 @@ async function sendChat() {
     return;
   }
   if (!text && !pending.length) return;
-  inp.value = "";
+  inp.value = ""; autoGrow(inp); if (chatEmojiOpen) $("#chat-emoji").click();
   await fbReady;
   let replyTo = chatReply && msgById(chatReply) ? chatReply : null;
   chatReply = null;
@@ -4292,7 +4627,8 @@ async function sendChat() {
     try {
       for (let i = 0; i < files.length; i++) {
         setUploadStatus(`Sending ${files.length > 1 ? `file ${i + 1} of ${files.length}` : files[i].f.name}\u2026`);
-        const file = await uploadFile(await prepareFile(files[i].f), pct => setUploadStatus(`Sending ${files[i].f.name}\u2026 ${pct}%`));
+        const pm = dmTo ? pmByUid(dmTo) : null;
+        const file = await uploadFile(await prepareFile(files[i].f), pct => setUploadStatus(`Sending ${files[i].f.name}\u2026 ${pct}%`), pm ? { gid: pm.gid } : {});
         const data = { by: me, text: "", at: Date.now(), file };
         if (replyTo) { data.replyTo = replyTo; replyTo = null }
         await setDoc(msgRef(uid()), data); last = data;
@@ -4525,18 +4861,24 @@ function renderChat() {
 
   /* who you're talking to: the team, or one person privately */
   const head = $("#chat-head"); head.replaceChildren();
-  const others = teamIds().filter(u => u !== me && people[u]);
-  if (dm && !others.includes(dm)) others.push(dm);
   const lastWith = u => (dmThreads.find(t => t.id === dmId(u)) || {}).lastAt || 0;
-  others.sort((a, b) => lastWith(b) - lastWith(a) || realName(a).localeCompare(realName(b)));
+  const others = teamIds().filter(u => u !== me && people[u]);
+  // partners you can message: they have signed in at least once, or already wrote to you
+  const partners = [...new Set([...pMembers.filter(m => m.uid && m.active !== false).map(m => m.uid), ...dmThreads.filter(t => Object.values(t.roles || {}).includes("partner")).map(otherOf)])].filter(u => u !== me && !others.includes(u));
+  if (dm && !others.includes(dm) && !partners.includes(dm)) (isPartnerUid(dm) ? partners : others).push(dm);
+  const byRecent = (a, b) => lastWith(b) - lastWith(a) || chatName(a).localeCompare(chatName(b));
+  others.sort(byRecent); partners.sort(byRecent);
+  const chip = u => { const t = dmThreads.find(x => x.id === dmId(u)); const n = t && dmUnread(t) && dm !== u;
+    return el("button", { class: "pchip" + (isPartnerUid(u) ? " partnerchip" : ""), role: "tab", "aria-pressed": String(dm === u), title: "Private chat with " + chatName(u), onclick: () => { location.hash = "dm-" + u } }, chatAv(u), chatName(u).split(" ")[0], n ? el("span", { class: "count" }, "1") : null) };
   head.append(el("div", { class: "pchips chat-people", role: "tablist", "aria-label": "Chats" },
-    el("button", { class: "pchip", role: "tab", "aria-pressed": String(!dm), onclick: () => { location.hash = "chat" } }, "Team", teamUnread && dm ? el("span", { class: "count" }, teamUnread) : null),
-    others.map(u => { const t = dmThreads.find(x => x.id === dmId(u)); const n = t && dmUnread(t) && dm !== u;
-      return el("button", { class: "pchip", role: "tab", "aria-pressed": String(dm === u), title: "Private chat with " + realName(u), onclick: () => { location.hash = "dm-" + u } }, av(u), firstName(u), n ? el("span", { class: "count" }, "1") : null) })));
+    el("button", { class: "pchip", role: "tab", "aria-pressed": String(!dm), onclick: () => { location.hash = "chat" } }, el("span", { class: "teamdot", "aria-hidden": "true" }, "#"), "Team", teamUnread && dm ? el("span", { class: "count" }, teamUnread) : null),
+    others.map(chip),
+    partners.length ? el("span", { class: "chipsep" }, "Partners") : null,
+    partners.map(chip)));
   head.append(el("div", { class: "chat-who" }, dm
-    ? [el("span", { class: "lock", "aria-hidden": "true" }, "🔒"), el("span", {}, "Private with ", el("b", {}, firstName(dm)), " · only you two see this")]
-    : el("span", {}, "Team chat · tap a name to talk privately")));
-  $("#chat-input").placeholder = dm ? "Message " + firstName(dm) + " privately" : "Message the team";
+    ? [chatAv(dm), el("span", { class: "who-n" }, el("b", {}, chatName(dm)), roleBadge(dm)), el("span", { class: "who-lock" }, "🔒 only you two see this")]
+    : [el("span", { class: "teamdot big", "aria-hidden": "true" }, "#"), el("span", { class: "who-n" }, el("b", {}, "Team chat"), el("span", { class: "label" }, `${Object.keys(people).length} people · tap a name to talk privately`))]));
+  $("#chat-input").placeholder = dm ? "Message " + chatName(dm).split(" ")[0] + (isPartnerUid(dm) ? " (partner)" : "") : "Message the team";
 
   /* reply / edit bar above the input */
   if (chatReply && !msgById(chatReply)) chatReply = null;
@@ -4557,29 +4899,41 @@ function renderChat() {
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
   const prevTop = log.scrollTop;
   log.replaceChildren();
-  if (dm && dmOff) log.append(el("div", { class: "empty", style: "margin:auto" }, isAdmin ? "Private chats need an update to the database rules in Firebase before they work." : `Private chats aren't switched on yet. Ask ${ADMIN_NAME} to update the database rules.`));
-  else if (!list.length) log.append(el("div", { class: "empty", style: "margin:auto" }, dm ? `No messages with ${firstName(dm)} yet. Say hi, only you two will see it.` : "No messages yet. Say hi to the team."));
+  if (dm && dmOff) log.append(el("div", { class: "empty", style: "margin:auto;display:grid;gap:8px;justify-items:center" }, isAdmin
+    ? [el("span", {}, "Private chats" + (isPartnerUid(dm) ? " with partners" : "") + " need the latest database rules. Copy them, paste them in Firebase › Firestore › Rules, and press Publish."), el("button", { class: "btn small primary", onclick: () => copyText(PARTNER_RULES, "Rules copied. Paste them in Firebase › Firestore › Rules, then Publish") }, "Copy the rules"), el("a", { class: "btn small", href: "https://console.firebase.google.com/project/the-office-ab723/firestore/rules", target: "_blank", rel: "noopener noreferrer" }, "Open Firebase rules")]
+    : `Private chats aren't switched on yet. Ask ${ADMIN_NAME} to update the database rules.`));
+  else if (!list.length) log.append(el("div", { class: "empty", style: "margin:auto" }, dm ? `No messages with ${chatName(dm).split(" ")[0]} yet. Say hi, only you two will see it.` : "No messages yet. Say hi to the team."));
+  // in a private chat: has the other person seen my last message?
+  const dmT = dm ? dmThreads.find(t => t.id === dmId(dm)) : null, lastMine = dm ? [...list].reverse().find(m => m.by === me) : null;
+  const seenLast = !!(dmT && lastMine && ((dmT.seen || {})[dm] || 0) >= lastMine.at);
   let lastDay = "", lastBy = "", lastAt = 0;
   for (const m of list) {
     const day = new Date(m.at).toDateString();
     if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
     const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60 * 1000 && !m.replyTo;
-    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, name(m.by)));
+    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, chatName(m.by), dm && isPartnerUid(m.by) ? el("span", { class: "rolebadge partner" }, "Partner") : null));
     const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     const orig = m.replyTo ? msgById(m.replyTo) : null;
     const quote = m.replyTo ? el("button", { type: "button", class: "quote", onclick: e => { e.stopPropagation(); if (orig) jumpTo(orig.id) } },
-      el("strong", {}, orig ? name(orig.by) : "Message"), el("span", {}, orig ? msgSummary(orig) : "This message was deleted")) : null;
+      el("strong", {}, orig ? chatName(orig.by) : "Message"), el("span", {}, orig ? msgSummary(orig) : "This message was deleted")) : null;
     const sel = chatSel === m.id;
-    const bubble = el("div", { class: "bubble", tabindex: "0", role: "button", "aria-label": "Message options", "aria-expanded": String(sel),
+    const bubble = el("div", { class: "bubble" + (isEmojiOnly(m.text) && !m.file && !quote ? " emoji-only" : ""), tabindex: "0", role: "button", "aria-label": "Message options", "aria-expanded": String(sel),
       onclick: () => { if (String(getSelection())) return; chatSel = sel ? null : m.id; chatDel = null; render() },
       onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); chatSel = sel ? null : m.id; chatDel = null; render() } } },
-      quote, m.file ? attachmentEl(m.file) : null, m.text ? el("span", {}, m.text) : null, el("span", { class: "msg-time" }, (m.edited ? "edited · " : "") + time));
+      quote, m.file ? attachmentEl(m.file) : null, m.text ? msgBody(m.text) : null, el("span", { class: "msg-time" }, (m.edited ? "edited · " : "") + time));
+    const react = (e, on) => write(() => updateDoc(msgRef(m.id), { [`reacts.${emojiKey(e)}.${me}`]: on ? true : DEL() }));
     const row = el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") + (sel ? " selected" : ""), id: "msg-" + m.id },
-      mine ? null : (grouped ? el("span", { class: "av-space" }) : av(m.by)), bubble);
+      mine ? null : (grouped ? el("span", { class: "av-space" }) : chatAv(m.by)), el("div", { class: "bubwrap" }, bubble, reactRow(m, react)));
     log.append(row);
+    if (lastMine === m && seenLast) log.append(el("div", { class: "seen" }, "Seen"));
     if (sel) {
       const act = (label, fn, cls = "") => el("button", { type: "button", class: "act " + cls, onclick: e => { e.stopPropagation(); fn() } }, label);
+      const has = e => !!((m.reacts || {})[emojiKey(e)] || {})[me];
+      log.append(el("div", { class: "reactbar" + (mine ? " mine" : "") }, QUICK_REACTS.map(e => el("button", { type: "button", class: "emo" + (has(e) ? " on" : ""), "aria-label": "React " + e, onclick: ev => { ev.stopPropagation(); chatSel = null; react(e, !has(e)) } }, e)),
+        el("button", { type: "button", class: "emo more", "aria-label": "More emoji", onclick: ev => { ev.stopPropagation(); chatReactPick = chatReactPick === m.id ? null : m.id; render() } }, "+")));
+      if (chatReactPick === m.id) log.append(el("div", { class: "msg-actions" + (mine ? " mine" : "") }, emojiPanel(e => { chatReactPick = null; chatSel = null; react(e, !has(e)) })));
       log.append(el("div", { class: "msg-actions" + (mine ? " mine" : "") },
+        m.text ? act("Copy", () => { copyText(m.text, "Copied"); chatSel = null; render() }) : null,
         act("Reply", () => { chatReply = m.id; chatEdit = null; chatSel = null; render(); $("#chat-input").focus() }),
         mine ? act("Edit", () => { chatEdit = m.id; chatReply = null; chatSel = null; $("#chat-input").value = m.text; render(); const i = $("#chat-input"); i.focus(); i.setSelectionRange(i.value.length, i.value.length) }) : null,
         mine ? (chatDel === m.id
@@ -4590,6 +4944,94 @@ function renderChat() {
     lastDay = day; lastBy = m.by; lastAt = m.at;
   }
   log.scrollTop = atBottom || !prevTop ? log.scrollHeight : prevTop;
+}
+
+/* ----- chat kit: emoji, reactions and a chat view shared by the team chat, partner groups and partner messages ----- */
+const EMOJI = {
+  "Smileys": "😀 😃 😄 😁 😆 😅 😂 🤣 😊 🙂 😉 😍 🥰 😘 😎 🤩 🥳 🤔 🤨 😐 😴 😮 😲 😳 🥺 😢 😭 😤 😡 🤯 😱 🙄 😬 🤫 🤗 🫡 😇 🤓 🫠 🙃",
+  "Hands": "👍 👎 👌 ✌️ 🤞 🤝 👏 🙌 🙏 💪 👋 ✋ 👀 🫶 ☝️ 👉 👈 🤙",
+  "Work": "✅ ☑️ ❌ ⚠️ ⏳ ⏰ 📅 📌 📎 📝 📊 📈 💡 🔥 🚀 🎯 🏆 💰 💵 💳 📞 💻 📱 🎨 🎬 📸 🔧 🛠️ 📦 🧾 📣 🔗",
+  "Hearts & fun": "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💯 ✨ ⭐ 🌟 🎉 🎊 🥂 ☕ 🍕 🌙 ☀️ 🙈 💀 🫣",
+};
+const QUICK_REACTS = ["👍", "❤️", "😂", "🔥", "🙏", "😮"];
+const emojiKey = e => [...e].map(c => c.codePointAt(0).toString(16)).join("_");
+const emojiOf = k => { try { return k.split("_").map(h => String.fromCodePoint(parseInt(h, 16))).join("") } catch { return "" } };
+const isEmojiOnly = t => !!t && t.length <= 24 && /\p{Extended_Pictographic}/u.test(t) && /^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|‍|️|\s)+$/u.test(t);
+const recentEmoji = () => { try { return JSON.parse(localStorage.getItem("recentEmoji") || "[]") } catch { return [] } };
+function useEmoji(e) { try { localStorage.setItem("recentEmoji", JSON.stringify([e, ...recentEmoji().filter(x => x !== e)].slice(0, 16))) } catch { } }
+function emojiPanel(onPick) {
+  const rec = recentEmoji();
+  const groups = [...(rec.length ? [["Recent", rec]] : []), ...Object.entries(EMOJI).map(([k, v]) => [k, v.split(" ")])];
+  return el("div", { class: "emojipanel", role: "dialog", "aria-label": "Emoji", onmousedown: e => e.preventDefault() },
+    groups.map(([g, list]) => el("div", { class: "emg" }, el("div", { class: "emg-h" }, g),
+      el("div", { class: "emg-l" }, list.map(e => el("button", { type: "button", class: "emo", "aria-label": e, onclick: ev => { ev.stopPropagation(); useEmoji(e); onPick(e) } }, e))))));
+}
+function insertAtCursor(inp, text) {
+  const s = inp.selectionStart ?? inp.value.length, e = inp.selectionEnd ?? inp.value.length;
+  inp.value = inp.value.slice(0, s) + text + inp.value.slice(e);
+  const pos = s + text.length; try { inp.focus(); inp.setSelectionRange(pos, pos) } catch { }
+  inp.dispatchEvent(new Event("input"));
+}
+// grow a message box with its text, up to a few lines
+function autoGrow(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 140) + "px" }
+// reactions under a message: tap one to add or take back yours
+function reactRow(m, toggle) {
+  const r = Object.entries(m.reacts || {}).map(([k, who]) => ({ e: emojiOf(k), k, n: Object.values(who || {}).filter(Boolean).length, mine: !!(who || {})[me], who: Object.keys(who || {}).filter(u => who[u]) })).filter(x => x.n && x.e);
+  if (!r.length) return null;
+  return el("div", { class: "reacts" }, r.map(x => el("button", { type: "button", class: "react" + (x.mine ? " mine" : ""), title: x.who.map(u => u === me ? "You" : chatName(u)).join(", "), onclick: e => { e.stopPropagation(); toggle && toggle(x.e, !x.mine) } }, x.e, x.n > 1 ? el("b", {}, x.n) : null)));
+}
+const msgBody = t => el("span", { class: "msg-text" + (isEmojiOnly(t) ? " big" : "") }, linkify(t));
+
+// Who someone is in a chat: team member or partner (with their group)
+const pmByUid = u => (typeof pMembers !== "undefined" ? pMembers : []).find(m => m.uid === u);
+const threadNames = u => { for (const t of (typeof dmThreads !== "undefined" ? dmThreads : []).concat(typeof pDms !== "undefined" ? pDms : [])) if ((t.names || {})[u]) return t.names[u]; return "" };
+const chatName = u => u === me ? "You" : realName(u) || (pmByUid(u) || {}).name || threadNames(u) || "Someone";
+const isPartnerUid = u => !!pmByUid(u) || ((typeof dmThreads !== "undefined" ? dmThreads : []).find(t => (t.roles || {})[u]) || { roles: {} }).roles[u] === "partner";
+function chatAv(u, photo) {
+  if (people[u]) return av(u);
+  const pm = pmByUid(u); return postAv(photo || (pm && pm.photo) || "");
+}
+const roleBadge = (u, gname) => isPartnerUid(u) ? el("span", { class: "rolebadge partner" }, "Partner" + (gname || (pmByUid(u) ? " · " + groupName(pmByUid(u).gid) : ""))) : el("span", { class: "rolebadge" }, "Team");
+
+/* A simple chat view for partner groups and partner messages.
+   items: { id, by, name, photo, role: "team" | "partner", text, at, file, system, canDelete } */
+function chatView(items, { onDelete, empty } = {}) {
+  const log = el("div", { class: "chatlog cv" });
+  if (!items.length) log.append(el("div", { class: "empty", style: "margin:auto" }, empty || "No messages yet. Say hi."));
+  let lastDay = "", lastBy = "", lastAt = 0;
+  for (const m of items) {
+    const day = new Date(m.at).toDateString();
+    if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
+    lastDay = day;
+    if (m.system) { log.append(el("div", { class: "sysline" }, m.text)); lastBy = ""; continue }
+    const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60e3;
+    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, m.name || "Someone", m.role === "team" ? el("span", { class: "rolebadge" }, "Ardent team") : el("span", { class: "rolebadge partner" }, "Partner")));
+    const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    log.append(el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") },
+      mine ? null : (grouped ? el("span", { class: "av-space" }) : postAv(m.photo)),
+      el("div", { class: "bubble" + (isEmojiOnly(m.text) && !m.file ? " emoji-only" : "") }, m.file ? attachmentEl(m.file) : null, m.text ? msgBody(m.text) : null,
+        el("span", { class: "msg-time" }, time, m.canDelete && onDelete ? el("button", { type: "button", class: "msg-del", "aria-label": "Delete message", onclick: e => { e.stopPropagation(); onDelete(m) } }, "✕") : null))));
+    lastBy = m.by; lastAt = m.at;
+  }
+  requestAnimationFrame(() => { log.scrollTop = log.scrollHeight });
+  return log;
+}
+// The box at the bottom of a chat: emoji, text, send. Enter sends on a computer; Shift+Enter makes a new line.
+const composerOpen = {};
+function chatComposer(id, placeholder, onSend) {
+  const ta = el("textarea", { id, class: "noteinput", rows: "1", maxlength: "1000", placeholder, "aria-label": "Message" });
+  ta.addEventListener("input", () => autoGrow(ta));
+  const send = () => { const t = ta.value.trim(); if (!t) return; ta.value = ""; autoGrow(ta); composerOpen[id] = false; onSend(t) };
+  ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && matchMedia("(min-width:760px)").matches) { e.preventDefault(); send() } });
+  const wrap = el("div", { class: "cv-compose" });
+  const panelHost = el("div", { class: "cv-emoji" });
+  const toggle = () => { composerOpen[id] = !composerOpen[id]; panelHost.replaceChildren(composerOpen[id] ? emojiPanel(e => insertAtCursor(ta, e)) : "") };
+  if (composerOpen[id]) panelHost.append(emojiPanel(e => insertAtCursor(ta, e)));
+  wrap.append(panelHost, el("div", { class: "chatform" },
+    el("button", { type: "button", class: "attach", "aria-label": "Emoji", title: "Emoji", onclick: toggle }, "\u{1F642}"),
+    ta, el("button", { type: "button", class: "btn primary", id: id + "-send", onclick: send }, "Send")));
+  setTimeout(() => autoGrow(ta), 0);
+  return wrap;
 }
 
 /* ----- project priority ----- */
@@ -4803,7 +5245,7 @@ function buildAlerts() {
   for (const n of unseenNews()) add("news:" + n.id, n.at || new Date(n.date + "T09:00").getTime(), n.by || null, (n.by ? `${firstName(n.by)} posted: ` : "New in Pitch Room: ") + n.title, "me");
   { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, rulesChanges(rulesNow()).length ? "The money rules changed: " + rulesChanges(rulesNow()).join(", ") + ". Please read and agree" : "Please read and agree to the team's money rules", "money-rules") }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
-  for (const t of dmThreads) if (dmUnread(t)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, t.lastBy, `${name(t.lastBy)} sent you a private message: ${(t.lastText || "").slice(0, 60)}`, "dm-" + t.lastBy);
+  for (const t of dmThreads) if (dmUnread(t)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, people[t.lastBy] ? t.lastBy : null, `${chatName(t.lastBy)}${isPartnerUid(t.lastBy) ? " (partner)" : ""} sent you a private message: ${(t.lastText || "").slice(0, 60)}`, "dm-" + t.lastBy);
   for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
   return out.sort((a, b) => b.at - a.at).slice(0, 50);
 }
@@ -5012,7 +5454,7 @@ function renderSettings() {
   box.append(sec("s-help", "Help", "Quick fixes when something isn't right.", el("div", { class: "idea", style: "gap:0" },
     item("Get the latest version", "If a new feature isn't showing up.", el("button", { class: "btn small", onclick: () => location.replace(location.pathname + "?v=" + Date.now() + location.hash) }, "Reload")),
     item("Refresh this device", "If something looks wrong or out of date. Your work is safe: it's all saved online.", el("button", { class: "btn small", onclick: () => { clearCache(); location.replace(location.pathname + "?v=" + Date.now() + "#me") } }, "Refresh")),
-    standalone ? null : item("Put Pitch Room on your home screen", isIOS() ? "On iPhone: tap Share, then Add to Home Screen. Needed for alerts on iPhone." : "In your browser menu, choose Install app or Add to Home screen. It opens like an app.", null),
+    installGuide(),
     item("Share the site link", SITE_LINK, el("button", { class: "btn small", onclick: async () => { try { await navigator.clipboard.writeText(SITE_LINK); toast("Link copied") } catch { toast(SITE_LINK, 5000) } } }, "Copy")),
     adminId && adminId[0] !== me ? item("Still stuck?", `Message ${ADMIN_NAME} privately.`, el("button", { class: "btn small", onclick: () => { location.hash = "dm-" + adminId[0] } }, "Message")) : null,
     item("Version", typeof BUILD_ID !== "undefined" ? BUILD_ID.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2}).*/, "$3/$2/$1 $4:$5") : "", null))));

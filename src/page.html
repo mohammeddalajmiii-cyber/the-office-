@@ -802,6 +802,83 @@ input,select,textarea{background-color:var(--field)}
 .projset .renameblock{border-bottom:0;padding-bottom:0}
 .projset .danger{margin:0;padding:0;border:0}
 
+/* alerts setup: a checklist, steps and fixes */
+.alertsetup{gap:12px}
+.chklist{display:grid;gap:2px;border:1px solid var(--line);border-radius:14px;padding:4px 12px}
+.chk{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.chk:first-child{border-top:0}
+.chk-i{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font:800 13px/1 var(--body);background:var(--line);color:var(--muted)}
+.chk.ok .chk-i{background:var(--keep-soft);color:var(--keep)}
+.chk.bad .chk-i{background:var(--drop-soft);color:var(--drop)}
+.chk-t{flex:1 1 200px;display:grid;gap:1px;min-width:0}
+.chk-t b{font-size:14.5px}
+.chk-t span{font-size:13px;color:var(--muted)}
+.chk-a{display:flex;gap:6px;margin-left:auto}
+.setsteps{margin:0;padding-left:22px;display:grid;gap:12px}
+.setsteps li{padding-left:4px}
+.setsteps li::marker{font-weight:800;color:var(--accent)}
+.setsteps li>b{display:block;font-size:14.5px}
+.setsteps li>span{display:block;font-size:13.5px;color:var(--muted);margin:2px 0 6px}
+.fixsteps{margin:8px 0 4px;padding-left:20px;display:grid;gap:6px;font-size:14px}
+.copybox{display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:6px 6px 6px 10px;margin:4px 0;min-width:0}
+.copybox code{flex:1;min-width:0;font:12.5px/1.4 ui-monospace,Menlo,monospace;overflow-wrap:anywhere;color:var(--ink)}
+.fixlist{display:grid;gap:4px}
+.fix{border:1px solid var(--line);border-radius:12px;padding:2px 12px}
+.fix-h{width:100%;text-align:left;border:0;background:none;color:var(--ink);font:600 14px/1.3 var(--body);padding:10px 0;cursor:pointer}
+.fix-h::after{content:" \203A";color:var(--muted)}
+.fix.open .fix-h::after{content:" \2304"}
+.fix.open{background:var(--field)}
+
+/* chat: header, people, roles, emoji, reactions */
+.chat-who{display:flex;align-items:center;gap:10px;padding:8px 10px;margin:2px 0 8px;white-space:normal;overflow:visible;background:var(--surface);border:1px solid var(--line);border-radius:16px;font-size:13px}
+.chat-who>.av,.chat-who>img{width:34px;height:34px;flex:none}
+.who-n{display:grid;gap:1px;min-width:0;flex:1}
+.who-n b{font-size:15px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who-n .label{text-transform:none;letter-spacing:0}
+.who-lock{font-size:12px;color:var(--muted);white-space:nowrap}
+.teamdot{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:7px;background:var(--fill);color:#fff;font:800 12px/1 var(--body);flex:none}
+.teamdot.big{width:34px;height:34px;border-radius:11px;font-size:16px}
+.pchip[aria-pressed="true"] .teamdot{background:rgba(255,255,255,.22)}
+.rolebadge{display:inline-block;justify-self:start;font:700 10.5px/1 var(--body);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-left:6px;vertical-align:1px;white-space:nowrap}
+.who-n .rolebadge{margin-left:0}
+.rolebadge.partner{background:var(--warn-soft);color:var(--warn)}
+.chipsep{flex:none;align-self:center;font:700 10.5px/1 var(--body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:0 4px 0 8px;border-left:1px solid var(--line);margin-left:4px}
+.partnerchip:not([aria-pressed="true"]){border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.bubwrap{display:grid;gap:3px;min-width:0;justify-items:start}
+.msg.mine .bubwrap{justify-items:end}
+.bubble .msg-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.bubble .notelink{color:inherit;text-decoration:underline;font-weight:600}
+.bubble.emoji-only{background:none!important;padding:0 2px}
+.bubble.emoji-only .msg-text{font-size:38px;line-height:1.15}
+.bubble.emoji-only .msg-time{color:var(--muted);opacity:1}
+.reacts{display:flex;gap:4px;flex-wrap:wrap;margin-top:-2px}
+.react{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:2px 7px;font-size:13px;line-height:1.3;cursor:pointer}
+.react b{font:700 11.5px/1 var(--body);color:var(--muted)}
+.react.mine{border-color:var(--accent);background:var(--accent-soft)}
+.reactbar{display:flex;gap:2px;align-self:flex-start;margin:2px 0 2px 30px;padding:4px;border-radius:999px;background:var(--solid);border:1px solid var(--line);box-shadow:0 6px 20px rgba(0,0,0,.2)}
+.reactbar.mine{align-self:flex-end;margin-left:0}
+.emo{border:0;background:none;font-size:22px;line-height:1;width:38px;height:38px;border-radius:50%;cursor:pointer;display:grid;place-items:center;transition:transform .12s,background .12s}
+.emo:hover,.emo.on{background:var(--accent-soft)}
+.emo:active{transform:scale(.88)}
+.emo.more{font:700 18px/1 var(--body);color:var(--muted)}
+.emojipanel{max-height:240px;overflow-y:auto;background:var(--solid);border:1px solid var(--line);border-radius:16px;padding:8px 8px 4px;box-shadow:0 10px 30px rgba(0,0,0,.25);width:min(100%,380px);box-sizing:border-box}
+.emg-h{font:700 10.5px/1 var(--body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:6px 4px}
+.emg-l{display:grid;grid-template-columns:repeat(auto-fill,minmax(36px,1fr))}
+.emojipanel .emo{width:auto;height:36px;font-size:21px;border-radius:10px}
+.cv-emoji{display:flex}
+.cv-emoji:empty{display:none}
+.msg-actions .emojipanel{margin:2px 0}
+.seen{align-self:flex-end;font-size:11.5px;color:var(--muted);margin:-1px 4px 4px}
+.sysline{align-self:center;max-width:92%;text-align:center;font-size:12px;color:var(--muted);background:color-mix(in srgb,var(--surface) 70%,transparent);border-radius:999px;padding:4px 10px;margin:4px 0;overflow-wrap:anywhere}
+.chatlog.cv{height:auto;min-height:200px;max-height:calc(100dvh - 400px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));margin-bottom:8px}
+@media (min-width:760px){.chatlog.cv{max-height:calc(100dvh - 380px)}}
+.cv-compose{display:grid;gap:8px}
+.cv-compose textarea{resize:none;max-height:140px}
+.msg-del{border:0;background:none;color:inherit;opacity:.6;font-size:11px;margin-left:6px;padding:0;cursor:pointer}
+.msg-del:hover{opacity:1}
+#chat-input{overflow-y:auto}
+.idea>.setdetails{padding:12px 0;border-top:1px solid var(--line)}
+
 /* ===== Phones: a floating glass dock, lighter top bar, bigger tap targets ===== */
 @media (max-width:759px){
   :root{--r:20px;--dock:72px}
@@ -862,7 +939,7 @@ input,select,textarea{background-color:var(--field)}
   .phasebar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   .ph{flex:none}
 
-  .chatlog{height:calc(100dvh - 312px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));min-height:260px;border-radius:var(--r);padding:12px}
+  .chatlog{height:calc(100dvh - 372px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));min-height:240px;border-radius:var(--r);padding:12px}
   .chatform{gap:8px;align-items:flex-end}
   .alerts{top:calc(env(safe-area-inset-top,0px) + 62px)}
 }
@@ -1093,12 +1170,14 @@ input,select,textarea{background-color:var(--field)}
     <div class="chatbox">
       <div class="chat-head" id="chat-head"></div>
       <div class="chatlog" id="chatlog" aria-live="polite"></div>
+      <div class="cv-emoji" id="chat-emoji-panel" hidden></div>
       <div class="chat-context" id="chat-context" hidden></div>
       <div class="attach-list" id="attach-list" hidden></div>
       <div class="upload-status" id="upload-status" hidden></div>
       <form class="chatform" id="chatform">
         <button type="button" class="attach" id="chat-attach" aria-label="Attach files" title="Attach photos or files"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
         <input type="file" id="chat-file" multiple hidden>
+        <button type="button" class="attach" id="chat-emoji" aria-label="Emoji" title="Emoji">&#x1F642;</button>
         <textarea id="chat-input" rows="1" maxlength="1000" placeholder="Message the team" aria-label="Message"></textarea>
         <button class="btn primary" id="chat-send">Send</button>
       </form>
@@ -1113,7 +1192,7 @@ input,select,textarea{background-color:var(--field)}
   </header>
   <nav class="nav pnav" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" data-pview="leads"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg></span>Numbers <span class="count" id="pc-leads" hidden>0</span></button>
-    <button class="tab" role="tab" data-pview="updates"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Updates <span class="count" id="pc-updates" hidden>0</span></button>
+    <button class="tab" role="tab" data-pview="updates"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Chat <span class="count" id="pc-updates" hidden>0</span></button>
     <button class="tab" role="tab" data-pview="projects"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>Projects <span class="count" id="pc-projects" hidden>0</span></button>
     <button class="tab" role="tab" data-pview="info"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></span>Info</button>
   </nav>
