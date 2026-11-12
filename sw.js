@@ -13,8 +13,8 @@ self.addEventListener("push", e => {
     if (looking && !d.force) { wins.forEach(c => c.postMessage({ type: "push", ...d })); return }
     await self.registration.showNotification(d.title || "Pitch Room", {
       body: d.body || "Something new in Pitch Room",
-      icon: d.icon || "icon-192.png",   // the person's photo when there is one
-      badge: "badge.png",               // the small white mark in the phone's status bar
+      icon: d.icon || "torch-192.png",   // the person's photo when there is one
+      badge: "torch-badge.png",               // the small white mark in the phone's status bar
       tag: d.tag || undefined,
       renotify: false,          // if the open page already showed this same alert, replace it quietly
       silent: false,            // use the phone's or computer's alert sound

@@ -251,7 +251,7 @@ function ping(a) {
   if (a.key) pingSeen.add(a.key);
   if (document.visibilityState === "visible") { pingCard(a); chime(); return }
   if (!("Notification" in window) || Notification.permission !== "granted") return;
-  const opts = { body: a.text, icon: photoUrl(a.who) || "icon-192.png", badge: "badge.png", tag: a.key, silent: false, data: { go: a.go } };
+  const opts = { body: a.text, icon: photoUrl(a.who) || "torch-192.png", badge: "torch-badge.png", tag: a.key, silent: false, data: { go: a.go } };
   if (swReg) swReg.showNotification(a.title, opts).catch(() => {});
   else try { new Notification(a.title, opts) } catch { }
 }
