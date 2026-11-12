@@ -3,9 +3,12 @@
 
    Order for every bit of money that comes in:
      1. pay back costs people paid from their own pocket (oldest first)
-     2. team fund %         (of what's left)
-     3. finder's fee %      (to whoever brought the client, when it applies)
-     4. the rest is split by the agreed shares
+     2. the partner's commission, when a partner abroad brought the client (a % or a fixed amount)
+     3. team fund %         (of what's left)
+     4. finder's fee %      (to whoever on the team brought the client, when it applies)
+     5. the rest is split by the agreed shares
+   Currencies: a deal can be priced in any currency. Each payment records the rate to EGP on the day,
+   and everything that's shared (costs, commission, fund, shares) is in EGP, so the split is exact.
    One-time projects: costs are paid back as money arrives, but the profit is only split
    once the client has fully paid. Monthly and installment deals split every payment.
    A deal that's only a proposal has no payments due yet, so nothing can be late.
@@ -42,9 +45,15 @@ function computeMoney(p, todayStr, rules) {
   const list = o => Object.entries(o || {}).filter(([, v]) => v && v.amount != null).map(([id, v]) => ({ id, ...v }))
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.at || 0) - (b.at || 0));
   const payments = list(p.payments), costs = list(p.costs), payouts = list(p.payouts), ads = list(p.ads);
+  const cur = m.currency || "EGP", dealRate = cur === "EGP" ? 1 : Number(m.rate) || 1;
+  const egp = x => Math.round(toP(x.amount) * (cur === "EGP" ? 1 : Number(x.rate) || dealRate));   // a payment in EGP
+  // the partner abroad who brought the client: a % of each split, or a fixed amount taken until it's paid in full
+  const pa = m.partner && m.partner.email ? m.partner : null;
+  const paMode = pa ? (pa.mode === "fixed" ? "fixed" : "pct") : null, paVal = pa ? Number(pa.value) || 0 : 0;
+  let paLeft = paMode === "fixed" ? toP(paVal) : 0;
 
   const proposal = m.stage === "proposal", ended = m.stage === "ended";
-  const res = { type, proposal, ended, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0, fundCover: 0,
+  const res = { type, currency: cur, rate: dealRate, receivedEGP: 0, partner: pa ? { email: pa.email, name: pa.name || pa.email, mode: paMode, value: paVal, earned: 0, paid: 0 } : null, proposal, ended, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0, fundCover: 0,
     people: {}, unassigned: 0, pending: false, held: 0, preview: null, schedule: [], late: [], monthsUnpaid: 0, ads: { in: 0, spent: 0, held: 0 } };
   const person = u => res.people[u] || (res.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
 
@@ -55,8 +64,17 @@ function computeMoney(p, todayStr, rules) {
     for (const q of queue) { if (avail <= 0) break; const take = Math.min(avail, q.left); if (!take) continue; q.left -= take; avail -= take; if (q.by) person(q.by).back += take; else res.unassigned += take }
     return avail;
   };
+  const commission = (amt, withPartner, into) => {
+    if (!pa || amt <= 0 || (paMode === "pct" && !withPartner)) return 0;   // a fixed amount keeps being paid until it's done
+    let c = 0;
+    if (paMode === "pct") c = Math.round(amt * paVal / 100);
+    else { c = Math.min(amt, into ? toP(paVal) : paLeft); if (!into) paLeft -= c }
+    if (into) into.partner = (into.partner || 0) + c; else res.partner.earned += c;
+    return c;
+  };
   const splitProfit = (amt, shares, withFinder, into) => {
     const t = into || res; if (amt <= 0) return;
+    amt -= commission(amt, withFinder, into); if (amt <= 0) return;
     const fund = Math.round(amt * fundPct / 100), find = withFinder && hasFinder ? Math.round(amt * findPct / 100) : 0;
     t.fund += fund; t.finderAmt += find;
     const rest = amt - fund - find, parts = splitByShares(rest, shares);
@@ -67,24 +85,24 @@ function computeMoney(p, todayStr, rules) {
     if (rest - given > 0) t.unassigned += rest - given;   // no shares set yet
   };
 
-  for (const x of payments) res.received += toP(x.amount);
+  for (const x of payments) { res.received += toP(x.amount); res.receivedEGP += egp(x) }
 
   if (type === "one") {
     res.expected = toP(m.price);
-    const avail = reimburse(res.received);
+    const avail = reimburse(res.receivedEGP);
     if (res.expected > 0 && res.received >= res.expected) splitProfit(avail, m.shares, true);
     else {
       res.pending = true; res.held = avail;
       // what it will look like once fully paid (assuming no more costs)
       const pv = { fund: 0, finderAmt: 0, unassigned: 0, people: {} };
       const totalCosts = res.costsTotal;
-      splitProfit(Math.max(0, res.expected - totalCosts), m.shares, true, pv);
+      splitProfit(Math.max(0, Math.round(res.expected * dealRate) - totalCosts), m.shares, true, pv);
       res.preview = pv;
     }
   } else {
     const startM = m.startMonth || monthOf(todayStr);
     for (const x of payments) {
-      const avail = reimburse(toP(x.amount));
+      const avail = reimburse(egp(x));
       let shares = m.shares, withFinder = true;
       if (x.kind === "monthly") {
         shares = (m.monthShares || {})[x.month] || m.monthlyShares || m.shares;
@@ -136,7 +154,7 @@ function computeMoney(p, todayStr, rules) {
   res.monthsUnpaid = type === "monthly" ? res.late.filter(s => s.label !== "Setup fee").length : 0;
 
   // payouts: money actually handed to people
-  for (const x of payouts) if (x.to) person(x.to).paid += toP(x.amount);
+  for (const x of payouts) { if (x.toPartner) { if (res.partner) res.partner.paid += toP(x.amount) } else if (x.to) person(x.to).paid += toP(x.amount) }
   for (const [u, v] of Object.entries(res.people)) v.balance = v.earned + v.back - v.paid;
 
   // client's ad money: never profit, just tracked

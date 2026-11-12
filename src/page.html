@@ -885,6 +885,52 @@ input,select,textarea{background-color:var(--field)}
 .chatrow-l{flex:none;width:58px;font:700 10.5px/1 var(--body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding-bottom:6px}
 .chatrow.partners .chatrow-l{color:var(--warn)}
 
+/* search, weekly summary, getting started, meeting tasks, partner and client bits */
+.searchbox{gap:8px}
+.sresults{display:grid;gap:2px;max-height:min(60vh,520px);overflow-y:auto}
+.sres{display:flex;gap:10px;align-items:flex-start;text-align:left;width:100%;border:0;background:none;border-radius:12px;padding:9px 10px;color:var(--ink);cursor:pointer}
+.sres:hover,.sres:focus-visible{background:var(--bg)}
+.skind{flex:none;font:700 10px/1 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:5px 6px;margin-top:2px;min-width:52px;text-align:center}
+.stext{display:grid;gap:1px;min-width:0}.stext b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stext span{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.weekly{align-self:stretch;margin:10px 4px;padding:12px 14px;border-radius:16px;background:color-mix(in srgb,var(--fill) 16%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));font-size:14px;line-height:1.6}
+.weekly-h{font:700 11px/1 var(--body);letter-spacing:.07em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+.welcome{margin-top:12px;gap:10px}
+.mtrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center}
+.mtrow .noteinput{padding:7px 10px}
+.wonbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between;padding:10px 12px;border-radius:12px;background:var(--keep-soft);color:var(--keep);font-weight:600;font-size:14px}
+.partnerrow{gap:8px;flex-wrap:wrap}
+.rolebadge.client{background:var(--keep-soft);color:var(--keep)}
+.fs-partner{background:#C9A15B}
+.paycard{gap:10px}
+@media (max-width:520px){.mtrow{grid-template-columns:auto minmax(0,1fr)}.mtrow select{grid-column:2}}
+
+/* settings like a phone's Settings app: profile card, grouped rows, a page for each */
+.setsearch{margin:0 0 12px}
+.setprofile{display:flex;align-items:center;gap:14px;width:100%;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:14px 16px;color:var(--ink);cursor:pointer;box-shadow:var(--lift)}
+.setprofile .av{width:54px;height:54px;border:0}
+.setprofile .who-n b{font-size:17px}
+.setprofile:hover,.setrowbtn:hover{border-color:var(--accent)}
+.setgroup{margin-top:20px}
+.setgroup-h{font:700 11.5px/1 var(--body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:0 6px 8px}
+.setlist{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);overflow:hidden;box-shadow:var(--lift)}
+.setrowbtn{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:0;border-top:1px solid var(--line);background:none;padding:11px 14px;color:var(--ink);font:500 15px/1.3 var(--body);cursor:pointer;min-height:52px}
+.setrowbtn:first-child{border-top:0}
+.setrowbtn:hover{background:color-mix(in srgb,var(--ink) 4%,transparent)}
+.setrowbtn.danger{justify-content:center;color:var(--drop);font-weight:600}
+.seticon{flex:none;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-size:16px;line-height:1;color:#fff}
+.setrow-name{flex:1;min-width:0}
+.setrow-val{color:var(--muted);font-size:13.5px;text-align:right;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chev2{color:var(--muted);font-size:20px;line-height:1;flex:none}
+.setfoot{text-align:center;margin:18px 0 0;text-transform:none;letter-spacing:0}
+.morebox{width:min(300px,calc(100vw - 24px));gap:2px;padding:8px}
+.morehead{display:flex;gap:10px;align-items:center;text-align:left;border:0;background:var(--bg);border-radius:14px;padding:10px;margin-bottom:4px;color:var(--ink);cursor:pointer}
+.morehead .av{width:40px;height:40px;border:0}
+.moreitem{display:flex;gap:12px;align-items:center;width:100%;text-align:left;border:0;background:none;border-radius:10px;padding:10px;color:var(--ink);font:500 15px/1.2 var(--body);cursor:pointer}
+.moreitem:hover{background:var(--bg)}
+.moreitem.danger{color:var(--drop)}
+.moreico{width:24px;text-align:center;font-size:17px}
+.morediv{height:1px;background:var(--line);margin:4px 6px}
+
 /* ===== Phones: a floating glass dock, lighter top bar, bigger tap targets ===== */
 @media (max-width:759px){
   :root{--r:20px;--dock:72px}
@@ -903,6 +949,7 @@ input,select,textarea{background-color:var(--field)}
   .tab .ico{width:46px;height:28px}
   .tab svg{width:20px;height:20px}
   .tab:active .ico{transform:scale(.92)}
+  .settab{display:none!important}
   .tab .count{top:0;left:calc(50% + 9px);min-width:17px;height:17px;line-height:17px;font-size:10px;padding:0 4px;box-shadow:0 0 0 2px var(--solid)}
   .toast{bottom:calc(var(--dock) + 22px + env(safe-area-inset-bottom,0px));border-radius:14px}
   .asst{bottom:calc(var(--dock) + 22px + env(safe-area-inset-bottom,0px));border-radius:24px}
@@ -985,6 +1032,7 @@ input,select,textarea{background-color:var(--field)}
   #app>.nav .tab .ico,#partner>.nav .tab .ico{width:36px;height:32px}
   #app>.nav .tab svg,#partner>.nav .tab svg{width:19px;height:19px}
   #app>.nav .tab .count,#partner>.nav .tab .count{position:static;margin-left:auto}
+  #app>.nav .settab{margin-top:auto}
   #app>.nav::before,#partner>.nav::before{content:"";position:absolute;left:14px;right:14px;top:76px;height:1px;background:var(--line)}
 
   /* Me: greeting and numbers side by side, the cards in two columns */
@@ -1126,11 +1174,15 @@ input,select,textarea{background-color:var(--field)}
     <button class="brand" id="brand" aria-label="Pitch Room home"><svg class="mark" viewBox="0 0 60 100" aria-hidden="true"><path class="t-f" d="M30 2C40 12 45 22 45 34A15 15 0 0 1 15 34C15 22 20 12 30 2Z"/><path class="t-i" d="M30 21C34.5 26.5 36.5 31 36.5 38A6.5 6.5 0 0 1 23.5 38C23.5 31 25.5 26.5 30 21Z"/><path class="t-h" d="M20 66A10 10 0 0 1 40 66L36.5 92A6.5 6.5 0 0 1 23.5 92Z"/></svg><span class="brand-txt"><span>Pitch <span class="brand-accent">Room</span></span><small class="brand-sub">Ardent Studios back office</small></span></button>
     <span class="spacer"></span>
     <span class="status" id="status"></span>
+    <button class="bell" id="search-btn" aria-label="Search" title="Search (Ctrl K)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
     <button class="bell asst-btn" id="asst-btn" aria-label="Assistant" title="Assistant"><span aria-hidden="true">✦</span></button>
     <button class="bell" id="bell" aria-label="Alerts"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="count" id="c-alerts" hidden>0</span></button>
     <button class="me-btn" id="me-btn" aria-label="My space"><img class="av" id="me-av" alt="" referrerpolicy="no-referrer"></button>
+    <button class="bell" id="more-btn" aria-label="More" title="More"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg></button>
   </header>
   <div class="alerts" id="alerts" hidden></div>
+  <div class="alerts searchbox" id="search" hidden role="dialog" aria-label="Search"></div>
+  <div class="alerts morebox" id="more" hidden role="menu" aria-label="More"></div>
   <div class="asst" id="asst" hidden role="dialog" aria-label="Assistant"></div>
   <nav class="nav" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" data-view="me"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="4"/></svg></span>Me <span class="count" id="c-mine" hidden>0</span></button>
@@ -1138,6 +1190,7 @@ input,select,textarea{background-color:var(--field)}
     <button class="tab" role="tab" data-view="projects"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h6"/></svg></span>Projects <span class="count" id="c-projects" hidden>0</span></button>
     <button class="tab" role="tab" data-view="chat"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Chat <span class="count" id="c-chat" hidden>0</span></button>
     <button class="tab" role="tab" data-view="partners"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>Partners <span class="count" id="c-partners" hidden>0</span></button>
+    <button class="tab settab" role="tab" data-view="settings"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>Settings</button>
   </nav>
 
   <section id="view-me"><div id="me"></div></section>

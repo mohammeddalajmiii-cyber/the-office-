@@ -118,7 +118,7 @@ async function pushSend(msgs) {
 }
 
 async function pushTest() {
-  const r = await pushSend([{ to: me, title: "Pitch Room", body: "Test alert: this device rings even when the site is closed.", tag: "test-" + Date.now(), go: "settings", force: true }]);
+  const r = await pushSend([{ to: me, title: "Pitch Room", body: "Test alert: this device rings even when the site is closed.", tag: "test-" + Date.now(), go: "settings-alerts", force: true }]);
   if (!r) return toast("Couldn't reach the alert server. Check your internet" + (isAdmin ? ", and the server address below" : `, or tell ${ADMIN_NAME}`), 5000);
   if (r.error) return toast(r.error === "Not allowed" ? "The server said you're not allowed. Sign out and in again" : "The alert server had a problem: " + r.error, 5000);
   if (r.sent) return toast("Sent! It should pop up now. Next time, close the site to see how alerts arrive", 4500);
@@ -341,9 +341,9 @@ function teamSetupMessage() {
    iPhone: open it in Safari, tap Share > Add to Home Screen, then open Pitch Room from the new icon.
    Android: open it in Chrome (menu > Add to Home screen is best).
    Laptop: open it in Chrome or Edge.
-2. Go to Me > Settings > Alerts and tap Turn on, then Allow.
+2. Tap ⋯ (top right) > Settings > Alerts, then Turn on and Allow.
 3. Tap Send a test. You should hear it ring.
-Stuck? Settings > Alerts has a fix for every problem.`;
+Stuck? Settings > Alerts > Something not working? has a fix for every problem.`;
 }
 
 const STEPS_FN = () => ({

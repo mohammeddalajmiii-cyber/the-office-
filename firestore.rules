@@ -16,15 +16,28 @@ service cloud.firestore {
     function myGroup() { return partnerDoc().gid; }
 
     // ---------- the team's own site: only the team ----------
+    // money on a project (deal, payments, costs, payouts, ad money, its change log) can only be changed by the admin
+    // or the project's planners; anyone on the team can still do everything else
+    function moneyTouched() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(["money", "payments", "costs", "payouts", "ads", "moneyLog"]);
+    }
+    function plansIt() {
+      return resource.data.author == request.auth.uid || (resource.data.get("planners", {}).keys().hasAny([request.auth.uid]));
+    }
     match /ideas/{id} {
-      allow read, write: if isTeam();
+      allow read, create: if isTeam();
+      allow update: if isTeam() && (!moneyTouched() || isAdmin() || plansIt());
+      allow delete: if isAdmin() || (isTeam() && resource.data.author == request.auth.uid);
     }
     match /chat/{id} {
       allow read, write: if isTeam();
     }
+    // the team list, the money rules and the fund's money are the admin's; anyone on the team can add and research goals
     match /meta/{name} {
       allow read: if isTeam();
-      allow write: if (isTeam() && name != "team") || isAdmin();
+      allow write: if isAdmin() || (isTeam() && !(name in ["team", "money", "fund"]));
+      allow create: if isTeam() && name == "fund" && request.resource.data.keys().hasOnly(["goals"]);
+      allow update: if isTeam() && name == "fund" && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["goals"]);
     }
     match /users/{uid} {
       allow read: if isTeam();

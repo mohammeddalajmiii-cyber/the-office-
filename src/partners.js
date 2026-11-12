@@ -33,15 +33,28 @@ service cloud.firestore {
     function myGroup() { return partnerDoc().gid; }
 
     // ---------- the team's own site: only the team ----------
+    // money on a project (deal, payments, costs, payouts, ad money, its change log) can only be changed by the admin
+    // or the project's planners; anyone on the team can still do everything else
+    function moneyTouched() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(["money", "payments", "costs", "payouts", "ads", "moneyLog"]);
+    }
+    function plansIt() {
+      return resource.data.author == request.auth.uid || (resource.data.get("planners", {}).keys().hasAny([request.auth.uid]));
+    }
     match /ideas/{id} {
-      allow read, write: if isTeam();
+      allow read, create: if isTeam();
+      allow update: if isTeam() && (!moneyTouched() || isAdmin() || plansIt());
+      allow delete: if isAdmin() || (isTeam() && resource.data.author == request.auth.uid);
     }
     match /chat/{id} {
       allow read, write: if isTeam();
     }
+    // the team list, the money rules and the fund's money are the admin's; anyone on the team can add and research goals
     match /meta/{name} {
       allow read: if isTeam();
-      allow write: if (isTeam() && name != "team") || isAdmin();
+      allow write: if isAdmin() || (isTeam() && !(name in ["team", "money", "fund"]));
+      allow create: if isTeam() && name == "fund" && request.resource.data.keys().hasOnly(["goals"]);
+      allow update: if isTeam() && name == "fund" && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["goals"]);
     }
     match /users/{uid} {
       allow read: if isTeam();
@@ -251,6 +264,9 @@ function leadCard(l, { team, who }) {
     l.extra ? el("p", { class: "label", style: "margin:0;overflow-wrap:anywhere" }, l.extra) : null,
     l.note ? el("div", { class: "note" }, el("span", { class: "note-body" }, l.note), el("span", { class: "note-meta" }, (l.updatedBy === me ? "You" : l.updatedName || "") + (l.updatedAt ? " · " + ago(l.updatedAt) : ""))) : null,
     l.claimBy ? el("div", { class: "label" }, l.claimBy === me ? "You're handling this one" : `${l.claimName || "Someone"} is handling this one`) : null,
+    team && l.status === "won" ? el("div", { class: "wonbar" }, l.projectId && ideas.find(i => i.id === l.projectId)
+      ? [el("span", {}, "\u2713 Project started"), el("button", { class: "btn small", onclick: () => { location.hash = "project-" + l.projectId } }, "Open it")]
+      : [el("span", {}, "\u{1F389} This is a client now."), el("button", { class: "btn small primary", onclick: () => startProjectFromLead(l) }, "Start a project for them")]) : null,
     el("div", { class: "lead-edit" }, sel, note,
       el("button", { class: "btn primary small", onclick: () => { const n = document.getElementById("pln-" + l.id); saveLeadUpdate(l, sel.value, (n.value || "").trim().slice(0, 500), who); delete pSel[l.id]; n.value = "" } }, "Save")),
     hist.length ? el("details", { class: "lead-hist" }, el("summary", {}, `History (${hist.length})`),
@@ -430,6 +446,9 @@ function renderPartnerGroupTeam(box, gid) {
       el("summary", { style: "cursor:pointer;font-weight:600" }, "Add many numbers from a sheet"),
       el("p", { class: "label", style: "margin:0" }, "Copy the rows from Google Sheets or Excel (with the header row) and paste. Columns called name, phone, business and city are picked up. Anything else is kept with the number. Numbers already in this group are skipped."),
       ta, preview, el("div", { class: "row" }, el("span", { class: "spacer" }), addBtn)));
+    const waiting = leads.filter(l => l.status === "won" && !(l.projectId && ideas.find(i => i.id === l.projectId)));
+    if (waiting.length) box.append(el("div", { class: "wonbar", style: "margin-top:12px" }, el("span", {}, `\u{1F389} ${waiting.length} new client${waiting.length > 1 ? "s" : ""} from partners need${waiting.length > 1 ? "" : "s"} a project`),
+      el("button", { class: "btn small primary", onclick: () => { plFilter["t-" + gid] = "won"; render() } }, "Show " + (waiting.length > 1 ? "them" : "it"))));
     box.append(...leadList(leads, "t-" + gid, { team: true, who: teamName() }).filter(Boolean));
   }
 
@@ -594,7 +613,7 @@ function renderPortalNow() {
   if (v === "leads") {
     box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, `Hi ${first}`),
       el("p", { class: "lede", style: "margin-top:-4px" }, `These are the numbers to call for ${pGroup.name}. After each call, pick what happened and add a short note. The team sees it right away.`),
-      el("div", { style: "margin-top:14px" }, stats(pLeads)));
+      el("div", { style: "margin-top:14px" }, stats(pLeads)), earningsCard());
     box.append(...leadList(pLeads, "p", { team: false, who: partnerName() }).filter(Boolean));
   }
   if (v === "updates") renderPartnerChat(box, dmWith);
@@ -677,4 +696,30 @@ function renderPartnerChat(box, dmWith) {
         await setDoc(doc(db, "dms", t.id), { lastAt: at, lastBy: me, lastText: txt.slice(0, 120), seen: { [me]: at }, names: { [me]: partnerName() }, roles: { [me]: "partner" }, photos: { [me]: (myProfile && myProfile.photo && myProfile.photo.length < 400) ? myProfile.photo : "" } }, { merge: true });
       });
     }));
+}
+
+// What a partner has earned from clients they brought (kept up to date by the team's site)
+function earningsCard() {
+  const e = (pMe && pMe.earnings) || null;
+  if (!e || !(e.earned || e.paid)) return el("div", { class: "idea", style: "margin-top:12px;gap:4px" }, el("h3", {}, "Your earnings"),
+    el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "When a client you brought pays, your commission shows here."));
+  const owed = Math.max(0, e.earned - e.paid);
+  return el("section", { class: "idea", style: "margin-top:12px" }, el("h3", {}, "Your earnings"),
+    el("div", { class: "adgrid" }, el("div", {}, el("b", {}, fmtEGP(e.earned)), el("span", {}, "earned")), el("div", {}, el("b", {}, fmtEGP(e.paid)), el("span", {}, "paid to you")), el("div", {}, el("b", {}, fmtEGP(owed)), el("span", {}, "to come"))),
+    (e.deals || []).length ? el("div", { style: "display:grid;gap:2px" }, e.deals.map(d => el("div", { class: "mrow" }, el("span", { class: "mname" }, d.title), el("span", { class: "mval" }, fmtEGP(d.earned))))) : null);
+}
+
+// A partner's number became a client: make the project, with the client's details and the partner's commission ready.
+function startProjectFromLead(l) {
+  const won = historyOf(l).find(h => h.s === "won"), byUid = (won && won.by) || l.claimBy;
+  const pm = pMembers.find(m => m.uid === byUid) || pMembers.find(m => m.gid === l.gid && m.uid === l.claimBy) || null;
+  const client = l.biz || l.name || "New client", id = uid(), now = Date.now();
+  const pitch = [`Client found by ${pm ? pm.name || pm.id : "a partner"} in ${groupName(l.gid)}.`, l.name && l.biz ? `Contact: ${l.name}.` : "", l.phone ? `Phone: ${l.phone}.` : "", l.city ? `City: ${l.city}.` : "", l.note ? `Notes: ${l.note}` : ""].filter(Boolean).join(" ");
+  const money = { type: "one", stage: "proposal", client, shares: {}, finders: [], finderTeam: false, currency: "EGP", rate: 1, setAt: now, setBy: me,
+    partner: pm ? { email: pm.id, name: pm.name || pm.id, gid: pm.gid || "", mode: "pct", value: 10 } : null };
+  write(async () => {
+    await setDoc(doc(db, "ideas", id), { title: client, pitch: pitch.slice(0, 600), category: "Business", categories: ["Business"], client, author: me, createdAt: now, status: "approved", approvedAt: now,
+      votes: { [me]: "keep" }, tasks: {}, backers: {}, money, fromLead: { id: l.id, gid: l.gid }, moneyLog: { [uid()]: { by: me, at: now, what: `Deal started from ${groupName(l.gid)}: partner ${pm ? pm.name || pm.id : "unknown"} at 10% (change it in Edit deal)`, kind: "deal" } } });
+    await updateDoc(doc(db, "pleads", l.id), { projectId: id, projectAt: now });
+  }, "Project made. Set the price and the shares in its Money tab").then(ok => { if (ok) { projTab = "money"; location.hash = "project-" + id } });
 }

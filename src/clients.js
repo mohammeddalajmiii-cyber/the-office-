@@ -34,6 +34,17 @@ function linksList(cp) {
   const links = Object.entries(cp.links || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.at || 0) - (b.at || 0));
   return links.length ? el("section", { class: "idea" }, el("h3", {}, "Files and links"), el("ul", { class: "plinks" }, links.map(k => el("li", {}, el("a", { href: k.url, target: "_blank", rel: "noopener", onclick: previewClick(k.url, k.label || k.url) }, k.label || k.url))))) : null;
 }
+// client and team messages on a project, as chat items
+const cChatItems = (posts, canDelete) => [...posts].sort((a, b) => (a.at || 0) - (b.at || 0)).slice(-200).map(p => ({ id: p.id, by: p.by, name: p.by === me ? "You" : (p.name || "Someone"), photo: p.photo, role: p.team ? "team" : "client", text: p.text || "", at: p.at || 0, canDelete: canDelete(p) }));
+// what the client has paid and what's next (the team's site keeps this summary up to date)
+function payCard(cp) {
+  const y = cp.pay; if (!y || cp.showPay === false || !(y.total || y.items && y.items.length)) return null;
+  const f = v => fmtCur(v, y.currency);
+  return el("section", { class: "idea paycard" }, el("div", { class: "row" }, el("h3", {}, "Payments"), el("span", { class: "spacer" }), y.late ? el("span", { class: "mstat late" }, "Payment due") : el("span", { class: "mstat paid" }, y.paid >= y.total && y.total ? "Fully paid" : "Up to date")),
+    el("div", { class: "adgrid" }, el("div", {}, el("b", {}, f(y.paid)), el("span", {}, "paid")), y.total ? el("div", {}, el("b", {}, f(Math.max(0, y.total - y.paid))), el("span", {}, y.monthly ? "due now" : "left to pay")) : null,
+      y.next ? el("div", { class: y.late ? "late" : "" }, el("b", {}, f(y.next.amount)), el("span", {}, "next: " + y.next.label)) : null),
+    (y.items || []).length ? el("div", { class: "schedule" }, y.items.map(i => el("div", { class: "sched " + i.status }, el("span", { class: "sched-l" }, i.label), el("span", {}, i.status === "paid" ? "\u2713 " + f(i.amount) : f(i.amount)), el("span", { class: "sched-s" }, { paid: "Paid", late: "Due", due: "Due", upcoming: "Next" }[i.status])))) : null);
+}
 function cFeed(posts, { canDelete } = {}) {
   const list = [...posts].sort((a, b) => (b.at || 0) - (a.at || 0));
   return el("div", { class: "pfeed" }, list.length ? list.slice(0, 100).map(p => el("article", { class: "post" + (p.team ? " team" : "") },
@@ -108,7 +119,12 @@ function renderShare(box, p) {
       lab, url, el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn", onclick: () => {
         let u = url.value.trim(), t = lab.value.trim(); if (!u) { url.focus(); return } if (!/^https?:\/\//i.test(u)) u = "https://" + u;
         lab.value = ""; url.value = ""; saveCP(p, { links: { [uid()]: { label: t, url: u, at: Date.now() } } }, "Link added") } }, "Add link"))));
-    box.append(el("h2", { class: "sec-h" }, "What the client sees"), statusCard({ ...cp, title: cp.title || p.title }));
+    box.append(el("section", { class: "compose", style: "margin-top:12px" }, el("h3", {}, "Payments and report"),
+      el("div", { class: "row" }, el("span", { style: "flex:1 1 220px;font-size:14px" }, p.money ? "Show the client what they've paid and what's next (from this project's Money tab)." : "Set up the deal on the Money tab to show the client their payments."),
+        p.money ? el("div", { class: "seg seg-sm" }, el("button", { "aria-pressed": String(cp.showPay !== false), onclick: () => saveCP(p, { showPay: true }, "The client sees their payments") }, "Show"), el("button", { "aria-pressed": String(cp.showPay === false), onclick: () => saveCP(p, { showPay: false }, "Payments hidden from the client") }, "Hide")) : null),
+      el("div", { class: "row" }, el("span", { style: "flex:1 1 220px;font-size:14px" }, "A branded monthly report for the client: what was done, what's next, progress. Save it as a PDF and send it."),
+        el("button", { class: "btn small primary", onclick: () => clientReport(p, cp) }, "Make this month's report"))));
+    box.append(el("h2", { class: "sec-h" }, "What the client sees"), statusCard({ ...cp, title: cp.title || p.title }), payCard({ ...cp, pay: payOf(p) }) || el("span"));
   }
 
   if (shareTab === "people") {
@@ -142,11 +158,9 @@ function renderShare(box, p) {
 
   if (shareTab === "updates") {
     try { localStorage.setItem(`cseen:${me}:${p.id}`, String(Date.now())) } catch { }
-    const ta = el("textarea", { class: "noteinput", id: "cpmsg-" + p.id, rows: "3", maxlength: "1500", placeholder: "Tell the client what's new: what you finished, what's next, anything you need from them" });
-    box.append(el("section", { class: "compose" }, ta, el("div", { class: "row" }, el("span", { class: "label" }, "The client and the project's partners see this."), el("span", { class: "spacer" }),
-      el("button", { class: "btn primary", onclick: () => { const t = ta.value.trim(); if (!t) return; ta.value = "";
-        write(() => setDoc(doc(db, "cposts", uid()), { pid: p.id, by: me, name: teamName(), photo: photoOf(me) === AV ? "" : photoOf(me), team: true, text: t, at: Date.now() }).then(() => saveCP(p, {})), "Sent to the client") } }, "Send update"))));
-    box.append(el("div", { style: "margin-top:12px" }, cFeed(cPosts.filter(x => x.pid === p.id), { canDelete: true })));
+    box.append(el("div", { class: "chat-who" }, el("span", { class: "teamdot big" }, "C"), el("span", { class: "who-n" }, el("b", {}, (cp.clients || []).length ? "Chat with the client" : "Chat with the client (no client added yet)"), el("span", { class: "label" }, "The client and this project's partners see these messages"))),
+      chatView(cChatItems(cPosts.filter(x => x.pid === p.id), () => true), { onDelete: m => write(() => deleteDoc(doc(db, "cposts", m.id)), "Deleted"), empty: "No messages yet. Tell the client what's new: what you finished, what's next, anything you need from them." }),
+      chatComposer("cpmsg-" + p.id, "Message the client", t => write(() => setDoc(doc(db, "cposts", uid()), { pid: p.id, by: me, name: teamName(), photo: photoOf(me) === AV ? "" : photoOf(me), team: true, text: t, at: Date.now() }).then(() => saveCP(p, {})))));
   }
 
   if (shareTab === "tasks") {
@@ -201,13 +215,12 @@ function renderClient() {
   if (myCP.length > 1) box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Your projects", style: "margin:12px 0" }, myCP.map(c => el("button", { "aria-pressed": String(c.id === cSel), onclick: () => { cSel = c.id; render() } }, c.title))));
   if (!cp) { box.append(el("div", { class: "empty" }, "Loading your project…")); return }
   box.append(statusCard(cp, { big: true }));
+  const pc = payCard(cp); if (pc) box.append(el("div", { style: "margin-top:12px" }, pc));
   const lk = linksList(cp); if (lk) box.append(el("div", { style: "margin-top:12px" }, lk));
-  const ta = el("textarea", { class: "noteinput", id: "c-msg", rows: "3", maxlength: "1500", placeholder: "Questions, feedback or anything you'd like to send the team" });
-  box.append(el("h2", { class: "sec-h" }, "Updates"),
-    el("section", { class: "compose" }, ta, el("div", { class: "row" }, el("span", { class: "spacer" }),
-      el("button", { class: "btn primary", onclick: () => { const t = ta.value.trim(); if (!t) return; ta.value = "";
-        write(() => setDoc(doc(db, "cposts", uid()), { pid: cp.id, by: me, name: myProfile.name, photo: myProfile.photo || "", team: false, text: t, at: Date.now() }), "Sent to the team") } }, "Send to the team"))),
-    el("div", { style: "margin-top:12px" }, cFeed(myCPosts[cp.id] || [])),
+  box.append(el("h2", { class: "sec-h" }, "Messages"),
+    el("div", { class: "chat-who" }, el("span", { class: "teamdot big" }, "A"), el("span", { class: "who-n" }, el("b", {}, "Ardent Studios team"), el("span", { class: "label" }, "Questions, feedback, files you need: we reply here"))),
+    chatView(cChatItems(myCPosts[cp.id] || [], () => false), { empty: "No messages yet. Say hello, or ask us anything about your project." }),
+    chatComposer("c-msg", "Message the Ardent Studios team", t => write(() => setDoc(doc(db, "cposts", uid()), { pid: cp.id, by: me, name: myProfile.name, photo: myProfile.photo || "", team: false, text: t, at: Date.now() }))),
     el("div", { class: "row", style: "margin-top:22px" }, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "Signed in as " + (myProfile.email || "")), el("span", { class: "spacer" }),
       el("button", { class: "btn quiet small", onclick: () => doSignOut() }, "Sign out")));
   for (const [id, v] of Object.entries(vals)) { const n = document.getElementById(id); if (n && v) n.value = v }
@@ -311,4 +324,55 @@ function accessSection() {
   sec.append(group("Clients", ce.length, ce.map(e => row("c:" + e, e, el("span", { class: "label" }, clients[e].map(c => c.title).join(", ")),
     () => write(async () => { for (const c of clients[e]) await setDoc(doc(db, "cprojects", c.id), { clients: (c.clients || []).filter(x => x !== e) }, { merge: true }) }, `${e} can't see their project anymore`)))));
   return sec;
+}
+
+/* ---------- payments the client sees: a summary kept on their project page ---------- */
+function payOf(p) {
+  if (!p.money || p.money.stage === "proposal") return null;
+  const r = moneyOf(p), m = p.money, nowM = thisMonth();
+  const items = r.schedule.filter(x => x.label !== "Total").slice(-8).map(x => ({ label: x.label.match(/^\d{4}-\d{2}$/) ? monthLabel(x.label) : x.label, amount: x.expected, status: x.status }));
+  const open = r.schedule.find(x => x.status !== "paid" && x.label !== "Total");
+  const total = m.type === "monthly" ? r.schedule.filter(x => x.status === "late" || x.status === "due" || x.status === "paid").reduce((a, x) => a + x.expected, 0) : r.expected;
+  return { currency: r.currency, total, paid: r.received, monthly: m.type === "monthly", late: r.late.length > 0,
+    next: open ? { label: open.label.match(/^\d{4}-\d{2}$/) ? monthLabel(open.label) : open.label, amount: open.expected - open.received } : (m.type === "one" && r.expected > r.received ? { label: "balance", amount: r.expected - r.received } : null), items };
+}
+let paySyncT = null;
+function syncClientPay() {
+  clearTimeout(paySyncT);
+  paySyncT = setTimeout(() => {
+    for (const cp of cProjects) {
+      const p = ideas.find(i => i.id === cp.id); if (!p || !canPlan(p)) continue;
+      const y = payOf(p); if (JSON.stringify(y) !== JSON.stringify(cp.pay || null)) setDoc(doc(db, "cprojects", cp.id), { pay: y }, { merge: true }).catch(() => {});
+    }
+  }, 2500);
+}
+
+/* ---------- a monthly report for the client, branded Ardent Studios, ready to save as PDF ---------- */
+function clientReport(p, cp) {
+  const now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), 1).getTime(), month = now.toLocaleDateString("en", { month: "long", year: "numeric" });
+  const tasks = tasksOf(p), done = tasks.filter(t => t.done && (t.doneAt || 0) >= start), next = tasks.filter(t => !t.done).sort((a, b) => taskPrioRank(a) - taskPrioRank(b) || (a.due || "9999").localeCompare(b.due || "9999")).slice(0, 6);
+  const st = stagesOf(cp), cur = st[Math.max(0, Math.min(st.length - 1, cp.stage || 0))], pct = Math.round(cp.progress || progressOf(tasks).pct);
+  const y = cp.showPay !== false ? payOf(p) : null, esc = t => String(t || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const client = esc(clientOf(p) || (p.money || {}).client || "");
+  const li = arr => arr.length ? "<ul>" + arr.map(t => `<li>${esc(t.text)}</li>`).join("") + "</ul>" : "<p class='m'>Nothing to show yet.</p>";
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.title)} · ${month} report · Ardent Studios</title>
+<style>@page{margin:18mm}body{font:15px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#11181F;max-width:760px;margin:0 auto;padding:28px}
+header{display:flex;align-items:center;gap:12px;border-bottom:3px solid #0D5E63;padding-bottom:14px;margin-bottom:22px}header b{font-size:22px;letter-spacing:-.01em}header span{color:#0D5E63}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:#0D5E63;margin:26px 0 8px}.m{color:#5A646F}
+.bar{height:10px;background:#E6E9ED;border-radius:9px;overflow:hidden}.bar i{display:block;height:100%;background:#0D5E63}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.grid div{background:#F3F5F7;border-radius:10px;padding:10px 12px}.grid b{display:block;font-size:18px}
+ul{padding-left:20px;margin:0}li{margin:3px 0}footer{margin-top:34px;padding-top:12px;border-top:1px solid #E6E9ED;color:#5A646F;font-size:12.5px}
+.print{position:fixed;top:14px;right:14px;background:#0D5E63;color:#fff;border:0;border-radius:10px;padding:10px 16px;font:600 14px sans-serif;cursor:pointer}@media print{.print{display:none}}</style></head><body>
+<button class="print" onclick="print()">Save as PDF</button>
+<header><svg width="18" height="30" viewBox="0 0 60 100"><path fill="#0F5E57" d="M30 2C40 12 45 22 45 34A15 15 0 0 1 15 34C15 22 20 12 30 2Z"/><path fill="#3E9C8F" d="M30 21C34.5 26.5 36.5 31 36.5 38A6.5 6.5 0 0 1 23.5 38C23.5 31 25.5 26.5 30 21Z"/><path fill="#2B2E33" d="M20 66A10 10 0 0 1 40 66L36.5 92A6.5 6.5 0 0 1 23.5 92Z"/></svg><b>Ardent <span>Studios</span></b></header>
+<h1>${esc(p.title)}</h1><div class="m">${client ? "Prepared for " + client + " · " : ""}Monthly report · ${month}</div>
+<h2>Where we are</h2><div class="grid"><div><span class="m">Stage</span><b>${esc(cur)}</b></div><div><span class="m">Progress</span><b>${pct}%</b></div><div><span class="m">Done this month</span><b>${done.length}</b></div></div>
+<div class="bar" style="margin-top:10px"><i style="width:${pct}%"></i></div>
+<h2>Done this month</h2>${li(done)}
+<h2>Coming next</h2>${li(next)}${cp.next && cp.next.text ? `<p><b>Next step:</b> ${esc(cp.next.text)}${cp.next.date ? " · " + esc(fmtDay(new Date(cp.next.date + "T12:00").getTime())) : ""}</p>` : ""}
+${y && (y.total || y.paid) ? `<h2>Payments</h2><div class="grid"><div><span class="m">Paid</span><b>${esc(fmtCur(y.paid, y.currency))}</b></div><div><span class="m">${y.monthly ? "Due now" : "Left to pay"}</span><b>${esc(fmtCur(Math.max(0, y.total - y.paid), y.currency))}</b></div>${y.next ? `<div><span class="m">Next</span><b>${esc(fmtCur(y.next.amount, y.currency))}</b><span class="m">${esc(y.next.label)}</span></div>` : ""}</div>` : ""}
+<footer>Ardent Studios · ${now.toLocaleDateString("en", { day: "numeric", month: "long", year: "numeric" })} · Questions? Reply on your project page: ${SITE_LINK}</footer></body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { toast("Allow pop-ups for this site to open the report", 4000); return }
+  w.document.open(); w.document.write(html); w.document.close();
 }

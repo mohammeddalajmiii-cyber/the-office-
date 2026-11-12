@@ -106,6 +106,7 @@ const VIEWS = ["me", "ideas", "projects", "chat", "partners", "skills", "setting
 function route() {
   const h = location.hash.slice(1);
   if (h === "money-fund" || h === "money-rules") return { view: "money", tab: h.slice(6) };
+  if (h.startsWith("settings-")) return { view: "settings", sub: h.slice(9) };
   if (h.startsWith("task-")) { const [id, task] = h.slice(5).split("-"); return { view: "project", id, task } }
   for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
   if (h === "projects-done" || h === "current") return { view: "projects" };
@@ -117,7 +118,7 @@ function route() {
 function show() {
   if (partnerMode) { renderPortal(); return }
   if (clientMode) { renderClient(); return }
-  const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "settings" || r.view === "money" ? "me" : r.view;
+  const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "money" ? "me" : r.view;
   for (const b of document.querySelectorAll("#app .tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
   if (r.tab) moneyTab = r.tab;
@@ -207,6 +208,7 @@ async function onAuth(u) {
   unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "nicks"), s => { nicks = s.exists() ? Object.fromEntries(Object.entries(s.data()).filter(([, v]) => typeof v === "string" && v)) : {}; render() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "news"), s => { newsDoc = s.exists() ? s.data() : null; render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "weekly"), s => { weeklyDoc = s.exists() ? s.data() : {}; maybeWeekly() }, () => {}));
   pushBaseline = null;
   unsubs.push(onSnapshot(doc(db, "meta", "push"), s => { pushConfig(s.exists() ? s.data() : null); render() }, () => {}));
   teamLoaded = false; teamDoc = null;
@@ -331,7 +333,22 @@ function keepInputs(fn) {
 
 function render() { if (!me) return; if (partnerMode) { renderPortal(); return } if (clientMode) { renderClient(); return } keepInputs(renderAll) }
 
+let earnSyncT = null;
+function syncPartnerEarnings() {
+  if (!isAdmin || !live || !pLoaded) return;
+  clearTimeout(earnSyncT);
+  earnSyncT = setTimeout(() => {
+    const all = allMoney();
+    for (const m of pMembers) {
+      const x = all.partners[m.id] || { earned: 0, paid: 0, deals: [] };
+      const e = { earned: x.earned, paid: x.paid, deals: x.deals.map(d => ({ title: d.title, earned: d.earned, paid: d.paid })) };
+      const old = m.earnings ? { earned: m.earnings.earned, paid: m.earnings.paid, deals: m.earnings.deals || [] } : { earned: 0, paid: 0, deals: [] };
+      if (JSON.stringify(e) !== JSON.stringify(old)) updateDoc(doc(db, "pmembers", m.id), { earnings: { ...e, at: Date.now() } }).catch(() => {});
+    }
+  }, 2000);
+}
 function renderAll() {
+  syncPartnerEarnings(); if (live) syncClientPay(); renderSearch(); renderMore(); maybeWeekly();
   const voting = ideas.filter(i => i.status === "voting").sort((a, b) => b.createdAt - a.createdAt);
   const removed = ideas.filter(i => i.status === "removed");
   const projects = ideas.filter(i => i.status === "approved").sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0));
@@ -723,6 +740,30 @@ function meetingForm(p, m) {
   return el("section", { class: "idea" }, el("div", { class: "row" }, el("label", { class: "tlabel", for: date.id }, "Date"), date), title, text,
     el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: () => { newMeeting = null; editMeeting = null; render() } }, "Cancel"), el("button", { class: "btn primary", onclick: save }, "Save")));
 }
+// Turn the lines of meeting notes into tasks: pick the lines, the phase, and who (guessed from names in the line).
+let meetTasks = null;
+function meetingTasksForm(p, m) {
+  const lines = (m.text || "").split(/\n+/).map(t => t.replace(/^\s*([-*\u2022]|\d+[.)])\s*/, "").trim()).filter(t => t.length > 2).slice(0, 30);
+  const bullets = new Set((m.text || "").split(/\n+/).filter(t => /^\s*([-*\u2022]|\d+[.)])\s/.test(t)).map(t => t.replace(/^\s*([-*\u2022]|\d+[.)])\s*/, "").trim()));
+  const team = teamIds(), guess = t => team.find(u => { const f = (realName(u) || "").split(" ")[0]; return f && new RegExp("\\b" + f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(t) }) || "";
+  const phases = getPhases(p);
+  const ph = el("select", { class: "mini", "aria-label": "Phase" }, phases.length ? phases.map(x => el("option", { value: x.id }, x.name)) : el("option", { value: "" }, "No phases yet"));
+  const rows = lines.map((t, i) => {
+    const cb = el("input", { type: "checkbox", id: `mtk-${m.id}-${i}`, checked: bullets.has(t) || bullets.size === 0 });
+    const who = el("select", { class: "mini", "aria-label": "Who" }, el("option", { value: "" }, "Who?"), team.map(u => el("option", { value: u, selected: guess(t) === u }, name(u))));
+    const tx = el("input", { class: "noteinput", value: t, maxlength: "140", "aria-label": "Task" });
+    return { cb, who, tx, el: el("div", { class: "mtrow" }, cb, tx, who) };
+  });
+  const add = () => {
+    const pick = rows.filter(r => r.cb.checked && r.tx.value.trim()); if (!pick.length) { toast("Tick at least one line"); return }
+    const now = Date.now(), data = {};
+    pick.forEach((r, i) => { data["tasks." + uid()] = { text: r.tx.value.trim(), phase: ph.value || "", skill: null, owner: r.who.value || null, assignedBy: me, assignedAt: now, done: false, order: now + i, due: null, fromMeeting: m.id } });
+    meetTasks = null; write(() => upd(p.id, data), `${pick.length} task${pick.length > 1 ? "s" : ""} added to the plan`);
+  };
+  return el("div", { class: "goalform" }, el("div", { class: "row" }, el("b", {}, "Make tasks"), el("span", { class: "spacer" }), el("label", { class: "row", style: "gap:6px;font-size:13px;color:var(--muted)" }, "Phase", ph)),
+    lines.length ? rows.map(r => r.el) : el("p", { class: "label" }, "No lines to turn into tasks."),
+    el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => { meetTasks = null; render() } }, "Cancel"), el("button", { class: "btn primary small", onclick: add }, "Add the ticked tasks")));
+}
 function renderMeetings(box, p) {
   const list = Object.entries(p.meetings || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v })).sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.at - a.at);
   box.append(el("div", { class: "row", style: "margin-bottom:12px" }, el("p", { style: "margin:0;color:var(--muted);font-size:14px;flex:1 1 220px" }, "Notes from your calls and meetups, so nobody forgets what was decided."),
@@ -736,8 +777,9 @@ function renderMeetings(box, p) {
     wrap.append(el("article", { class: "idea" },
       el("div", { class: "row" }, el("span", { class: "chip" }, fmtDay(new Date((m.date || todayStr()) + "T12:00").getTime())), el("span", { class: "spacer" }), el("span", { class: "by" }, av(m.by), name(m.by))),
       m.title ? el("h3", {}, m.title) : null,
-      m.text ? el("div", { class: "pre" }, m.text) : null,
-      mine ? el("div", { class: "row" }, el("span", { class: "spacer" }),
+      m.text ? el("div", { class: "pre" }, linkify(m.text)) : null,
+      meetTasks === m.id ? meetingTasksForm(p, m) : null,
+      mine ? el("div", { class: "row" }, canPlan(p) && m.text && meetTasks !== m.id ? el("button", { class: "btn small", onclick: () => { meetTasks = m.id; render() } }, "Make tasks from these notes") : null, el("span", { class: "spacer" }),
         el("button", { class: "btn quiet", onclick: () => { editMeeting = m.id; newMeeting = null; render() } }, "Edit"),
         delMeeting === m.id
           ? el("button", { class: "linkbtn danger", onclick: () => { delMeeting = null; write(() => upd(p.id, { ["meetings." + m.id]: DEL() }), "Deleted") } }, "Tap again to delete")
@@ -817,7 +859,10 @@ function renderIdeas(all, removed) {
     const { k, d } = tally(i); const mine = (i.votes || {})[me];
     const vote = kind => write(() => upd(i.id, { ["votes." + me]: mine === kind ? DEL() : kind }));
     const vb = (kind, label, count) => el("button", { class: "v " + kind, "aria-pressed": String(mine === kind), onclick: () => vote(kind) }, label, el("b", {}, count), el("span", { class: "stack" }, voters(i, kind).slice(0, 5).map(av)));
-    const verdict = k > d ? el("span", { class: "verdict keep" }, "Leaning keep") : d > k ? el("span", { class: "verdict drop" }, "Leaning drop") : el("span", { class: "verdict" }, "Tied");
+    // fair: an idea only moves once at least half the team has voted, so nobody can push one through alone
+    const team = Math.max(1, teamIds().length), need = Math.ceil(team / 2), cast = k + d, enough = cast >= need;
+    const verdict = el("span", { class: "verdict" + (enough ? (k > d ? " keep" : d > k ? " drop" : "") : "") },
+      `${cast} of ${team} voted` + (!enough ? ` \u00b7 needs ${need - cast} more` : k > d ? " \u00b7 keep wins" : d > k ? " \u00b7 drop wins" : " \u00b7 tied"));
     box.append(el("article", { class: "idea" },
       el("div", { class: "row" }, el("h3", { style: "flex:1 1 auto;min-width:0" }, i.title), catChip(i)),
       i.client ? clientLine(i.client) : null,
@@ -828,8 +873,8 @@ function renderIdeas(all, removed) {
       el("div", { class: "row" },
         el("span", { class: "spacer" }),
         ideaDeleteBtn(i),
-        el("button", { class: "btn", disabled: !(d > k), title: "Available when more people vote drop than keep", onclick: () => write(() => upd(i.id, { status: "removed" }), "Idea removed") }, "Remove"),
-        el("button", { class: "btn primary", disabled: !(k > d), title: "Available when more people vote keep than drop", onclick: () => write(() => upd(i.id, { status: "approved", approvedAt: Date.now() }), "Moved to Projects") }, "Confirm → Projects"))));
+        el("button", { class: "btn", disabled: !(enough && d > k), title: `Available when at least ${need} of ${team} have voted and more said drop`, onclick: () => write(() => upd(i.id, { status: "removed" }), "Idea removed") }, "Remove"),
+        el("button", { class: "btn primary", disabled: !(enough && k > d), title: `Available when at least ${need} of ${team} have voted and more said keep`, onclick: () => write(() => upd(i.id, { status: "approved", approvedAt: Date.now() }), "Moved to Projects") }, "Confirm → Projects"))));
   }
   const rb = $("#removed"); rb.replaceChildren();
   if (removed.length) {
@@ -2014,6 +2059,7 @@ function renderChat() {
   for (const m of list) {
     const day = new Date(m.at).toDateString();
     if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
+    if (m.system === "weekly") { log.append(el("div", { class: "weekly", id: "msg-" + m.id }, el("div", { class: "weekly-h" }, "Weekly summary \u00b7 " + new Date(m.at).toLocaleDateString(undefined, { day: "numeric", month: "short" })), el("div", { class: "pre" }, m.text))); lastBy = ""; lastDay = day; continue }
     const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60 * 1000 && !m.replyTo;
     if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, chatName(m.by), dm && isPartnerUid(m.by) ? el("span", { class: "rolebadge partner" }, "Partner") : null));
     const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -2109,7 +2155,7 @@ function chatView(items, { onDelete, empty } = {}) {
     lastDay = day;
     if (m.system) { log.append(el("div", { class: "sysline" }, m.text)); lastBy = ""; continue }
     const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60e3;
-    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, m.name || "Someone", m.role === "team" ? el("span", { class: "rolebadge" }, "Ardent team") : el("span", { class: "rolebadge partner" }, "Partner")));
+    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, m.name || "Someone", m.role === "team" ? el("span", { class: "rolebadge" }, "Ardent team") : m.role === "client" ? el("span", { class: "rolebadge client" }, "Client") : el("span", { class: "rolebadge partner" }, "Partner")));
     const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     log.append(el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") },
       mine ? null : (grouped ? el("span", { class: "av-space" }) : postAv(m.photo)),
@@ -2338,6 +2384,7 @@ function buildAlerts() {
     for (const [u, c] of Object.entries((p.checkins || {})[wk] || {})) if (u !== me && c && c.blockers) add("blk:" + p.id + ":" + u + ":" + c.at, c.at, u, `${name(u)} is blocked in ${p.title}: ${c.blockers}`, "build-" + p.id);
     for (const f of filesOf(p)) if (f.by !== me) add("file:" + f.id, f.at, f.by, `${name(f.by)} added a file to ${p.title}: ${f.name}`, "project-" + p.id);
     for (const [lid, l] of Object.entries(p.links || {})) if (l && l.by !== me) add("link:" + lid, l.at, l.by, `${name(l.by)} added a link to ${p.title}: ${l.label || hostOf(l.url)}`, "project-" + p.id);
+    for (const [lid, e] of Object.entries(p.moneyLog || {})) if (e && e.kind === "deal" && e.by !== me) add("mlog:" + lid, e.at, e.by, `${name(e.by)} changed the deal for ${p.title}: ${e.what}`, "project-" + p.id);
     for (const [mid, m] of Object.entries(p.meetings || {})) if (m && m.by !== me) add("meet:" + mid, m.at, m.by, `${name(m.by)} added meeting notes in ${p.title}${m.title ? ": " + m.title : ""}`, "build-" + p.id);
   }
   for (const p of dealProjects()) {
@@ -2349,6 +2396,8 @@ function buildAlerts() {
   for (const n of unseenNews()) add("news:" + n.id, n.at || new Date(n.date + "T09:00").getTime(), n.by || null, (n.by ? `${firstName(n.by)} posted: ` : "New in Pitch Room: ") + n.title, "me");
   { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, rulesChanges(rulesNow()).length ? "The money rules changed: " + rulesChanges(rulesNow()).join(", ") + ". Please read and agree" : "Please read and agree to the team's money rules", "money-rules") }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
+  if (isAdmin && (people[me] || {}).rulesPublished !== RULES_VERSION) add("rulesdb:" + RULES_VERSION, dayStart(), null, "New database rules are ready. Copy and publish them in Settings \u203a Database rules", "settings-rules");
+  if (isAdmin && live && Date.now() - ((people[me] || {}).lastBackup || 0) > 30 * 864e5) add("backup:" + thisMonth(), dayStart(), null, "Time for this month's backup: Settings \u203a Backup", "settings-backup");
   for (const t of dmThreads) if (dmUnread(t)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, people[t.lastBy] ? t.lastBy : null, `${chatName(t.lastBy)}${isPartnerUid(t.lastBy) ? " (partner)" : ""} sent you a private message: ${(t.lastText || "").slice(0, 60)}`, "dm-" + t.lastBy);
   for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
   return out.sort((a, b) => b.at - a.at).slice(0, 50);
@@ -2423,6 +2472,8 @@ function renderMe() {
       el("div", { class: "stat" + (overdue ? " late" : "") }, el("b", {}, overdue), el("span", {}, "overdue")),
       el("div", { class: "stat" }, el("b", {}, doneWeek), el("span", {}, "done this week"))));
 
+  { const wc = welcomeCard(); if (wc) box.append(wc) }
+  if (isHomeScreenApp() && !(people[me] || {}).installed && live) setDoc(doc(db, "users", me), { installed: true }, { merge: true }).catch(() => {});
   { const nc = newsCard(); if (nc) box.append(nc) }
   if (dealProjects().length || isAdmin) {
     const all = allMoney();
@@ -2508,65 +2559,140 @@ function saveTeam(emails, ok) {
   write(() => setDoc(doc(db, "meta", "team"), { emails: list, updatedAt: Date.now(), updatedBy: me }, { merge: true }), ok);
 }
 
+/* ----- settings: a home page of grouped rows (like a phone's Settings app), each opening its own page ----- */
+let setQuery = "";
+const SET_PAGES = { profile: "Profile", appearance: "Appearance", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
+function setIcon(sym, color) { return el("span", { class: "seticon", style: `background:${color}` }, sym) }
 function renderSettings() {
   const box = $("#settings"); box.replaceChildren();
-  const prof = people[me] || {}, theme = getTheme(), meteors = getMeteors();
-  box.append(el("button", { class: "back", onclick: () => { location.hash = "me" } }, "← Me"), el("h2", { class: "sec-h", style: "margin-top:0" }, "Settings"));
-  const secs = [["s-you", "You"], ["s-alerts", "Alerts"], ["s-team", "Team"], ["s-help", "Help"], ["s-account", "Account"]];
-  box.append(el("nav", { class: "setnav", "aria-label": "Settings sections" }, secs.map(([id, l]) => el("button", { class: "cat", onclick: () => { const n = document.getElementById(id); if (n) scrollTo({ top: n.getBoundingClientRect().top + scrollY - 80, behavior: "smooth" }) } }, l))));
-  const sec = (id, title, sub, ...kids) => el("section", { class: "setsec", id }, el("div", { class: "set-h" }, el("h3", {}, title), sub ? el("p", {}, sub) : null), ...kids);
-  const item = (title, sub, ...ctrl) => el("div", { class: "setrow" }, el("div", { class: "setrow-t" }, el("b", {}, title), sub ? el("span", {}, sub) : null), el("div", { class: "setrow-c" }, ...ctrl));
-
-  /* you: photo, name, look */
-  const nick = el("input", { id: "set-name", class: "noteinput", maxlength: "40", placeholder: (myProfile && myProfile.name) || "Your name" });
-  if (!nick.value) nick.value = prof.nick || "";
-  const saveName = () => { const v = nick.value.trim(); write(() => setDoc(doc(db, "users", me), { nick: v }, { merge: true }), v ? "Name saved" : "Using your Google name again") };
-  nick.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); saveName() } });
-  const setLook = (t, m) => { applyLook(t, m); render(); write(() => setDoc(doc(db, "users", me), { theme: t, meteors: m }, { merge: true })) };
-  box.append(sec("s-you", "You", "How you look to the team, and how Pitch Room looks to you.",
-    el("div", { class: "idea", style: "gap:0" },
+  const sub = route().sub || "", prof = people[me] || {};
+  if (sub && SET_PAGES[sub]) return settingsPage(box, sub, prof);
+  box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Settings"));
+  const q = el("input", { id: "set-search", class: "noteinput setsearch", type: "search", placeholder: "Search settings", autocomplete: "off", value: setQuery,
+    oninput: e => { setQuery = e.target.value; filterSet() } });
+  box.append(q);
+  // profile card on top
+  box.append(el("button", { class: "setprofile", onclick: () => { location.hash = "settings-profile" } },
+    el("img", { class: "av", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
+    el("span", { class: "who-n" }, el("b", {}, realName(me) || (myProfile && myProfile.name) || ""), el("span", { class: "label" }, ((myProfile && myProfile.email) || "") + " · Photo, name")), el("span", { class: "chev2" }, "›")));
+  const ver = rulesNow().version || 1, agreed = ((prof.moneyAgreed || {}).version === ver), perm = "Notification" in window ? Notification.permission : "unsupported";
+  const themeName = (THEMES.find(t => t[0] === getTheme()) || [, "Dark"])[1];
+  const row = (sym, color, title, value, go, keys, danger) => el("button", { class: "setrowbtn" + (danger ? " danger" : ""), "data-k": (title + " " + (keys || "")).toLowerCase(), onclick: go },
+    sym ? setIcon(sym, color) : null, el("span", { class: "setrow-name" }, title), value != null ? el("span", { class: "setrow-val" }, value) : null, danger ? null : el("span", { class: "chev2" }, "›"));
+  const group = (title, ...rows) => el("section", { class: "setgroup" }, title ? el("div", { class: "setgroup-h" }, title) : null, el("div", { class: "setlist" }, ...rows.filter(Boolean)));
+  const goto = k => () => { location.hash = "settings-" + k };
+  const partners = pMembers.length, teamN = teamEmails().length || teamIds().length;
+  box.append(
+    group("Preferences",
+      row("\u{1F3A8}", "#7C5CD6", "Appearance", themeName + (getMeteors() ? "" : " · still"), goto("appearance"), "theme dark light pine animation look"),
+      row("\u{1F514}", "#E2574C", "Alerts", pushOn && perm === "granted" ? "On" : "Off", goto("alerts"), "notifications push sound phone"),
+      row("✦", "#0D5E63", "What's new", (prof.newsOff ? "Off" : "On"), goto("news"), "updates news post")),
+    group("Team",
+      isAdmin ? row("\u{1F465}", "#2F80ED", "People and access", `${teamN} team · ${partners} partners`, goto("access"), "add member partner client email invite remove") : null,
+      row("\u{1F3F7}️", "#F2994A", "Nicknames", String(Object.keys(nicks).length || "None"), goto("nicknames"), "names"),
+      row("⭐", "#E0B12E", "Skills", topSkills(me).map(s => SKILLS[s].name).join(", ") || "Take the quiz", () => { location.hash = "skills" }, "quiz strengths"),
+      row("\u{1F4B0}", "#27AE60", "Money rules", agreed ? `Version ${ver} · agreed ✓` : `Version ${ver} · please agree`, () => { moneyTab = "rules"; location.hash = "money" }, "fund finder shares agreement")),
+    isAdmin ? group("Admin",
+      row("\u{1F6E1}️", "#4F5B66", "Database rules", prof.rulesPublished === RULES_VERSION ? "Up to date" : "● Publish new rules", goto("rules"), "firebase security"),
+      row("\u{1F4BE}", "#56CCF2", "Backup", prof.lastBackup ? "Last: " + fmtDay(prof.lastBackup) : "Never", goto("backup"), "download export"),
+      row("\u{1F4E1}", "#9B51E0", "Alert server", pushServerState === "ok" ? "Working" : pushBase() ? "Check" : "Not set up", goto("alerts"), "push cloudflare worker")) : null,
+    group("Help",
+      row("\u{1F4F2}", "#219653", "Install the app", isHomeScreenApp() ? "Installed" : "", goto("install"), "home screen dock desktop"),
+      row("\u{1F6DF}", "#EB5757", "Help and fixes", "", goto("help"), "reload refresh problem support version"),
+      row("\u{1F517}", "#2D9CDB", "Share the site link", "Copy", () => copyText(SITE_LINK, "Link copied"), "url")),
+    group(null, row(null, null, "Sign out", null, doSignOut, "log out account", true)),
+    el("p", { class: "label setfoot" }, "Pitch Room · Ardent Studios" + (typeof BUILD_ID !== "undefined" ? " · " + BUILD_ID.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2}).*/, "$3/$2/$1 $4:$5") : "")));
+  filterSet();
+  function filterSet() {
+    const v = setQuery.trim().toLowerCase();
+    box.querySelectorAll(".setrowbtn").forEach(b => { b.hidden = !!v && !b.dataset.k.includes(v) });
+    box.querySelectorAll(".setgroup").forEach(g => { g.hidden = !!v && !g.querySelector(".setrowbtn:not([hidden])") });
+    const p = box.querySelector(".setprofile"); if (p) p.hidden = !!v && !"profile photo name account email".includes(v);
+  }
+}
+function settingsPage(box, sub, prof) {
+  box.append(el("button", { class: "back", onclick: () => { location.hash = "settings" } }, "‹ Settings"), el("h2", { class: "sec-h", style: "margin-top:0" }, SET_PAGES[sub]));
+  const item = (title, s, ...ctrl) => el("div", { class: "setrow" }, el("div", { class: "setrow-t" }, el("b", {}, title), s ? el("span", {}, s) : null), el("div", { class: "setrow-c" }, ...ctrl));
+  const card = (...kids) => el("div", { class: "idea", style: "gap:0" }, ...kids.filter(Boolean));
+  if (sub === "profile") {
+    const nick = el("input", { id: "set-name", class: "noteinput", maxlength: "40", placeholder: (myProfile && myProfile.name) || "Your name" });
+    if (!nick.value) nick.value = prof.nick || "";
+    const saveName = () => { const v = nick.value.trim(); write(() => setDoc(doc(db, "users", me), { nick: v }, { merge: true }), v ? "Name saved" : "Using your Google name again") };
+    nick.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); saveName() } });
+    box.append(card(
       el("div", { class: "setrow" }, el("img", { class: "av av-lg", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
-        el("div", { class: "setrow-t" }, el("b", {}, realName(me) || (myProfile && myProfile.name) || ""), el("span", {}, (myProfile && myProfile.email) || "")),
+        el("div", { class: "setrow-t" }, el("b", {}, realName(me) || ""), el("span", {}, (myProfile && myProfile.email) || "")),
         el("div", { class: "setrow-c" }, el("button", { class: "btn small", onclick: pickProfilePhoto }, "Change photo"),
           prof.pic ? el("button", { class: "btn quiet small", onclick: () => write(() => setDoc(doc(db, "users", me), { pic: DEL() }, { merge: true }), "Back to your Google photo") }, "Use Google photo") : null)),
       item("Name the team sees", "Leave it empty to use your Google name.", el("div", { class: "addtask", style: "margin:0;flex-wrap:nowrap" }, nick, el("button", { class: "btn primary", onclick: saveName }, "Save"))),
+      item("Signed in with Google", (myProfile && myProfile.email) || "", el("button", { class: "btn small", onclick: doSignOut }, "Sign out"))));
+  }
+  if (sub === "appearance") {
+    const theme = getTheme(), meteors = getMeteors();
+    const setLook = (t, m) => { applyLook(t, m); render(); write(() => setDoc(doc(db, "users", me), { theme: t, meteors: m }, { merge: true })) };
+    box.append(card(
       item("Theme", "Saved to your account, so every device matches.", el("div", { class: "seg", role: "group", "aria-label": "Theme" }, THEMES.map(([v, l]) => el("button", { "aria-pressed": String(theme === v), onclick: () => setLook(v, meteors) }, l === "Match my device" ? "Auto" : l)))),
       item("Background animation", "The slow moving map behind the page.", el("div", { class: "seg seg-sm", role: "group", "aria-label": "Background animation" },
-        el("button", { "aria-pressed": String(meteors), onclick: () => setLook(theme, true) }, "On"),
-        el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off"))))));
-
-  /* alerts */
-  box.append(sec("s-alerts", "Alerts", "What reaches you, and how.", pushSettings(), newsSettings()));
-
-  /* team: nicknames for everyone, plus access for the admin */
-  const crew = Object.entries(people).filter(([id, x]) => x && x.name && isTeamUid(id)).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""));
-  const nickBox = crew.length ? el("details", { class: "idea setdetails" }, el("summary", {}, el("b", {}, "Nicknames"), el("span", { class: "label" }, `${Object.keys(nicks).length} set · everyone sees them instead of names`)),
-    el("div", { class: "nicklist" }, crew.map(([id, x]) => {
-      const inp = el("input", { class: "noteinput", maxlength: "30", placeholder: x.nick || x.name, "aria-label": "Nickname for " + x.name, value: nicks[id] || "" });
-      const save = () => { const v = inp.value.trim(); if (v === (nicks[id] || "")) return; write(() => setDoc(doc(db, "meta", "nicks"), { [id]: v ? v.slice(0, 30) : DEL() }, { merge: true }), v ? `${x.name.split(" ")[0]} is now “${v}”` : "Nickname removed") };
-      inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } });
-      return el("div", { class: "nickrow" }, el("img", { class: "av", src: x.pic || x.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
-        el("span", { class: "nickname-real" }, id === me ? x.name + " (you)" : x.name), inp, el("button", { class: "btn small", onclick: save }, "Save"));
-    }))) : null;
-  box.append(sec("s-team", "Team", isAdmin ? "Who can sign in and what they see. Only you see the access list." : "Names everyone on the team sees.", isAdmin ? accessSection() : null, nickBox,
-    el("div", { class: "idea", style: "gap:0" }, item("Money rules", "The team fund, finder's fee and how we split.", el("button", { class: "btn small", onclick: () => { moneyTab = "rules"; location.hash = "money" } }, "Open")),
-      item("Skills", "Your strengths, used to suggest who does which task.", el("button", { class: "btn small", onclick: () => { location.hash = "skills" } }, "Open")))));
-
-  /* help: fixes for the usual problems, right here */
-  const adminId = Object.entries(people).find(([, x]) => ADMINS.includes((x.email || "").toLowerCase()));
-  const standalone = (() => { try { return matchMedia("(display-mode: standalone)").matches || navigator.standalone } catch { return false } })();
-  box.append(sec("s-help", "Help", "Quick fixes when something isn't right.", el("div", { class: "idea", style: "gap:0" },
-    item("Get the latest version", "If a new feature isn't showing up.", el("button", { class: "btn small", onclick: () => location.replace(location.pathname + "?v=" + Date.now() + location.hash) }, "Reload")),
-    item("Refresh this device", "If something looks wrong or out of date. Your work is safe: it's all saved online.", el("button", { class: "btn small", onclick: () => { clearCache(); location.replace(location.pathname + "?v=" + Date.now() + "#me") } }, "Refresh")),
-    installGuide(),
-    item("Share the site link", SITE_LINK, el("button", { class: "btn small", onclick: async () => { try { await navigator.clipboard.writeText(SITE_LINK); toast("Link copied") } catch { toast(SITE_LINK, 5000) } } }, "Copy")),
-    adminId && adminId[0] !== me ? item("Still stuck?", `Message ${ADMIN_NAME} privately.`, el("button", { class: "btn small", onclick: () => { location.hash = "dm-" + adminId[0] } }, "Message")) : null,
-    item("Version", typeof BUILD_ID !== "undefined" ? BUILD_ID.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2}).*/, "$3/$2/$1 $4:$5") : "", null))));
-
-  /* account */
-  box.append(sec("s-account", "Account", null, el("div", { class: "idea", style: "gap:0" },
-    item("Signed in", (myProfile && myProfile.email) || "", el("button", { class: "btn small", onclick: doSignOut }, "Sign out")))));
+        el("button", { "aria-pressed": String(meteors), onclick: () => setLook(theme, true) }, "On"), el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off")))));
+  }
+  if (sub === "alerts") box.append(pushSettings());
+  if (sub === "news") box.append(newsSettings());
+  if (sub === "access") box.append(isAdmin ? accessSection() : el("div", { class: "empty" }, `Only ${ADMIN_NAME} manages who can sign in.`));
+  if (sub === "nicknames") {
+    const crew = Object.entries(people).filter(([id, x]) => x && x.name && isTeamUid(id)).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""));
+    box.append(el("p", { class: "lede", style: "margin:0 0 12px" }, "Give anyone on the team a nickname. Everyone on the team sees it instead of their name. Leave it empty to remove it."),
+      card(el("div", { class: "nicklist" }, crew.map(([id, x]) => {
+        const inp = el("input", { class: "noteinput", maxlength: "30", placeholder: x.nick || x.name, "aria-label": "Nickname for " + x.name, value: nicks[id] || "" });
+        const save = () => { const v = inp.value.trim(); if (v === (nicks[id] || "")) return; write(() => setDoc(doc(db, "meta", "nicks"), { [id]: v ? v.slice(0, 30) : DEL() }, { merge: true }), v ? `${x.name.split(" ")[0]} is now “${v}”` : "Nickname removed") };
+        inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } });
+        return el("div", { class: "nickrow" }, el("img", { class: "av", src: x.pic || x.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
+          el("span", { class: "nickname-real" }, id === me ? x.name + " (you)" : x.name), inp, el("button", { class: "btn small", onclick: save }, "Save"));
+      }))));
+  }
+  if (sub === "rules" && isAdmin) box.append(el("p", { class: "lede", style: "margin:0 0 12px" }, "What the database itself allows: who can see and change what. Publish them again whenever they change."),
+    card(item(((prof.rulesPublished === RULES_VERSION) ? "✓ Up to date" : "New rules to publish") + ` (version ${RULES_VERSION})`, "Protects money and the fund so only you and each project's planners can change them, and lets partners into private chats.",
+      el("button", { class: "btn small", onclick: () => copyText(PARTNER_RULES, "Rules copied. Paste them in Firebase, then Publish") }, "1. Copy rules"),
+      el("a", { class: "btn small", href: "https://console.firebase.google.com/project/the-office-ab723/firestore/rules", target: "_blank", rel: "noopener noreferrer" }, "2. Open Firebase"),
+      prof.rulesPublished === RULES_VERSION ? null : el("button", { class: "btn small primary", onclick: () => write(() => setDoc(doc(db, "users", me), { rulesPublished: RULES_VERSION }, { merge: true }), "Thanks. Marked as published") }, "3. I published them")),
+      item("How", "In Firebase: delete everything in the Rules box, paste, then press Publish.", null)));
+  if (sub === "backup" && isAdmin) box.append(card(item("Download a backup", "Everything on the board in one file: projects, tasks, money, chat, partners and clients. Keep it in Google Drive. Do it once a month." + (prof.lastBackup ? " Last one: " + fmtDay(prof.lastBackup) + "." : ""),
+    el("button", { class: "btn small primary", onclick: downloadBackup }, "Download"))));
+  if (sub === "install") { const g = installGuide(); g.open = true; box.append(card(g)) }
+  if (sub === "help") {
+    const adminId = Object.entries(people).find(([, x]) => ADMINS.includes((x.email || "").toLowerCase()));
+    box.append(card(
+      item("Get the latest version", "If a new feature isn't showing up.", el("button", { class: "btn small", onclick: () => location.replace(location.pathname + "?v=" + Date.now() + location.hash) }, "Reload")),
+      item("Refresh this device", "If something looks wrong or out of date. Your work is safe: it's all saved online.", el("button", { class: "btn small", onclick: () => { clearCache(); location.replace(location.pathname + "?v=" + Date.now() + "#me") } }, "Refresh")),
+      item("Alerts not working?", "Step-by-step fixes for every device.", el("button", { class: "btn small", onclick: () => { location.hash = "settings-alerts" } }, "Open")),
+      item("Search everything", "Tasks, projects, chat, numbers, notes. Ctrl K or ⌘ K anywhere.", el("button", { class: "btn small", onclick: () => { searchOpen = true; render() } }, "Search")),
+      adminId && adminId[0] !== me ? item("Still stuck?", `Message ${ADMIN_NAME} privately.`, el("button", { class: "btn small", onclick: () => { location.hash = "dm-" + adminId[0] } }, "Message")) : null,
+      item("Version", typeof BUILD_ID !== "undefined" ? BUILD_ID : "", null)));
+  }
 }
+
+/* ----- the ⋯ menu in the top bar: quick way to everything that isn't a tab ----- */
+let moreOpen = false;
+function renderMore() {
+  const box = $("#more"); if (!box) return;
+  box.hidden = !moreOpen; if (!moreOpen) return;
+  box.replaceChildren();
+  const prof = people[me] || {}, go = h => () => { moreOpen = false; location.hash = h; render() };
+  const item = (sym, label, fn, danger) => el("button", { class: "moreitem" + (danger ? " danger" : ""), onclick: fn }, el("span", { class: "moreico" }, sym), label);
+  box.append(
+    el("button", { class: "morehead", onclick: go("me") }, el("img", { class: "av", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
+      el("span", { class: "who-n" }, el("b", {}, realName(me) || (myProfile && myProfile.name) || ""), el("span", { class: "label" }, (myProfile && myProfile.email) || ""))),
+    item("⚙️", "Settings", go("settings")),
+    item("\u{1F4B0}", "Money", () => { moneyTab = "overview"; go("money")() }),
+    item("\u{1F50D}", "Search", () => { moreOpen = false; searchOpen = true; render() }),
+    item("⭐", "Skills and team", go("skills")),
+    item("\u{1F4F2}", "Install the app", go("settings-install")),
+    item("\u{1F6DF}", "Help and fixes", go("settings-help")),
+    el("div", { class: "morediv" }),
+    item("↪️", "Sign out", () => { moreOpen = false; doSignOut() }, true));
+}
+$("#more-btn").onclick = e => { e.stopPropagation(); moreOpen = !moreOpen; alertsOpen = false; searchOpen = false; render() };
+document.addEventListener("click", e => { if (moreOpen && !e.target.closest("#more") && !e.target.closest("#more-btn")) { moreOpen = false; render() } });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && moreOpen) { moreOpen = false; render() } });
 
 /* ----- assistant (Gemini through Firebase AI Logic) -----
    Loaded separately, only when someone opens it, so the rest of the site never depends on it.
@@ -2964,6 +3090,14 @@ const STAGES = [["proposal", "Proposal sent"], ["agreed", "Deal agreed"], ["ende
 const METHODS = ["Cash", "InstaPay", "Vodafone Cash", "Bank transfer", "Other"];
 let editDeal = null, moneyForm = null, delMoney = null, shareMonth = null;
 const moneyOf = p => computeMoney(p, todayStr(), rulesNow());
+const CURRENCIES = ["EGP", "USD", "EUR", "GBP", "SAR", "AED", "QAR", "KWD"];
+const fmtCur = (v, cur) => !cur || cur === "EGP" ? fmtEGP(v) : fmtN(v) + " " + cur;
+// Every money change is logged on the project, so everyone can see who changed what and when.
+function moneyUpd(p, data, what, kind, ok) { return write(() => upd(p.id, { ...data, ["moneyLog." + uid()]: { by: me, at: Date.now(), what: String(what || "").slice(0, 200), kind: kind || "entry" } }), ok) }
+function sharesDiff(a, b) {
+  const ids = [...new Set([...Object.keys(a || {}), ...Object.keys(b || {})])];
+  return ids.filter(u => Number((a || {})[u] || 0) !== Number((b || {})[u] || 0)).map(u => `${firstName(u)} ${Number((a || {})[u] || 0)}% \u2192 ${Number((b || {})[u] || 0)}%`).join(", ");
+}
 const canMoney = p => canPlan(p);
 
 function moneyStatus(p, r) {
@@ -2990,14 +3124,15 @@ function renderMoney(box, p) {
   const sum = el("section", { class: "idea money-sum" },
     el("div", { class: "row", style: "gap:6px" }, el("span", { class: "chip" }, typeName), el("span", { class: "mstat " + stCls }, st), m.client ? el("span", { class: "label" }, "Client: " + m.client) : null,
       el("span", { class: "spacer" }), can ? el("button", { class: "btn small", onclick: () => { editDeal = p.id; render() } }, "Edit deal") : null));
+  const cur = r.currency, inEgp = cur !== "EGP" ? ` (\u2248 ${fmtEGP(r.receivedEGP)})` : "";
   if (m.type === "monthly") {
-    sum.append(el("div", { class: "bignum" }, fmtEGP(toP(m.monthlyFee)), el("span", {}, " / month")),
-      el("div", { class: "label" }, [toP(m.setupFee) ? "Setup fee " + fmtEGP(toP(m.setupFee)) : null, "since " + monthLabel(m.startMonth), m.endMonth ? "until " + monthLabel(m.endMonth) : "ongoing", "due by day " + (m.dueDay || 5)].filter(Boolean).join(" · ")),
-      el("div", { class: "label" }, "Received so far: " + fmtEGP(r.received)));
+    sum.append(el("div", { class: "bignum" }, fmtCur(toP(m.monthlyFee), cur), el("span", {}, " / month")),
+      el("div", { class: "label" }, [toP(m.setupFee) ? "Setup fee " + fmtCur(toP(m.setupFee), cur) : null, "since " + monthLabel(m.startMonth), m.endMonth ? "until " + monthLabel(m.endMonth) : "ongoing", "due by day " + (m.dueDay || 5), cur !== "EGP" ? `1 ${cur} \u2248 ${r.rate} EGP` : null].filter(Boolean).join(" · ")),
+      el("div", { class: "label" }, "Received so far: " + fmtCur(r.received, cur) + inEgp));
   } else {
-    sum.append(el("div", { class: "bignum" }, fmtEGP(r.received), el("span", {}, " of " + fmtEGP(r.expected))),
+    sum.append(el("div", { class: "bignum" }, fmtCur(r.received, cur), el("span", {}, " of " + fmtCur(r.expected, cur))),
       line({ total: 100, done: 0, pct: r.expected ? Math.min(100, Math.round(r.received / r.expected * 100)) : 0 }, "x"),
-      el("div", { class: "label" }, r.received >= r.expected ? "Fully paid" : fmtEGP(r.expected - r.received) + " still to come"));
+      el("div", { class: "label" }, (r.received >= r.expected ? "Fully paid" : fmtCur(r.expected - r.received, cur) + " still to come") + inEgp));
     sum.querySelectorAll(".pmeta").forEach(n => n.remove());
   }
   // schedule
@@ -3005,7 +3140,7 @@ function renderMoney(box, p) {
     const sch = el("div", { class: "schedule" });
     for (const s of r.schedule.slice(-8)) sch.append(el("div", { class: "sched " + s.status },
       el("span", { class: "sched-l" }, s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label),
-      el("span", {}, s.status === "paid" ? "✓ " + fmtEGP(s.received) : s.received ? `${fmtEGP(s.received)} of ${fmtEGP(s.expected)}` : fmtEGP(s.expected)),
+      el("span", {}, s.status === "paid" ? "✓ " + fmtCur(s.received, cur) : s.received ? `${fmtCur(s.received, cur)} of ${fmtCur(s.expected, cur)}` : fmtCur(s.expected, cur)),
       el("span", { class: "sched-s" }, { paid: "Paid", late: "Late", due: "Due", upcoming: "Next" }[s.status]),
       can && m.type === "monthly" && s.label.match(/^\d{4}-\d{2}$/) ? el("button", { class: "linkbtn", onclick: () => { shareMonth = p.id + ":" + s.month; render() } }, "Who worked?") : null));
     sum.append(sch);
@@ -3035,12 +3170,13 @@ function renderMoney(box, p) {
 
   /* who gets what */
   const split = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "Who gets what"), el("span", { class: "spacer" }),
-    el("span", { class: "label" }, `Team fund ${r.fundPct}%` + (r.finderTeam ? ` \u00b7 finder ${r.findPct}% to the team fund` : r.finders.length ? ` \u00b7 finder ${r.findPct}% to ${r.finders.map(firstName).join(" & ")}` : ""))));
+    el("span", { class: "label" }, (r.partner ? `Partner ${r.partner.mode === "fixed" ? fmtEGP(toP(r.partner.value)) : r.partner.value + "%"} \u00b7 ` : "") + `Team fund ${r.fundPct}%` + (r.finderTeam ? ` \u00b7 finder ${r.findPct}% to the team fund` : r.finders.length ? ` \u00b7 finder ${r.findPct}% to ${r.finders.map(firstName).join(" & ")}` : ""))));
   if (r.pending) {
     split.append(el("p", { style: "margin:0;font-size:14px" }, "Split happens when the client has fully paid. If nothing else is spent, it will be:"));
     const pv = r.preview;
     for (const [u, v] of Object.entries(pv.people).sort((a, b) => b[1].earned - a[1].earned)) split.append(el("div", { class: "mrow" }, av(u), el("span", { class: "mname" }, name(u)), el("span", { class: "mval" }, fmtEGP(v.earned))));
     split.append(el("div", { class: "mrow fundrow" }, el("span", { class: "mname" }, "Team fund"), el("span", { class: "mval" }, fmtEGP(pv.fund))));
+    if (r.partner) split.append(el("div", { class: "mrow fundrow" }, el("span", { class: "mname" }, `${r.partner.name} (partner)`), el("span", { class: "mval" }, fmtEGP(pv.partner || 0))));
     if (r.held) split.append(el("p", { class: "label", style: "margin:4px 0 0" }, `${fmtEGP(r.held)} received and waiting to be split.`));
   }
   const people = Object.entries(r.people).filter(([, v]) => v.earned || v.back || v.paid).sort((a, b) => b[1].balance - a[1].balance);
@@ -3054,6 +3190,9 @@ function renderMoney(box, p) {
       el("span", { class: "mval owed" }, fmtN(v.balance), can && v.balance > 0 ? el("button", { class: "linkbtn", onclick: () => { moneyForm = { pid: p.id, kind: "payout", to: u, amount: v.balance / 100 }; render() } }, "Mark paid") : null)));
   }
   if (!r.pending) split.append(el("div", { class: "mrow fundrow" }, el("span", { class: "mname" }, "Team fund"), el("span", { class: "mval" }, fmtEGP(r.fund))));
+  if (r.partner && (r.partner.earned || r.partner.paid)) { const po = r.partner.earned - r.partner.paid;
+    split.append(el("div", { class: "mrow partnerrow" }, el("span", { class: "rolebadge partner" }, "Partner"), el("span", { class: "mname" }, r.partner.name), el("span", { class: "mval" }, `earned ${fmtN(r.partner.earned)} \u00b7 paid ${fmtN(r.partner.paid)} \u00b7 owed ${fmtEGP(po)}`,
+      can && po > 0 ? el("button", { class: "linkbtn", onclick: () => { moneyForm = { pid: p.id, kind: "payout", toPartner: r.partner.email, amount: po / 100 }; render() } }, "Mark paid") : null))) }
   const shareTxt = Object.entries(m.shares || {}).filter(([, v]) => Number(v) > 0).map(([u, v]) => `${firstName(u)} ${v}%`).join(" · ");
   if (shareTxt) split.append(el("p", { class: "label", style: "margin:6px 0 0" }, (m.type === "monthly" ? "Setup shares: " : "Shares: ") + shareTxt));
   if (m.type === "monthly") { const ms = Object.entries(m.monthlyShares || m.shares || {}).filter(([, v]) => Number(v) > 0).map(([u, v]) => `${firstName(u)} ${v}%`).join(" · "); if (ms) split.append(el("p", { class: "label", style: "margin:2px 0 0" }, "Monthly shares: " + ms)) }
@@ -3069,19 +3208,27 @@ function renderMoney(box, p) {
 
   /* history */
   const hist = [];
-  for (const [id, x] of Object.entries(p.payments || {})) if (x) hist.push({ id, coll: "payments", date: x.date, at: x.at, sign: "+", amount: x.amount, text: `${{ deposit: "Deposit", setup: "Setup fee", monthly: "Monthly fee " + monthLabel(x.month), installment: "Installment" }[x.kind] || "Payment"}${x.method ? " · " + x.method : ""}${x.heldBy ? " · with " + firstName(x.heldBy) : ""}`, note: x.note });
+  for (const [id, x] of Object.entries(p.payments || {})) if (x) hist.push({ id, coll: "payments", date: x.date, at: x.at, sign: "+", amount: x.amount, cur, rate: x.rate, text: `${{ deposit: "Deposit", setup: "Setup fee", monthly: "Monthly fee " + monthLabel(x.month), installment: "Installment" }[x.kind] || "Payment"}${x.method ? " · " + x.method : ""}${x.heldBy ? " · with " + firstName(x.heldBy) : ""}`, note: x.note });
   for (const [id, x] of Object.entries(p.costs || {})) if (x) hist.push({ id, coll: "costs", date: x.date, at: x.at, sign: "−", amount: x.amount, text: `Cost: ${x.what || "spent"}${x.paidBy ? " · paid by " + firstName(x.paidBy) : ""}`, note: x.note });
-  for (const [id, x] of Object.entries(p.payouts || {})) if (x) hist.push({ id, coll: "payouts", date: x.date, at: x.at, sign: "→", amount: x.amount, text: `Paid to ${firstName(x.to)}${x.from ? " by " + firstName(x.from) : ""}`, note: x.note });
+  for (const [id, x] of Object.entries(p.payouts || {})) if (x) hist.push({ id, coll: "payouts", date: x.date, at: x.at, sign: "→", amount: x.amount, text: x.toPartner ? `Paid to ${(r.partner && r.partner.name) || x.toPartner} (partner)${x.from ? " by " + firstName(x.from) : ""}` : `Paid to ${firstName(x.to)}${x.from ? " by " + firstName(x.from) : ""}`, note: x.note });
   for (const [id, x] of Object.entries(p.ads || {})) if (x) hist.push({ id, coll: "ads", date: x.date, at: x.at, sign: x.kind === "spent" ? "−" : "+", amount: x.amount, text: x.kind === "spent" ? "Ad money spent on ads" : "Ad money from client", note: x.note, ad: true });
   hist.sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.at || 0) - (a.at || 0));
   if (hist.length) box.append(el("details", { class: "removed", open: hist.length <= 6 }, el("summary", {}, `History (${hist.length})`),
     el("div", { class: "idea", style: "gap:0;margin-top:10px" }, hist.map(h => el("div", { class: "hrow" + (h.ad ? " ad" : "") },
       el("span", { class: "hsign" }, h.sign), el("div", { class: "hmain" }, el("div", {}, h.text), el("div", { class: "label" }, fmtDate(h.date) + (h.note ? " · " + h.note : ""))),
-      el("span", { class: "hamt" }, fmtEGP(toP(h.amount))),
-      can ? (delMoney === h.id ? el("button", { class: "linkdel sure", onclick: () => { delMoney = null; write(() => upd(p.id, { [h.coll + "." + h.id]: DEL() }), "Removed") } }, "Remove?")
+      el("span", { class: "hamt" }, fmtCur(toP(h.amount), h.cur), h.cur && h.cur !== "EGP" && h.rate ? el("small", { class: "label", style: "display:block" }, "@ " + h.rate) : null),
+      can ? (delMoney === h.id ? el("button", { class: "linkdel sure", onclick: () => { delMoney = null; moneyUpd(p, { [h.coll + "." + h.id]: DEL() }, `Removed: ${h.text} ${fmtCur(toP(h.amount), h.cur)}`, "remove", "Removed") } }, "Remove?")
         : el("button", { class: "linkdel", "aria-label": "Remove", onclick: () => { delMoney = h.id; render() } }, "✕")) : null)))));
+  { const lg = moneyLogBlock(p); if (lg) box.append(lg) }
 }
 
+function moneyLogBlock(p) {
+  const log = Object.entries(p.moneyLog || {}).filter(([, v]) => v && v.at).map(([id, v]) => ({ id, ...v })).sort((a, b) => b.at - a.at);
+  if (!log.length) return null;
+  return el("details", { class: "removed" }, el("summary", {}, `Change log (${log.length})`),
+    el("div", { class: "idea", style: "gap:0;margin-top:10px" }, log.slice(0, 60).map(x => el("div", { class: "hrow" + (x.kind === "deal" ? " logdeal" : "") }, av(x.by),
+      el("div", { class: "hmain" }, el("div", {}, x.what), el("div", { class: "label" }, `${name(x.by)} \u00b7 ${ago(x.at)}`))))));
+}
 function teamChoices(p) { return [...new Set([...teamOf(p), ...teamIds()])] }
 function personSelect(id, value, p, blank) {
   const s = el("select", { class: "mini", id }, blank ? el("option", { value: "" }, blank) : null, teamChoices(p).map(u => el("option", { value: u }, realName(u) || "Someone")));
@@ -3092,12 +3239,14 @@ function fieldRow(label, ...kids) { return el("div", { class: "tfield" }, el("sp
 
 function moneyEntryForm(p, r) {
   const m = p.money, f = moneyForm, today = todayStr();
-  const amount = moneyInput("mf-amount", f.amount != null ? f.amount : (f.kind === "pay" && m.type === "monthly" ? m.monthlyFee : ""), "Amount in EGP");
+  const cur = m.currency || "EGP";
+  const amount = moneyInput("mf-amount", f.amount != null ? f.amount : (f.kind === "pay" && m.type === "monthly" ? m.monthlyFee : ""), f.kind === "pay" ? "Amount in " + cur : "Amount in EGP");
+  const rate = f.kind === "pay" && cur !== "EGP" ? moneyInput("mf-rate", m.rate || "", "EGP for 1 " + cur) : null;
   const date = el("input", { id: "mf-date", type: "date", class: "mini", value: today });
   const note = el("input", { id: "mf-note", class: "noteinput", maxlength: "120", placeholder: "Note (optional)" });
   const box = el("section", { class: "idea mform" });
   const close = () => { moneyForm = null; render() };
-  let kindSel, monthSel, method, held, what, paidBy, adKind, to, from;
+  let kindSel, monthSel, method, held, whatIn, paidBy, adKind, to, from;
   if (f.kind === "pay") {
     box.append(el("h3", {}, "Payment received"));
     const kinds = m.type === "monthly" ? [["monthly", "Monthly fee"], ["setup", "Setup fee"]] : m.type === "installments" ? [["installment", "Installment"]] : [["deposit", "Deposit"], ["payment", "Payment"]];
@@ -3113,18 +3262,23 @@ function moneyEntryForm(p, r) {
     }
     method = el("select", { class: "mini", id: "mf-method" }, METHODS.map(x => el("option", { value: x }, x)));
     held = personSelect("mf-held", me, p);
-    box.append(fieldRow("Amount", amount), fieldRow("Type", kindSel), monthSel ? fieldRow("For month", monthSel) : null, fieldRow("Date", date), fieldRow("How", method), fieldRow("Who has it", held), note);
+    box.append(fieldRow("Amount", amount, cur !== "EGP" ? el("span", { class: "label" }, cur) : null), rate ? fieldRow("Rate today", el("span", { class: "label" }, `1 ${cur} =`), rate, el("span", { class: "label" }, "EGP")) : null,
+      fieldRow("Type", kindSel), monthSel ? fieldRow("For month", monthSel) : null, fieldRow("Date", date), fieldRow("How", method), fieldRow("Who has it", held), note);
     if (monthSel && kindSel.value !== "monthly") monthSel.parentElement.parentElement.hidden = true;
   } else if (f.kind === "cost") {
     box.append(el("h3", {}, "Cost"));
-    what = el("input", { id: "mf-what", class: "noteinput", maxlength: "80", placeholder: "What was it? e.g. camera rental" });
+    whatIn = el("input", { id: "mf-what", class: "noteinput", maxlength: "80", placeholder: "What was it? e.g. camera rental" });
     paidBy = personSelect("mf-paidby", me, p);
-    box.append(fieldRow("Amount", amount), fieldRow("For", what), fieldRow("Paid by", paidBy), fieldRow("Date", date), note,
+    box.append(fieldRow("Amount", amount, el("span", { class: "label" }, "EGP")), fieldRow("For", whatIn), fieldRow("Paid by", paidBy), fieldRow("Date", date), note,
       el("p", { class: "label", style: "margin:0" }, "Whoever paid gets it back first, from the next money that comes in."));
   } else if (f.kind === "ads") {
     box.append(el("h3", {}, "Client's ad money"));
     adKind = el("select", { class: "mini", id: "mf-adkind" }, el("option", { value: "in" }, "Received from the client"), el("option", { value: "spent" }, "Spent on ads"));
     box.append(fieldRow("Amount", amount), fieldRow("Type", adKind), fieldRow("Date", date), note);
+  } else if (f.kind === "payout" && f.toPartner) {
+    box.append(el("h3", {}, "Commission paid to the partner"));
+    from = personSelect("mf-from", me, p, "Not recorded");
+    box.append(fieldRow("To", el("b", {}, ((m.partner || {}).name || f.toPartner) + " (partner)")), fieldRow("Amount", amount, el("span", { class: "label" }, "EGP")), fieldRow("From", from), fieldRow("Date", date), note);
   } else if (f.kind === "payout") {
     box.append(el("h3", {}, "Money handed over"));
     to = personSelect("mf-to", f.to, p); from = personSelect("mf-from", me, p, "Not recorded");
@@ -3135,12 +3289,16 @@ function moneyEntryForm(p, r) {
     if (!(a > 0)) { toast("Enter an amount bigger than 0"); amount.focus(); return }
     const base = { amount: Math.round(a * 100) / 100, date: date.value || today, note: note.value.trim(), by: me, at: Date.now() };
     let coll, data, ok;
-    if (f.kind === "pay") { coll = "payments"; data = { ...base, kind: kindSel.value, method: method.value, heldBy: held.value || null }; if (kindSel.value === "monthly") data.month = monthSel.value; ok = "Payment added" }
-    else if (f.kind === "cost") { coll = "costs"; data = { ...base, what: what.value.trim(), paidBy: paidBy.value || null }; ok = "Cost added" }
-    else if (f.kind === "ads") { coll = "ads"; data = { ...base, kind: adKind.value }; ok = "Ad money added" }
-    else { coll = "payouts"; data = { ...base, to: to.value, from: from.value || null }; ok = `Marked as paid to ${firstName(to.value)}` }
+    let what;
+    if (f.kind === "pay") { coll = "payments"; data = { ...base, kind: kindSel.value, method: method.value, heldBy: held.value || null }; if (kindSel.value === "monthly") data.month = monthSel.value; ok = "Payment added";
+      if (rate) { const rt = Number(rate.value); if (!(rt > 0)) { toast(`Enter today's rate: how many EGP for 1 ${cur}`); rate.focus(); return } data.rate = rt; data.currency = cur }
+      what = `Payment ${fmtCur(toP(a), cur)}` + (rate ? ` @ ${data.rate}` : "") }
+    else if (f.kind === "cost") { coll = "costs"; data = { ...base, what: whatIn.value.trim(), paidBy: paidBy.value || null }; ok = "Cost added"; what = `Cost ${fmtEGP(toP(a))}: ${data.what || "spent"}` }
+    else if (f.kind === "ads") { coll = "ads"; data = { ...base, kind: adKind.value }; ok = "Ad money added"; what = `Ad money ${adKind.value === "spent" ? "spent" : "received"} ${fmtCur(toP(a), cur)}` }
+    else if (f.toPartner) { coll = "payouts"; data = { ...base, toPartner: f.toPartner, from: from.value || null }; ok = "Marked as paid to the partner"; what = `Paid ${fmtEGP(toP(a))} to the partner` }
+    else { coll = "payouts"; data = { ...base, to: to.value, from: from.value || null }; ok = `Marked as paid to ${firstName(to.value)}`; what = `Paid ${fmtEGP(toP(a))} to ${firstName(to.value)}` }
     moneyForm = null;
-    write(() => upd(p.id, { [coll + "." + uid()]: data }), ok);
+    moneyUpd(p, { [coll + "." + uid()]: data }, what, "entry", ok);
   };
   box.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("button", { class: "btn primary", onclick: save }, "Save")));
   setTimeout(() => { if (!amount.value) amount.focus() }, 0);
@@ -3168,7 +3326,7 @@ function sharesEditor(prefix, p, current, suggestBtn) {
   return wrap;
 }
 
-let dealTypeDraft = {};
+let dealTypeDraft = {}, dealCurDraft = {};
 function dealForm(p) {
   const m = p.money || {}, R = rulesNow();
   const type = dealTypeDraft[p.id] || m.type || "one";
@@ -3179,8 +3337,12 @@ function dealForm(p) {
   const client = el("input", { id: "deal-client", class: "noteinput", maxlength: "80", placeholder: "Client name (optional)" }); if (!client.value) client.value = m.client || p.client || "";
   const stage = el("select", { class: "mini", id: "deal-stage" }, STAGES.map(([v, l]) => el("option", { value: v }, l))); stage.value = m.stage || "agreed";
   box.append(fieldRow("Client", client), fieldRow("Stage", stage));
-  const price = moneyInput("deal-price", m.price, "Total price in EGP");
-  const fee = moneyInput("deal-fee", m.monthlyFee, "Monthly fee in EGP"), setup = moneyInput("deal-setup", m.setupFee, "Setup fee (optional)");
+  const cur = dealCurDraft[p.id] || m.currency || "EGP";
+  const curSel = el("select", { class: "mini", id: "deal-cur", onchange: e => { dealCurDraft[p.id] = e.target.value; render() } }, CURRENCIES.map(c => el("option", { value: c, selected: c === cur }, c)));
+  const rateIn = cur !== "EGP" ? moneyInput("deal-rate", m.rate || "", "EGP for 1 " + cur) : null;
+  box.append(fieldRow("Currency", curSel, rateIn ? el("span", { class: "label" }, `1 ${cur} =`) : null, rateIn, rateIn ? el("span", { class: "label" }, "EGP (today's rate; each payment saves its own)") : el("span", { class: "label" }, "The client pays in this")));
+  const price = moneyInput("deal-price", m.price, "Total price in " + cur);
+  const fee = moneyInput("deal-fee", m.monthlyFee, "Monthly fee in " + cur), setup = moneyInput("deal-setup", m.setupFee, "Setup fee (optional)");
   const months = el("input", { id: "deal-n", class: "mini", type: "number", min: "2", max: "36", step: "1", value: m.installments || 3 });
   const start = el("input", { id: "deal-start", class: "mini", type: "month", value: m.startMonth || thisMonth() });
   const end = el("input", { id: "deal-end", class: "mini", type: "month", value: m.endMonth || "" });
@@ -3203,6 +3365,14 @@ function dealForm(p) {
   const syncF = () => { fBoxes.hidden = fMode.value !== "people" }; fMode.addEventListener("change", syncF); syncF();
   box.append(fieldRow("Who brought the client?", fMode), fBoxes,
     el("p", { class: "label", style: "margin:0" }, `Finder's fee ${m.findCustom && m.findPct != null ? m.findPct : R.findPct}%` + (type === "monthly" ? ` on the setup fee and first ${R.finderMonths} months` : "") + ". If several people brought it in, they share it equally."));
+  // a partner abroad who brought the client: their commission comes first, before the fund and the shares
+  const pm0 = (m.partner || {}).email || "";
+  const paSel = el("select", { class: "mini", id: "deal-partner" }, el("option", { value: "" }, "No partner"), [...pMembers].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(x => el("option", { value: x.id, selected: x.id === pm0 }, `${x.name || x.id} (${groupName(x.gid)})`)));
+  const paMode = el("select", { class: "mini", id: "deal-pmode" }, el("option", { value: "pct" }, "% of the profit"), el("option", { value: "fixed" }, "Fixed amount (EGP)")); paMode.value = (m.partner || {}).mode || "pct";
+  const paVal = moneyInput("deal-pval", (m.partner || {}).value != null ? m.partner.value : 10, "10");
+  const paBox = el("div", { class: "row", style: "gap:8px" }, paMode, paVal);
+  const syncPa = () => { paBox.hidden = !paSel.value }; paSel.addEventListener("change", syncPa); syncPa();
+  box.append(fieldRow("Partner who brought it", paSel), paBox, el("p", { class: "label", style: "margin:0" }, "Their commission is taken first, after costs. A % applies like the finder's fee; a fixed amount is paid from the first money until it's done."));
   let fundIn = null, findIn = null;
   if (isAdmin) { fundIn = el("input", { id: "deal-fundpct", class: "mini pct", type: "number", min: "0", max: "80", step: "1", value: m.fundCustom && m.fundPct != null ? m.fundPct : R.fundPct }); findIn = el("input", { id: "deal-findpct", class: "mini pct", type: "number", min: "0", max: "30", step: "1", value: m.findCustom && m.findPct != null ? m.findPct : R.findPct });
     box.append(fieldRow("Team fund %", fundIn, el("span", { class: "label" }, "team rule: " + R.fundPct + "%")), fieldRow("Finder %", findIn, el("span", { class: "label" }, "team rule: " + R.findPct + "%"))) }
@@ -3218,15 +3388,31 @@ function dealForm(p) {
     if (fMode.value === "people" && !finders.length) { toast("Tick who brought the client, or choose Nobody"); return }
     // a deal only keeps its own % if the admin set one different from the team rule
     const fundV = fundIn ? Number(fundIn.value) : null, findV = findIn ? Number(findIn.value) : null;
-    const data = { type, client: client.value.trim(), stage: stage.value, shares: s.shares, finder: null, finders, finderTeam: fMode.value === "team",
+    const pmx = paSel.value ? pMembers.find(x => x.id === paSel.value) : null, pv = Number(paVal.value) || 0;
+    if (pmx && !(pv > 0)) { toast("Enter the partner's commission"); paVal.focus(); return }
+    if (pmx && paMode.value === "pct" && pv > 50) { toast("A partner's % can't be more than 50"); return }
+    const rt = rateIn ? Number(rateIn.value) : 1; if (rateIn && !(rt > 0)) { toast(`Enter how many EGP 1 ${cur} is today`); rateIn.focus(); return }
+    const data = { type, currency: cur, rate: rt, partner: pmx ? { email: pmx.id, name: pmx.name || pmx.id, gid: pmx.gid || "", mode: paMode.value, value: pv } : null, client: client.value.trim(), stage: stage.value, shares: s.shares, finder: null, finders, finderTeam: fMode.value === "team",
       fundCustom: fundIn ? fundV !== R.fundPct : !!m.fundCustom, fundPct: fundIn ? fundV : (m.fundPct != null ? m.fundPct : null),
       findCustom: findIn ? findV !== R.findPct : !!m.findCustom, findPct: findIn ? findV : (m.findPct != null ? m.findPct : null),
       monthShares: m.monthShares || {}, setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
     if (type === "one") { if (!(n(price) > 0)) { toast("Enter the price"); return } data.price = n(price) }
     if (type === "installments") { if (!(n(price) > 0)) { toast("Enter the total price"); return } Object.assign(data, { price: n(price), installments: Math.max(2, Math.round(Number(months.value) || 3)), startMonth: start.value || thisMonth(), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)) }) }
     if (type === "monthly") { if (!(n(fee) > 0)) { toast("Enter the monthly fee"); return } Object.assign(data, { monthlyFee: n(fee), setupFee: n(setup), startMonth: start.value || thisMonth(), endMonth: end.value || (stage.value === "ended" ? thisMonth() : ""), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)), adBudget: ads.checked, monthlyShares: ms.shares }) }
-    editDeal = null; delete dealTypeDraft[p.id];
-    write(() => upd(p.id, { money: data }), "Deal saved");
+    editDeal = null; delete dealTypeDraft[p.id]; delete dealCurDraft[p.id];
+    // log what changed, in words, so nobody is surprised by a new split
+    const ch = [];
+    if (!m.type) ch.push("Deal set up");
+    else {
+      const sd = sharesDiff(m.shares, data.shares); if (sd) ch.push("Shares: " + sd);
+      if (data.monthlyShares) { const md = sharesDiff(m.monthlyShares || m.shares, data.monthlyShares); if (md) ch.push("Monthly shares: " + md) }
+      for (const [k, l] of [["price", "Price"], ["monthlyFee", "Monthly fee"], ["setupFee", "Setup fee"]]) if (data[k] != null && Number(m[k] || 0) !== Number(data[k] || 0)) ch.push(`${l}: ${m[k] || 0} \u2192 ${data[k]} ${cur}`);
+      if ((m.currency || "EGP") !== cur) ch.push(`Currency: ${m.currency || "EGP"} \u2192 ${cur}`);
+      if ((m.stage || "agreed") !== data.stage) ch.push("Stage: " + (STAGES.find(x => x[0] === data.stage) || [, data.stage])[1]);
+      if (JSON.stringify(m.partner || null) !== JSON.stringify(data.partner)) ch.push(data.partner ? `Partner: ${data.partner.name} ${data.partner.mode === "fixed" ? data.partner.value + " EGP" : data.partner.value + "%"}` : "Partner removed");
+      if (data.fundCustom && Number(m.fundPct) !== Number(data.fundPct)) ch.push(`Team fund: ${data.fundPct}%`);
+    }
+    moneyUpd(p, { money: data }, ch.join(" \u00b7 ") || "Deal saved (no changes)", ch.length ? "deal" : "entry", "Deal saved");
   };
   box.append(el("div", { class: "row" }, el("span", { class: "spacer" }),
     p.money ? el("button", { class: "btn quiet", onclick: () => { editDeal = null; delete dealTypeDraft[p.id]; render() } }, "Cancel") : null,
@@ -3241,7 +3427,7 @@ function monthShareForm(p, month) {
     el("div", { class: "row" }, el("span", { class: "spacer" }),
       (m.monthShares || {})[month] ? el("button", { class: "btn quiet", onclick: () => { shareMonth = null; write(() => upd(p.id, { [`money.monthShares.${month}`]: DEL() }), "Back to the usual shares") } }, "Use usual shares") : null,
       el("button", { class: "btn quiet", onclick: () => { shareMonth = null; render() } }, "Cancel"),
-      el("button", { class: "btn primary", onclick: () => { const r = ed.read(); if (r.total !== 100) { toast("Needs to add up to 100%"); return } shareMonth = null; write(() => upd(p.id, { [`money.monthShares.${month}`]: r.shares }), "Saved for " + monthLabel(month)) } }, "Save")));
+      el("button", { class: "btn primary", onclick: () => { const r = ed.read(); if (r.total !== 100) { toast("Needs to add up to 100%"); return } shareMonth = null; moneyUpd(p, { [`money.monthShares.${month}`]: r.shares }, `Shares for ${monthLabel(month)}: ${sharesDiff(cur, r.shares) || "same"}`, "deal", "Saved for " + monthLabel(month)) } }, "Save")));
 }
 
 /* ----- money: the team money page (my money, team fund, rules) ----- */
@@ -3269,7 +3455,7 @@ const dealProjects = () => ideas.filter(i => (i.status === "approved" || i.statu
 // Fund spending someone paid from their own pocket: the fund owes it back to them until it's marked paid back.
 const fundSpendList = () => Object.entries((fundDoc || {}).spends || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v }));
 function allMoney() {
-  const out = { projects: [], me: { earned: 0, back: 0, paid: 0, balance: 0 }, people: {}, fundIn: 0, month: { expected: 0, received: 0 }, late: [],
+  const out = { projects: [], partners: {}, me: { earned: 0, back: 0, paid: 0, balance: 0 }, people: {}, fundIn: 0, month: { expected: 0, received: 0 }, late: [],
     flow: { received: 0, back: 0, fund: 0, earned: 0, waiting: 0, cover: 0 } };
   const nowM = thisMonth();
   const pp = u => out.people[u] || (out.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
@@ -3277,10 +3463,11 @@ function allMoney() {
     const r = moneyOf(p); out.projects.push({ p, r }); out.fundIn += r.fund;
     for (const [u, v] of Object.entries(r.people)) { const t = pp(u); for (const k of ["earned", "back", "paid", "balance"]) t[k] += v[k] }
     if (!r.proposal) {
-      for (const s of r.schedule) if (s.month === nowM && s.label !== "Total" && s.status !== "upcoming") { out.month.expected += s.expected; out.month.received += s.received }
+      for (const s of r.schedule) if (s.month === nowM && s.label !== "Total" && s.status !== "upcoming") { out.month.expected += Math.round(s.expected * r.rate); out.month.received += Math.round(s.received * r.rate) }
       for (const s of r.late) out.late.push({ p, s });
     }
-    const f = out.flow; f.received += r.received; f.fund += r.fund; f.waiting += r.held + r.unassigned; f.cover += r.fundCover;
+    if (r.partner) { const x = out.partners[r.partner.email] || (out.partners[r.partner.email] = { name: r.partner.name, earned: 0, paid: 0, deals: [] }); x.earned += r.partner.earned; x.paid += r.partner.paid; x.deals.push({ title: p.title, earned: r.partner.earned, paid: r.partner.paid }) }
+    const f = out.flow; f.received += r.receivedEGP; f.partner = (f.partner || 0) + (r.partner ? r.partner.earned : 0); f.fund += r.fund; f.waiting += r.held + r.unassigned; f.cover += r.fundCover;
     for (const v of Object.values(r.people)) { f.back += v.back; f.earned += v.earned }
   }
   // the fund paying people back for things they bought for the team
@@ -3361,7 +3548,7 @@ function renderMoneyPage() {
   const fl = all.flow;
   if (fl.received > 0) {
     const handed = Object.values(all.people).reduce((s, v) => s + v.paid, 0), stillOwed = Object.values(all.people).reduce((s, v) => s + Math.max(0, v.balance), 0);
-    const segs = [["back", "Costs paid back", fl.back], ["fund", "Team fund", Math.max(0, fl.fund)], ["people", "The team's shares", fl.earned], ["wait", "Waiting to be split", fl.waiting]].filter(x => x[2] > 0);
+    const segs = [["back", "Costs paid back", fl.back], ["partner", "Partners' commission", fl.partner || 0], ["fund", "Team fund", Math.max(0, fl.fund)], ["people", "The team's shares", fl.earned], ["wait", "Waiting to be split", fl.waiting]].filter(x => x[2] > 0);
     const tot = segs.reduce((s, x) => s + x[2], 0) || 1;
     box.append(el("section", { class: "idea flowcard" },
       el("div", { class: "row" }, el("h3", {}, "Where the money went"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(fl.received) + " from clients")),
@@ -3378,7 +3565,7 @@ function renderMoneyPage() {
       el("div", {}, el("b", {}, fmtEGP(all.month.received)), el("span", {}, "received")),
       el("div", { class: all.late.length ? "late" : "" }, el("b", {}, String(all.late.length)), el("span", {}, all.late.length === 1 ? "late payment" : "late payments"))),
     all.late.length ? el("div", { style: "display:grid;gap:4px" }, all.late.map(({ p, s }) => el("button", { class: "mlink late", onclick: () => moneyGo(p) },
-      el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, (s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label) + " · " + fmtEGP(s.expected - s.received))))) : null,
+      el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, (s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label) + " · " + fmtCur(s.expected - s.received, p.money.currency))))) : null,
     !all.projects.length ? el("p", { style: "margin:0" }, "No deals yet. Set one up on a project's Money tab.") : null));
 
   /* deals at a glance */
@@ -3629,4 +3816,121 @@ $("#me-btn").onclick = () => { location.hash = "me" };
 $("#bell").onclick = e => { e.stopPropagation(); toggleAlerts() };
 $("#asst-btn").onclick = () => { asstOpen = !asstOpen; alertsOpen = false; render(); if (asstOpen) setTimeout(() => { const i = document.getElementById("asst-input"); if (i && matchMedia("(min-width:760px)").matches) i.focus() }, 0) };
 $("#brand").onclick = () => { location.hash = "me" };
+
+/* ----- backup: everything on the board in one file ----- */
+const RULES_VERSION = "2026-11-12";
+function downloadBackup() {
+  const strip = o => { const x = { ...o }; delete x.pushSubs; return x };
+  const data = { app: "Pitch Room", at: new Date().toISOString(), by: myProfile && myProfile.email,
+    ideas, people: Object.fromEntries(Object.entries(people).map(([k, v]) => [k, strip(v)])), chat, meta: { money: moneyRules, fund: fundDoc, news: newsDoc, nicks, team: teamDoc, focus: { projectId: focusId, active: activeMap } },
+    partners: { groups: pGroups, members: pMembers, numbers: pLeads, posts: pPosts }, clients: { projects: cProjects, posts: cPosts, tasks: cTasks }, mine: { tasks: personal, notes: myNotes } };
+  const a = el("a", { href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: "application/json" })), download: `pitch-room-backup-${todayStr()}.json` });
+  document.body.append(a); a.click(); a.remove();
+  write(() => setDoc(doc(db, "users", me), { lastBackup: Date.now() }, { merge: true }), "Backup downloaded. Keep it somewhere safe, like Google Drive");
+}
+
+/* ----- the Monday summary, posted in the team chat once a week from the board's own numbers ----- */
+let weeklyDoc = null, weeklyBusy = false;
+function weeklyText() {
+  const end = new Date(weekKey() + "T00:00").getTime(), start = end - 7 * 864e5, today = todayStr(), weekEnd = ymd(new Date(end + 6 * 864e5));
+  const done = {}, late = [], dueWeek = [];
+  for (const p of ideas.filter(i => i.status === "approved" || i.status === "completed")) for (const t of tasksOf(p)) {
+    if (t.done && (t.doneAt || 0) >= start && (t.doneAt || 0) < end && t.doneBy) done[t.doneBy] = (done[t.doneBy] || 0) + 1;
+    if (!t.done && p.status === "approved" && !isPaused(p) && t.due) { if (t.due < today) late.push({ t, p }); else if (t.due <= weekEnd) dueWeek.push({ t, p }) }
+  }
+  let inEGP = 0; for (const p of dealProjects()) { const m = p.money || {}, rate = (m.currency || "EGP") === "EGP" ? 1 : Number(m.rate) || 1;
+    for (const x of Object.values(p.payments || {})) if (x && x.date && new Date(x.date + "T12:00").getTime() >= start && new Date(x.date + "T12:00").getTime() < end) inEGP += Math.round(toP(x.amount) * ((m.currency || "EGP") === "EGP" ? 1 : Number(x.rate) || rate)) }
+  const all = allMoney(), building = activeProjects();
+  const fin = Object.entries(done).sort((a, b) => b[1] - a[1]).map(([u, n]) => `${firstName(u) === "you" ? (realName(u) || "").split(" ")[0] : firstName(u)} ${n}`).join(" · ");
+  return [`\u{1F4CB} Week of ${fmtDate(weekKey())}: the summary`,
+    `✅ Finished last week: ${fin || "nothing ticked off"}`,
+    late.length ? `⚠️ Late: ${late.length} task${late.length > 1 ? "s" : ""} (${late.slice(0, 3).map(x => `${x.t.text}${x.t.owner ? " – " + (realName(x.t.owner) || "").split(" ")[0] : ""}`).join(", ")}${late.length > 3 ? "…" : ""})` : "✨ Nothing late",
+    `\u{1F4C5} Due this week: ${dueWeek.length} task${dueWeek.length === 1 ? "" : "s"}`,
+    `\u{1F4B0} Money in last week: ${fmtEGP(inEGP)}` + (all.late.length ? ` · ${all.late.length} late payment${all.late.length > 1 ? "s" : ""}` : ""),
+    building.length ? `\u{1F3AF} Building: ${building.map(p => `${p.title} (${progressOf(tasksOf(p)).pct}%)`).join(", ")}` : null].filter(Boolean).join("\n");
+}
+function maybeWeekly() {
+  if (weeklyDoc === null || !live || weeklyBusy || partnerMode || clientMode) return;
+  if (weeklyDoc.week === weekKey()) return;
+  weeklyBusy = true;
+  // wait a moment and look again, so two people opening the site together don't both post it
+  setTimeout(async () => {
+    try {
+      if (weeklyDoc.week === weekKey()) return;
+      await fbReady;
+      weeklyDoc = { ...weeklyDoc, week: weekKey() };
+      await setDoc(doc(db, "meta", "weekly"), { week: weekKey(), by: me, at: Date.now() }, { merge: true });
+      await setDoc(doc(db, "chat", "weekly-" + weekKey()), { by: me, system: "weekly", text: weeklyText(), at: Date.now() });
+    } catch { } finally { weeklyBusy = false }
+  }, 2000 + Math.random() * 4000);
+}
+
+/* ----- search: one box for everything ----- */
+let searchOpen = false, searchQ = "";
+function searchResults(q) {
+  const n = q.trim().toLowerCase(); if (n.length < 2) return [];
+  const has = t => String(t || "").toLowerCase().includes(n), digits = n.replace(/\D/g, ""), out = [];
+  const push = (kind, title, sub, go, then) => out.length < 60 && out.push({ kind, title, sub, go, then });
+  for (const p of ideas) {
+    if (has(p.title) || has(p.pitch) || has(clientOf(p))) push(p.status === "voting" ? "Idea" : "Project", p.title, clientOf(p) || p.pitch || "", p.status === "voting" ? "ideas" : "project-" + p.id);
+    for (const t of tasksOf(p)) {
+      if (has(t.text)) push("Task", t.text, p.title + (t.owner ? " · " + name(t.owner) : ""), taskLink(p, t));
+      for (const x of Object.values(t.notes || {})) if (x && has(x.text)) push("Task note", x.text.slice(0, 90), `${t.text} · ${p.title}`, taskLink(p, t));
+    }
+    for (const [mid, m] of Object.entries(p.meetings || {})) if (m && (has(m.title) || has(m.text))) push("Meeting", m.title || (m.text || "").slice(0, 60), p.title, "project-" + p.id, () => { projTab = "meet" });
+    for (const f of filesOf(p)) if (has(f.name)) push("File", f.name, p.title, "project-" + p.id);
+    for (const l of linksOf(p)) if (has(l.label) || has(l.url)) push("Link", l.label || hostOf(l.url), p.title, "project-" + p.id);
+  }
+  for (const m of chat) if (has(m.text)) push("Chat", m.text.slice(0, 90), (realName(m.by) || "") + " · " + ago(m.at), "chat", () => setTimeout(() => jumpTo(m.id), 300));
+  for (const l of pLeads) if (has(l.name) || has(l.biz) || has(l.city) || (digits.length > 3 && leadDigits(l.phone).includes(digits))) push("Number", leadTitle(l), `${l.phone || ""} · ${groupName(l.gid)} · ${LEAD_NAME[l.status] || "New"}`, "pg-" + l.gid, () => { pgTab = "leads"; pQuery["t-" + l.gid] = q });
+  for (const m of pMembers) if (has(m.name) || has(m.id)) push("Partner", m.name || m.id, groupName(m.gid), "pg-" + m.gid, () => { pgTab = "people" });
+  for (const g of (fundDoc && fundDoc.goals ? Object.values(fundDoc.goals) : [])) if (g && (has(g.name) || has(g.details))) push("Goal", g.name, "Team fund goal", "money", () => { moneyTab = "fund" });
+  for (const x of myNotes) if (has(x.text)) push("My note", x.text.slice(0, 90), "Only you see this", "me", () => { meTab = "notes" });
+  for (const t of personal) if (has(t.text)) push("My task", t.text, "Just for me", "me", () => { meTab = "tasks" });
+  return out;
+}
+function renderSearch() {
+  const box = $("#search"); if (!box) return;
+  box.hidden = !searchOpen; if (!searchOpen) return;
+  if (!box.firstChild) {
+    const inp = el("input", { id: "search-input", class: "noteinput", type: "search", placeholder: "Search tasks, projects, chat, numbers, notes…", autocomplete: "off", "aria-label": "Search" });
+    inp.addEventListener("input", () => { searchQ = inp.value; drawSearch() });
+    inp.addEventListener("keydown", e => { if (e.key === "Escape") { searchOpen = false; render() } if (e.key === "Enter") { const f = box.querySelector(".sres"); if (f) f.click() } });
+    box.append(el("div", { class: "row", style: "gap:8px;flex-wrap:nowrap" }, inp, el("button", { class: "x", "aria-label": "Close search", onclick: () => { searchOpen = false; render() } }, "✕")), el("div", { class: "sresults", id: "sresults" }));
+    inp.value = searchQ; setTimeout(() => inp.focus(), 0);
+  }
+  drawSearch();
+}
+function drawSearch() {
+  const host = document.getElementById("sresults"); if (!host) return;
+  const res = searchResults(searchQ);
+  host.replaceChildren(...(searchQ.trim().length < 2 ? [el("p", { class: "alert-empty" }, "Type at least 2 letters. Tip: Ctrl K or ⌘ K opens search from anywhere.")]
+    : !res.length ? [el("p", { class: "alert-empty" }, "Nothing found for “" + searchQ.trim() + "”.")]
+    : res.map(r => el("button", { class: "sres", onclick: () => { searchOpen = false; if (r.then) r.then(); location.hash = r.go; render() } }, el("span", { class: "skind" }, r.kind), el("span", { class: "stext" }, el("b", {}, r.title), r.sub ? el("span", {}, r.sub) : null)))));
+}
+$("#search-btn").onclick = e => { e.stopPropagation(); searchOpen = !searchOpen; alertsOpen = false; asstOpen = false; if (!searchOpen) $("#search").replaceChildren(); render() };
+document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && me && !partnerMode && !clientMode) { e.preventDefault(); searchOpen = true; alertsOpen = false; render() } });
+document.addEventListener("click", e => { if (searchOpen && !e.target.closest("#search") && !e.target.closest("#search-btn")) { searchOpen = false; $("#search").replaceChildren(); render() } });
+
+/* ----- getting started: a checklist for new team members ----- */
+function welcomeCard() {
+  const prof = people[me] || {}; if (prof.welcomeHidden) return null;
+  const ver = rulesNow().version || 1;
+  const steps = [
+    ["Take the skills quiz", "So tasks go to the right people", !!prof.skills, () => { location.hash = "skills" }],
+    ["Turn on alerts", "On your phone and your computer", pushOn || Object.keys(prof.pushSubs || {}).length > 0, () => { location.hash = "settings-alerts" }],
+    ["Install the app", "Home Screen, Dock or desktop", isHomeScreenApp() || !!prof.installed, () => { location.hash = "settings-install" }],
+    ["Agree to the money rules", "How we share what we earn", ((prof.moneyAgreed || {}).version === ver), () => { moneyTab = "rules"; location.hash = "money" }],
+    ["Say hi in the team chat", "", chat.some(m => m.by === me && !m.system), () => { location.hash = "chat" }],
+    ["Join a project", "Open one and tap Join the team", ideas.some(p => (p.members || {})[me]), () => { location.hash = "projects" }],
+  ];
+  const n = steps.filter(x => x[2]).length; if (n === steps.length) return null;
+  return el("section", { class: "idea welcome" }, el("div", { class: "row" }, el("h3", {}, "Getting started"), el("span", { class: "label" }, `${n} of ${steps.length}`), el("span", { class: "spacer" }),
+    el("button", { class: "btn quiet small", onclick: () => write(() => setDoc(doc(db, "users", me), { welcomeHidden: true }, { merge: true })) }, "Hide")),
+    el("div", { class: "track", style: "height:6px" }, el("div", { class: "fill", style: `width:${Math.round(n / steps.length * 100)}%` })),
+    el("div", { class: "chklist" }, steps.map(([t, sub, ok, go]) => el("div", { class: "chk " + (ok ? "ok" : "wait") }, el("span", { class: "chk-i" }, ok ? "✓" : "•"),
+      el("div", { class: "chk-t" }, el("b", {}, t), sub ? el("span", {}, sub) : null), ok ? null : el("div", { class: "chk-a" }, el("button", { class: "btn small", onclick: go }, "Go"))))));
+}
+
+// Start: returning visitors see their saved copy right away (this runs last, once everything above is ready).
 if (loadCache()) show();
