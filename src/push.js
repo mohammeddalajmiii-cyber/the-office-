@@ -190,7 +190,7 @@ function pushTick() {
   pushTimer = setTimeout(pushRun, 1200);
 }
 function pushRun() {
-  const team = Object.keys(people).filter(u => u !== me);
+  const team = teamIds().filter(u => u !== me);   // team alerts only ever go to team members
   if (pushBaseline === null) { pushBaseline = {}; for (const u of team) pushBaseline[u] = new Set(pushAlertsFor(u).map(a => a.key)); return }
   const since = Math.max(pageOpenedAt, Date.now() - 15 * 60e3);
   let sent = {}; try { sent = JSON.parse(localStorage.getItem("pushSent") || "{}") } catch { }

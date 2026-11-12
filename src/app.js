@@ -280,7 +280,11 @@ function tasksOf(p) {
   return out.sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 const progressOf = list => { const d = list.filter(t => t.done).length; return { total: list.length, done: d, pct: pctOf(d, list.length) } };
-const teamIds = () => Object.keys(people).sort((a, b) => a === me ? -1 : b === me ? 1 : name(a).localeCompare(name(b)));
+// The team is only team members: anyone who is a partner or a client never counts, even if they have a profile
+// (for example from signing in once before they were added as a partner).
+const outsiderEmails = () => new Set([...pMembers.map(m => (m.id || m.email || "").toLowerCase()), ...cProjects.flatMap(c => [...(c.clients || []), ...(c.partners || [])].map(e => String(e).toLowerCase()))]);
+const isTeamUid = u => { if (u === me && !partnerMode && !clientMode) return true; const e = ((people[u] || {}).email || "").toLowerCase(); return !pMembers.some(m => m.uid === u) && !(e && outsiderEmails().has(e)) };
+const teamIds = () => Object.keys(people).filter(isTeamUid).sort((a, b) => a === me ? -1 : b === me ? 1 : name(a).localeCompare(name(b)));
 const topSkills = id => { const s = (people[id] || {}).skills; if (!s) return []; return SKILL_IDS.slice().sort((a, b) => (s[b] || 0) - (s[a] || 0)).slice(0, 2) };
 
 /* ---------- smart helper: who should do what ---------- */
@@ -1963,7 +1967,7 @@ function renderChat() {
   /* who you're talking to: the team, or one person privately */
   const head = $("#chat-head"); head.replaceChildren();
   const lastWith = u => (dmThreads.find(t => t.id === dmId(u)) || {}).lastAt || 0;
-  const others = teamIds().filter(u => u !== me && people[u]);
+  const others = teamIds().filter(u => u !== me && people[u]);   // team members only: partners are never in the team chat
   // partners you can message: they have signed in at least once, or already wrote to you
   const partners = [...new Set([...pMembers.filter(m => m.uid && m.active !== false).map(m => m.uid), ...dmThreads.filter(t => Object.values(t.roles || {}).includes("partner")).map(otherOf)])].filter(u => u !== me && !others.includes(u));
   if (dm && !others.includes(dm) && !partners.includes(dm)) (isPartnerUid(dm) ? partners : others).push(dm);
@@ -1971,14 +1975,13 @@ function renderChat() {
   others.sort(byRecent); partners.sort(byRecent);
   const chip = u => { const t = dmThreads.find(x => x.id === dmId(u)); const n = t && dmUnread(t) && dm !== u;
     return el("button", { class: "pchip" + (isPartnerUid(u) ? " partnerchip" : ""), role: "tab", "aria-pressed": String(dm === u), title: "Private chat with " + chatName(u), onclick: () => { location.hash = "dm-" + u } }, chatAv(u), chatName(u).split(" ")[0], n ? el("span", { class: "count" }, "1") : null) };
-  head.append(el("div", { class: "pchips chat-people", role: "tablist", "aria-label": "Chats" },
-    el("button", { class: "pchip", role: "tab", "aria-pressed": String(!dm), onclick: () => { location.hash = "chat" } }, el("span", { class: "teamdot", "aria-hidden": "true" }, "#"), "Team", teamUnread && dm ? el("span", { class: "count" }, teamUnread) : null),
-    others.map(chip),
-    partners.length ? el("span", { class: "chipsep" }, "Partners") : null,
-    partners.map(chip)));
+  head.append(el("div", { class: "chatrow" }, el("span", { class: "chatrow-l" }, "Team"), el("div", { class: "pchips chat-people", role: "tablist", "aria-label": "Team chats" },
+    el("button", { class: "pchip", role: "tab", "aria-pressed": String(!dm), onclick: () => { location.hash = "chat" } }, el("span", { class: "teamdot", "aria-hidden": "true" }, "#"), "Everyone", teamUnread && dm ? el("span", { class: "count" }, teamUnread) : null),
+    others.map(chip))));
+  if (partners.length) head.append(el("div", { class: "chatrow partners" }, el("span", { class: "chatrow-l" }, "Partners"), el("div", { class: "pchips chat-people", role: "tablist", "aria-label": "Private chats with partners" }, partners.map(chip))));
   head.append(el("div", { class: "chat-who" }, dm
     ? [chatAv(dm), el("span", { class: "who-n" }, el("b", {}, chatName(dm)), roleBadge(dm)), el("span", { class: "who-lock" }, "🔒 only you two see this")]
-    : [el("span", { class: "teamdot big", "aria-hidden": "true" }, "#"), el("span", { class: "who-n" }, el("b", {}, "Team chat"), el("span", { class: "label" }, `${Object.keys(people).length} people · tap a name to talk privately`))]));
+    : [el("span", { class: "teamdot big", "aria-hidden": "true" }, "#"), el("span", { class: "who-n" }, el("b", {}, "Team chat"), el("span", { class: "label" }, `${teamIds().length} team members · tap a name to talk privately`))]));
   $("#chat-input").placeholder = dm ? "Message " + chatName(dm).split(" ")[0] + (isPartnerUid(dm) ? " (partner)" : "") : "Message the team";
 
   /* reply / edit bar above the input */
@@ -2536,7 +2539,7 @@ function renderSettings() {
   box.append(sec("s-alerts", "Alerts", "What reaches you, and how.", pushSettings(), newsSettings()));
 
   /* team: nicknames for everyone, plus access for the admin */
-  const crew = Object.entries(people).filter(([, x]) => x && x.name).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""));
+  const crew = Object.entries(people).filter(([id, x]) => x && x.name && isTeamUid(id)).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""));
   const nickBox = crew.length ? el("details", { class: "idea setdetails" }, el("summary", {}, el("b", {}, "Nicknames"), el("span", { class: "label" }, `${Object.keys(nicks).length} set · everyone sees them instead of names`)),
     el("div", { class: "nicklist" }, crew.map(([id, x]) => {
       const inp = el("input", { class: "noteinput", maxlength: "30", placeholder: x.nick || x.name, "aria-label": "Nickname for " + x.name, value: nicks[id] || "" });
