@@ -2750,16 +2750,19 @@ function aiErrorText(e) {
 }
 
 // What the assistant is told about the board: only what it needs, never private notes.
+let asstRefs = {};   // task codes the assistant can use in actions: "T3" -> { pid, tid } or { personal }
 function boardContext(p) {
   const today = new Date(), L = [];
+  asstRefs = {}; let n = 0;
+  const code = (t, pid) => { for (const [k, v] of Object.entries(asstRefs)) if (v.tid === t.id && v.pid === pid) return k; const k = "T" + (++n); asstRefs[k] = { pid, tid: t.id }; return k };
   const short = (s, n = 110) => (s || "").replace(/\s+/g, " ").slice(0, n);
-  const tline = (t, proj) => `- ${short(t.text)}${proj ? " [" + proj + "]" : ""} | ${assignees(t).map(u => realName(u) || "someone").join(", ") || "unassigned"} | ${t.done ? "done" : t.status === "doing" ? "in progress" : "not started"}${t.due ? " | due " + t.due : ""}${t.priority && t.priority !== "medium" ? " | " + t.priority : ""}`;
+  const tline = (t, proj, pid) => `- [${code(t, pid)}] ${short(t.text)}${proj ? " [" + proj + "]" : ""} | ${assignees(t).map(u => realName(u) || "someone").join(", ") || "unassigned"} | ${t.done ? "done" : t.status === "doing" ? "in progress" : "not started"}${t.due ? " | due " + t.due : ""}${t.priority && t.priority !== "medium" ? " | " + t.priority : ""}`;
   L.push(`Today is ${ymd(today)} (${today.toLocaleDateString("en", { weekday: "long" })}).`);
   L.push(`You are talking to ${realName(me) || "a team member"}${isAdmin ? " (the team's admin)" : ""}.`);
   L.push("Team: " + teamIds().map(u => { const s = topSkills(u).map(k => SKILLS[k].name).join(" + "); return realName(u) + (s ? ` (strengths: ${s})` : "") }).join("; "));
   const mine = myTasks().filter(x => !x.closed);
   L.push(`\nMy tasks (${mine.filter(x => !x.t.done).length} open):`);
-  mine.slice(0, 60).forEach(x => L.push(x.personal ? `- ${short(x.t.text)} [private]${x.t.done ? " | done" : ""}${x.t.due ? " | due " + x.t.due : ""}` : tline(x.t, x.p.title)));
+  mine.slice(0, 60).forEach(x => { if (x.personal) { const k = "P" + (++n); asstRefs[k] = { personal: x.t.id }; L.push(`- [${k}] ${short(x.t.text)} [private]${x.t.done ? " | done" : ""}${x.t.due ? " | due " + x.t.due : ""}`) } else L.push(tline(x.t, x.p.title, x.p.id) + ((x.t.notes && Object.keys(x.t.notes).length) ? ` | ${Object.keys(x.t.notes).length} notes` : "")) });
   const act = activeProjects();
   if (act.length) { L.push("\nProjects being built now:"); act.forEach(a => { const pr = progressOf(tasksOf(a)); L.push(`- ${a.title} (${prioOf(a).name} priority, ${pr.done}/${pr.total} tasks done)`) }) }
   if (p) {
@@ -2770,7 +2773,7 @@ function boardContext(p) {
     L.push("Team on this project: " + (teamOf(p).map(u => realName(u)).join(", ") || "nobody yet"));
     const phases = getPhases(p), tasks = tasksOf(p);
     if (!phases.length) L.push("It has no plan yet.");
-    phases.forEach(ph => { L.push(`PHASE: ${ph.name}${ph.due ? " (finish by " + ph.due + ")" : ""}`); tasks.filter(t => t.phase === ph.id).slice(0, 40).forEach(t => L.push(tline(t))) });
+    phases.forEach(ph => { L.push(`PHASE: ${ph.name}${ph.due ? " (finish by " + ph.due + ")" : ""}`); tasks.filter(t => t.phase === ph.id).slice(0, 40).forEach(t => { const w = waitInfo(p, t); L.push(tline(t, null, p.id) + (w.open.length ? ` | waiting for: ${w.open.map(d => short(d.text, 40)).join(", ")}` : "")) }) });
     const ci = (p.checkins || {})[weekKey()] || {};
     if (Object.keys(ci).length) { L.push("This week's check-ins:"); for (const [u, c] of Object.entries(ci)) L.push(`- ${realName(u)}: did "${short(c.did)}", next "${short(c.next)}"${c.blockers ? `, blocked by "${short(c.blockers)}"` : ""}`) }
     const meets = Object.values(p.meetings || {}).filter(Boolean).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
@@ -2804,7 +2807,31 @@ Plain text only: no markdown headings, no bold, no tables. Short lines and simpl
 When you suggest phases or tasks, write them ONLY in this exact format so they can be imported (one task per line):
 PHASE: <phase name>
 - <task> | <first name of who should do it, or leave out> | due <YYYY-MM-DD> | <urgent, high, medium or low> | skill: <Builder, Designer, Organizer, Writer, Talker, Researcher or Creator> | steps: <step one; step two>
-Only use team members' real first names. Due dates must be after today and realistic for friends with school or jobs and little money. Match tasks to people's strengths and spread the work fairly.`;
+Only use team members' real first names. Due dates must be after today and realistic for friends with school or jobs and little money. Match tasks to people's strengths and spread the work fairly.
+
+DOING THINGS FOR THEM
+You can also do things for the person you're talking to. When they clearly say they finished, started or need something, end your reply with action lines, one per line, using the task codes in square brackets from the board (like T4 or P2):
+ACTION: done | T4 | <a short note for the team with the useful details they told you, or leave it empty>
+ACTION: start | T4
+ACTION: note | T4 | <a note for the team>
+ACTION: step | T4 | <a step to add to the task's checklist>
+ACTION: due | T4 | <YYYY-MM-DD>
+ACTION: mytask | <a private to-do for them> | <YYYY-MM-DD or leave empty>
+ACTION: chat | <a short message to post in the team chat>
+Rules: only use codes that are on the board. Only act on what this person said about their own work; never tick someone else's task. If you're not sure which task they mean, ask instead of acting. Put details that help teammates (links, decisions, where files are, what's left, what the next person needs) in the note, short and in plain words. Nothing happens until they tap Do it, so in your reply say briefly what you'll do ("I'll tick X and add a note for the team"), then tell them what's next for them from the board (their next open tasks, most important first, and anything that's now unblocked).
+
+EXPLAINING
+If they ask what something means (a word, a business or tech idea, or how a part of Pitch Room works), explain it simply in a few lines with a small example from their own work when you can.
+How Pitch Room works:
+- Ideas: anyone pitches; an idea moves to Projects or gets removed only after at least half the team voted.
+- Projects: Building now, Up next (vote for what's next), Paused, Completed. Planners (the person who pitched it, the admin and added planners) change the plan and the money.
+- Tasks: status (not started, in progress, done), priority, due date, steps (ticking the first step starts the task), notes for the team, and "waiting for" (a task can't start until another is done; finishing one tells the next person). My tasks groups them into Now, Next and Waiting on others.
+- Money: for each deal, costs people paid are paid back first, then a partner's commission if a partner abroad brought the client, then the team fund % (40% now), then the finder's fee, then the shares. Deals can be in any currency; each payment saves its rate. Proposals have nothing due. Every money change is in the project's change log. Everyone agrees to the money rules.
+- Team fund: pays subscriptions and saves for goals. Goals can be added without a price, researched, then priced. If someone pays for the team from their own pocket, the fund owes it back.
+- Partners: lead finders abroad in country groups. They call numbers, post updates, chat with the team and see their earnings. A number marked Client can become a project with their commission set.
+- Clients: see their project's stage, progress, next step, payments and a chat with the team.
+- Chat: team chat, private chats (with team members or partners), emoji reactions; a summary is posted every Monday.
+- Settings: the \u22EF button at the top right. Alerts setup, install as an app, appearance, help and fixes are there. Search with the magnifier or Ctrl K.`;
 
 async function runAssistant(userText, opts = {}) {
   const p = currentProject();
@@ -2813,14 +2840,16 @@ async function runAssistant(userText, opts = {}) {
   const history = asstMsgs.slice(-7, -1).map(m => (m.role === "me" ? "Team member: " : "Assistant: ") + m.text).join("\n");
   const prompt = `BOARD DATA\n${boardContext(p)}\n\n${history ? "EARLIER IN THIS CHAT\n" + history + "\n\n" : ""}REQUEST\n${opts.prompt || userText}`;
   try {
-    const text = (await askAI(prompt, ASSISTANT_RULES)).trim();
+    let text = (await askAI(prompt, ASSISTANT_RULES)).trim();
     if (opts.checkin && p) {
       const j = JSON.parse(text.replace(/^```(?:json)?|```$/g, "").trim());
       checkinDraft = { pid: p.id, did: String(j.did || ""), next: String(j.next || ""), blockers: String(j.blockers || "") };
       asstMsgs.push({ role: "ai", text: "I drafted your check-in from the board. It's filled in on the project's “This week” tab. Check it, change anything, and tap Save." });
       editCheckin = p.id; projTab = "week"; asstOpen = false;
     } else {
-      const found = parseIdeas(text);
+      const acts = parseActions(text);
+      const found = parseIdeas(text = text.split("\n").filter(l => !/^\s*ACTION\s*:/i.test(l)).join("\n").trim());
+      if (acts.length) { asstMsgs.push({ role: "ai", text: text || "Here's what I can do for you:", actions: acts, actState: "pending" }); asstBusy = false; render(); const lg = document.getElementById("asst-log"); if (lg) lg.scrollTop = lg.scrollHeight; return }
       asstMsgs.push({ role: "ai", text: found.length ? text.split("\n").filter(l => !/^\s*[-*\d.)\s]*IDEA\s*:/i.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim() : text, ideas: found, plan: !found.length && /^\s*PHASE:/im.test(text) && /^\s*-\s+/m.test(text) });
     }
   } catch (e) {
@@ -2949,11 +2978,12 @@ function renderAssistant() {
   const log = el("div", { class: "asst-log", id: "asst-log" });
   if (!asstMsgs.length || asstTplOpen) log.append(el("p", { class: "asst-hint" }, p ? `Pick a template or ask about “${p.title}”.` : "Pick a template or ask anything. Open a project for project templates."));
   if (asstTplOpen || !asstMsgs.length) log.append(templateList(p));
-  if (!asstMsgs.length) log.append(el("p", { class: "asst-hint small" }, "Powered by Google Gemini. It only suggests: nothing changes until you tap to add or save. Don't put secrets here."));
+  if (!asstMsgs.length) log.append(el("p", { class: "asst-hint small" }, "Tell it what you did (\u201cI finished the assessment, the file is in Drive\u201d) and it ticks the task and leaves a note for the team. Ask it to explain anything. It always shows what it will do first: nothing changes until you tap Do it. Powered by Google Gemini, so don't put passwords here."));
   if (!asstTplOpen) for (const m of asstMsgs) {
     const b = el("div", { class: "asst-msg " + (m.role === "me" ? "mine" : "ai") + (m.error ? " err" : "") }, m.text,
       m.detail ? el("div", { class: "asst-detail" }, "Details: " + m.detail) : null);
     log.append(b);
+    if (m.actions && m.actions.length) log.append(actionsCard(m));
     if (m.ideas && m.ideas.length) log.append(el("div", { class: "idea-sugs" }, m.ideas.map(x => el("div", { class: "idea-sug" },
       el("div", { class: "row", style: "gap:6px" }, el("b", { style: "flex:1 1 auto;min-width:0" }, x.title), x.category ? el("span", { class: "catchip" }, x.category) : null),
       el("p", {}, x.pitch),
@@ -2965,9 +2995,10 @@ function renderAssistant() {
   if (asstBusy) log.append(el("div", { class: "asst-msg ai typing" }, "Thinking…"));
   panel.append(log);
   if (!asstBusy && asstMsgs.length) panel.append(el("div", { class: "asst-chips" },
+    asstTplOpen ? null : el("button", { class: "pchip", onclick: () => { const i = document.getElementById("asst-input"); if (i) { i.value = "I finished "; i.focus() } } }, "I finished something"),
     asstTplOpen ? null : quick.map(t => el("button", { class: "pchip", onclick: () => useTemplate(t, p) }, tplLabel(t, p))),
     el("button", { class: "pchip", "aria-pressed": String(asstTplOpen), onclick: () => { asstTplOpen = !asstTplOpen; render() } }, asstTplOpen ? "Back to chat" : "All templates")));
-  const inp = el("textarea", { id: "asst-input", class: "noteinput", rows: "1", maxlength: "1500", placeholder: "Ask anything about the board…" });
+  const inp = el("textarea", { id: "asst-input", class: "noteinput", rows: "1", maxlength: "1500", placeholder: "Ask anything, or tell me what you did\u2026" });
   const send = () => { const v = inp.value.trim(); if (!v || asstBusy) return; inp.value = ""; const w = pendingWrap; pendingWrap = null; runAssistant(v, w ? { prompt: w(v) } : {}) };
   inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send() } });
   panel.append(el("div", { class: "chatform" }, inp, el("button", { class: "btn primary", disabled: asstBusy, onclick: send }, "Ask")));
@@ -3934,3 +3965,81 @@ function welcomeCard() {
 
 // Start: returning visitors see their saved copy right away (this runs last, once everything above is ready).
 if (loadCache()) show();
+
+/* ----- the assistant doing things: it prepares the actions, you tap Do it, and you can undo ----- */
+function parseActions(text) {
+  const out = [];
+  for (const line of String(text).split("\n")) {
+    const m = line.match(/^\s*ACTION\s*:\s*(.+)$/i); if (!m) continue;
+    const [kind0, a = "", b = ""] = m[1].split("|").map(x => x.trim()); const kind = (kind0 || "").toLowerCase();
+    if (kind === "mytask") { if (a) out.push({ kind, text: a.slice(0, 200), date: /^\d{4}-\d{2}-\d{2}$/.test(b) ? b : "" }); continue }
+    if (kind === "chat") { if (a) out.push({ kind, text: a.slice(0, 600) }); continue }
+    const ref = asstRefs[(a.match(/[TP]\d+/i) || [""])[0].toUpperCase()]; if (!ref) continue;
+    if (ref.personal) { const t = personal.find(x => x.id === ref.personal); if (t && kind === "done") out.push({ kind: "pdone", t }); continue }
+    const p = ideas.find(i => i.id === ref.pid), t = p && tasksOf(p).find(x => x.id === ref.tid); if (!t) continue;
+    if (!(canPlan(p) || isAssignee(t, me))) continue;   // only things this person is allowed to change
+    if (kind === "done" && !t.done) out.push({ kind, p, t, text: b.slice(0, 1000) });
+    else if (kind === "start" && !t.done && t.status !== "doing") out.push({ kind, p, t });
+    else if (kind === "note" && b) out.push({ kind, p, t, text: b.slice(0, 1000) });
+    else if (kind === "step" && b) out.push({ kind, p, t, text: b.slice(0, 120) });
+    else if (kind === "due" && /^\d{4}-\d{2}-\d{2}$/.test(b)) out.push({ kind, p, t, date: b });
+  }
+  return out.slice(0, 12);
+}
+const actLabel = a => ({
+  done: () => [`✓ Mark done: ${a.t.text}`, a.text ? "Note for the team: " + a.text : ""],
+  pdone: () => [`✓ Mark done: ${a.t.text}`, "Private task"],
+  start: () => [`▶ Start: ${a.t.text}`, "Marks it in progress"],
+  note: () => [`\u{1F4DD} Add a note to: ${a.t.text}`, a.text],
+  step: () => [`➕ Add a step to: ${a.t.text}`, a.text],
+  due: () => [`\u{1F4C5} Due ${fmtDate(a.date)}: ${a.t.text}`, a.t.due ? "Was " + fmtDate(a.t.due) : ""],
+  mytask: () => [`➕ Private to-do: ${a.text}`, a.date ? "Due " + fmtDate(a.date) : "Only you see it"],
+  chat: () => [`\u{1F4AC} Post in the team chat`, a.text],
+})[a.kind]();
+async function doActions(m) {
+  if (m.actState !== "pending") return;
+  m.actState = "working"; render();
+  const undo = [], msgs = [];
+  const run = async (fn, back) => { await fbReady; await fn(); if (back) undo.push(back) };
+  try {
+    for (const a of m.actions.filter(x => !x.skip)) {
+      const now = Date.now(), nid = uid();
+      if (a.kind === "done") {
+        msgs.push(doneMessage(a.p, a.t));
+        await run(() => upd(a.p.id, { [a.t.path + ".done"]: true, [a.t.path + ".doneBy"]: me, [a.t.path + ".doneAt"]: now, ...(a.text ? { [`${a.t.path}.notes.${nid}`]: { by: me, text: a.text, at: now } } : {}) }),
+          () => upd(a.p.id, { [a.t.path + ".done"]: false, [a.t.path + ".doneBy"]: DEL(), [a.t.path + ".doneAt"]: DEL(), ...(a.text ? { [`${a.t.path}.notes.${nid}`]: DEL() } : {}) }));
+      } else if (a.kind === "pdone") await run(() => setDoc(doc(db, "private", me, "tasks", a.t.id), { done: true, doneAt: now }, { merge: true }), () => setDoc(doc(db, "private", me, "tasks", a.t.id), { done: false, doneAt: null }, { merge: true }));
+      else if (a.kind === "start") { const prev = a.t.status || null; await run(() => upd(a.p.id, { [a.t.path + ".status"]: "doing", [a.t.path + ".startedBy"]: me, [a.t.path + ".startedAt"]: now }), () => upd(a.p.id, { [a.t.path + ".status"]: prev })) }
+      else if (a.kind === "note") await run(() => upd(a.p.id, { [`${a.t.path}.notes.${nid}`]: { by: me, text: a.text, at: now } }), () => upd(a.p.id, { [`${a.t.path}.notes.${nid}`]: DEL() }));
+      else if (a.kind === "step") await run(() => upd(a.p.id, { [`${a.t.path}.check.${nid}`]: { text: a.text, done: false, order: now } }), () => upd(a.p.id, { [`${a.t.path}.check.${nid}`]: DEL() }));
+      else if (a.kind === "due") { const prev = a.t.due || null; await run(() => upd(a.p.id, { [a.t.path + ".due"]: a.date }), () => upd(a.p.id, { [a.t.path + ".due"]: prev })) }
+      else if (a.kind === "mytask") await run(() => setDoc(doc(db, "private", me, "tasks", nid), { text: a.text, done: false, due: a.date || null, priority: "medium", order: now }), () => deleteDoc(doc(db, "private", me, "tasks", nid)));
+      else if (a.kind === "chat") await run(() => setDoc(doc(db, "chat", nid), { by: me, text: a.text, at: now }), () => deleteDoc(doc(db, "chat", nid)));
+      a.ok = true;
+    }
+    m.actState = "done"; m.undo = undo;
+    const unlocked = msgs.find(x => /can start|is complete/.test(x));
+    toast(unlocked || "Done", unlocked ? 4500 : 2200);
+  } catch (e) {
+    m.actState = "pending"; m.undo = undo;
+    toast(e && e.code === "permission-denied" ? "That wasn't allowed by the site's rules" : "Something didn't save. Check your connection and try again", 4500);
+  }
+  render();
+}
+async function undoActions(m) {
+  if (m.actState !== "done") return;
+  m.actState = "working"; render();
+  try { await fbReady; for (const f of (m.undo || []).reverse()) await f(); m.actState = "undone"; toast("Undone") }
+  catch { m.actState = "done"; toast("Couldn't undo. Try again") }
+  render();
+}
+function actionsCard(m) {
+  const st = m.actState;
+  return el("div", { class: "actcard" + (st === "done" ? " ok" : st === "undone" ? " off" : "") },
+    el("div", { class: "actcard-h" }, st === "done" ? "✓ Done" : st === "undone" ? "Undone" : st === "working" ? "Working…" : "I can do this for you"),
+    m.actions.map((a, i) => { const [t, d] = actLabel(a); return el("div", { class: "actrow" + (a.skip ? " skip" : "") }, el("div", { class: "actrow-t" }, el("b", {}, t), d ? el("span", {}, d) : null),
+      st === "pending" ? el("button", { class: "x", "aria-label": a.skip ? "Keep this" : "Leave this out", title: a.skip ? "Keep this" : "Leave this out", onclick: () => { a.skip = !a.skip; render() } }, a.skip ? "↺" : "✕") : null) }),
+    st === "pending" ? el("div", { class: "row", style: "gap:6px" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => { m.actState = "undone"; render() } }, "Not now"),
+      el("button", { class: "btn primary small", disabled: !m.actions.some(a => !a.skip), onclick: () => doActions(m) }, "Do it")) : null,
+    st === "done" ? el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => undoActions(m) }, "Undo")) : null);
+}

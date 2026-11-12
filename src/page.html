@@ -931,6 +931,18 @@ input,select,textarea{background-color:var(--field)}
 .moreico{width:24px;text-align:center;font-size:17px}
 .morediv{height:1px;background:var(--line);margin:4px 6px}
 
+/* assistant: actions it can do for you */
+.actcard{display:grid;gap:6px;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));background:color-mix(in srgb,var(--accent-soft) 45%,var(--surface));border-radius:14px;padding:10px 12px;max-width:96%}
+.actcard.ok{border-color:var(--keep);background:color-mix(in srgb,var(--keep-soft) 55%,var(--surface))}
+.actcard.off{opacity:.6}
+.actcard-h{font:700 11px/1 var(--body);letter-spacing:.07em;text-transform:uppercase;color:var(--accent)}
+.actcard.ok .actcard-h{color:var(--keep)}
+.actrow{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-top:1px solid var(--line)}
+.actrow:first-of-type{border-top:0}
+.actrow-t{flex:1;display:grid;gap:2px;min-width:0;font-size:14px}
+.actrow-t span{font-size:13px;color:var(--muted);overflow-wrap:anywhere;white-space:pre-wrap}
+.actrow.skip .actrow-t{text-decoration:line-through;opacity:.55}
+
 /* ===== Phones: a floating glass dock, lighter top bar, bigger tap targets ===== */
 @media (max-width:759px){
   :root{--r:20px;--dock:72px}
@@ -941,6 +953,8 @@ input,select,textarea{background-color:var(--field)}
   .brand{font-size:19px;gap:8px}
   .brand-sub{display:none}
   .mark{width:15px;height:25px}
+  .brand{white-space:nowrap}
+  #me-btn{display:none}
   .status{max-width:32vw;font-size:12px}
 
   .nav{left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(10px + env(safe-area-inset-bottom,0px));padding:6px;gap:2px;border:1px solid var(--line);border-radius:26px;background:color-mix(in srgb,var(--solid) 93%,transparent);backdrop-filter:blur(22px) saturate(1.5);-webkit-backdrop-filter:blur(22px) saturate(1.5);box-shadow:0 12px 34px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.05)}
