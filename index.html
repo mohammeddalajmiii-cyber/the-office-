@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261112064650">
+<meta name="build" content="20261112165111">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -683,6 +683,117 @@ input,select,textarea{background-color:var(--field)}
 @media (max-width:640px){.pings{left:12px;right:12px;width:auto}}
 @media (prefers-reduced-motion:reduce){.ping,.ping.out{animation:none}.ping-bar{display:none}}
 
+/* ===== Phones: simpler, calmer, more premium =====
+   A floating glass dock instead of a full-width tab bar, a lighter top bar, one card shape everywhere,
+   bigger tap targets, inputs that don't make iPhones zoom in, and fewer buttons on screen until you need them.
+   Wide screens are not touched by anything in here. */
+@media (max-width:759px){
+  :root{--r:20px;--r-sm:14px;--dock:72px;--lift:inset 0 1px 0 rgba(255,255,255,.045),0 1px 2px rgba(0,0,0,.14)}
+  :root[data-theme="light"]{--lift:0 1px 2px rgba(16,42,72,.06),0 6px 18px rgba(16,42,72,.05)}
+  body{font-size:15px;line-height:1.55}
+  .wrap{padding-block:2px calc(var(--dock) + 34px + env(safe-area-inset-bottom,0px))}
+
+  /* top bar: the name, and three round buttons */
+  .topbar{padding-block:9px;margin-bottom:8px;gap:8px;background:color-mix(in srgb,var(--bg) 72%,transparent);backdrop-filter:blur(18px) saturate(1.4);-webkit-backdrop-filter:blur(18px) saturate(1.4);border-bottom:1px solid var(--line)}
+  .brand{font-size:19px;gap:8px}
+  .brand-sub{display:none}
+  .mark{width:15px;height:25px}
+  .topbar .bell{width:38px;height:38px;background:var(--surface);border:1px solid var(--line)}
+  .topbar .bell svg{width:19px;height:19px}
+  .asst-btn span{font-size:17px}
+  .topbar .bell .count{top:-3px;right:-3px;min-width:17px;height:17px;line-height:17px;font-size:10px;padding:0 4px;box-shadow:0 0 0 2px var(--bg)}
+  .me-btn .av{width:36px;height:36px;border-width:0;box-shadow:0 0 0 1px var(--line),0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+  .status{max-width:32vw;font-size:12px}
+
+  /* bottom: a floating glass dock */
+  .nav{left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(10px + env(safe-area-inset-bottom,0px));padding:6px;gap:2px;border:1px solid var(--line);border-radius:26px;background:color-mix(in srgb,var(--solid) 93%,transparent);backdrop-filter:blur(22px) saturate(1.5);-webkit-backdrop-filter:blur(22px) saturate(1.5);box-shadow:0 12px 34px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.05)}
+  :root[data-theme="light"] .nav{background:rgba(255,255,255,.94);box-shadow:0 10px 30px rgba(16,42,72,.14)}
+  .tab{padding:5px 0 3px;gap:2px;font-size:10.5px;font-weight:600;letter-spacing:.01em;border-radius:20px;-webkit-tap-highlight-color:transparent}
+  .tab .ico{width:46px;height:28px;transition:background .2s,color .2s,transform .2s}
+  .tab svg{width:20px;height:20px}
+  .tab[aria-selected="true"]{color:var(--ink)}
+  .tab[aria-selected="true"] .ico{background:var(--fill);color:#fff;box-shadow:0 4px 12px color-mix(in srgb,var(--fill) 45%,transparent)}
+  .tab:active .ico{transform:scale(.92)}
+  .tab .count{top:0;left:calc(50% + 9px);min-width:17px;height:17px;line-height:17px;font-size:10px;padding:0 4px;box-shadow:0 0 0 2px var(--solid)}
+  .toast{bottom:calc(var(--dock) + 22px + env(safe-area-inset-bottom,0px));border-radius:14px}
+  .asst{bottom:calc(var(--dock) + 22px + env(safe-area-inset-bottom,0px));border-radius:24px}
+
+  /* one card shape everywhere */
+  .idea,.compose,.cstatus,.newscard,.nowcard,.focus,.profile,.empty{border-radius:var(--r)}
+  .idea,.compose{padding:16px;gap:12px}
+  .idea,.compose,.nowcard,.newscard,.focus,.profile,.cstatus{box-shadow:var(--lift)}
+  .focus{padding:18px;margin-bottom:14px}
+  .list{gap:10px;margin-top:14px}
+  h2{font-size:21px}
+  .sec-h{margin:20px 2px 10px}
+  .back{margin:2px 0 10px;font-size:14px;min-height:32px}
+
+  /* buttons and fields: easy to hit, no zoom-in when typing on iPhone */
+  .btn{min-height:42px;border-radius:12px;padding:9px 16px}
+  .btn.small{min-height:34px;border-radius:10px;padding:6px 12px}
+  .btn.primary{background:linear-gradient(180deg,color-mix(in srgb,var(--fill) 86%,#fff),var(--fill));box-shadow:0 1px 0 rgba(255,255,255,.12) inset,0 6px 16px color-mix(in srgb,var(--fill) 35%,transparent)}
+  .btn:active{transform:scale(.98)}
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not(.mini),textarea:not(.mini),.compose select{font-size:16px!important}
+  .compose input,.compose textarea,.addtask input,.noteinput,#chat-input{border-radius:12px;padding:11px 13px}
+  .mini{border-radius:10px;padding:7px 9px}
+  .seg{border-radius:14px;padding:4px}
+  .seg button{border-radius:10px;padding:8px 12px}
+  .seg-wide button{padding:9px 10px}
+  .v{padding:7px 14px 7px 12px}
+
+  /* Me: one compact header card with the numbers joined underneath */
+  .profile{gap:12px 14px;padding:16px;border:1px solid var(--line);background:radial-gradient(120% 90% at 0% 0%,color-mix(in srgb,var(--fill) 30%,transparent),transparent 60%),var(--hero)}
+  .av-lg{width:56px;height:56px}
+  .hello{font-size:13px}
+  .profile h1{font-size:28px}
+  .stats{gap:1px;background:var(--line);border-radius:var(--r-sm);overflow:hidden;margin-top:8px}
+  .stat{border-radius:0;background:var(--solid);text-align:center;padding:10px 4px}
+  .stat b{font-size:21px}
+  .stat span{font-size:11.5px}
+  .newscard{padding:14px 16px;margin-top:10px}
+  .newscard .row:last-child{gap:4px!important}
+  .newscard .btn.small{min-height:32px;padding:5px 10px}
+  .nowcard{margin-top:10px;padding:14px 16px;gap:3px}
+  .now-label{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+  .now-title{font-size:17px}
+  .now-sub{font-size:13px}
+  .nowcard:active{transform:scale(.99)}
+  .me-foot{margin-top:22px}
+
+  /* Ideas: the pitch box stays one line until you tap it */
+  .compose:not(:focus-within):not(:hover):has(#f-title:placeholder-shown):has(#f-client:placeholder-shown):has(#f-pitch:placeholder-shown)>:not(h3):not(#f-title){display:none}
+  .compose h3{font-size:16px}
+  .catbar,.pchips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-inline:-16px;padding-inline:16px;scroll-padding-inline:16px}
+  .catbar::-webkit-scrollbar,.pchips::-webkit-scrollbar{display:none}
+  .cat{flex:none;padding:7px 13px}
+  .pchip{padding-block:5px}
+
+  /* Tasks: softer priority colour, and the Add button only shows once you type */
+  .task.tp-urgent{background:linear-gradient(90deg,color-mix(in srgb,#F07A3A 16%,transparent),transparent 70%)}
+  .task.tp-high{background:linear-gradient(90deg,color-mix(in srgb,#E8B83A 12%,transparent),transparent 70%)}
+  .task.tp-medium{background:none}
+  .padd .addtask:has(input:placeholder-shown) .btn{display:none}
+  .padd .addtask input{border-style:dashed;background:transparent}
+  .padd .addtask input:focus{border-style:solid;background:var(--field)}
+  .phasebar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .ph{flex:none}
+
+  /* Chat: the conversation fills the screen, rounder composer */
+  .chatlog{height:calc(100dvh - 312px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));min-height:260px;border-radius:var(--r);padding:12px}
+  .bubble{border-radius:18px;padding:8px 12px}
+  .msg.mine .bubble{border-bottom-right-radius:6px}
+  .msg:not(.mine) .bubble{border-bottom-left-radius:6px}
+  .chatform{gap:8px;align-items:flex-end}
+  #chat-input{border-radius:22px;padding:10px 16px;min-height:44px}
+  .attach{width:44px;height:44px;border-radius:50%}
+  #chat-send{border-radius:22px;min-height:44px;padding-inline:18px}
+
+  /* sheets that slide over the page */
+  .alerts{border-radius:22px;top:calc(env(safe-area-inset-top,0px) + 62px)}
+  .ping{border-radius:18px}
+}
+@media (max-width:759px) and (prefers-reduced-motion:reduce){.tab .ico,.btn,.nowcard{transition:none}.btn:active,.nowcard:active,.tab:active .ico{transform:none}}
+
 </style>
 </head>
 <body>
@@ -897,7 +1008,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261112064650";
+const BUILD_ID = "20261112165111";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
