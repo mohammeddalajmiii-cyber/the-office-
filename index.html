@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261112062738">
+<meta name="build" content="20261112063002">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -76,7 +76,7 @@ body{margin:0}
 
 :root[data-theme="pine"]{
   --bg:#0E4A44; --surface:rgba(9,54,49,.92); --solid:#0B3D38; --ink:#F2F6F5; --muted:#B4C9C5; --line:rgba(255,255,255,.12); --hero:rgba(10,60,55,.96);
-  --accent:#A8D8D0; --fill:#1E7A70; --accent-soft:#185D55; --on-accent:#FFFFFF; --tone:#A8D8D0;
+  --accent:#A8D8D0; --fill:#646B73; --accent-soft:#185D55; --on-accent:#FFFFFF; --tone:#A8D8D0;
   --keep:#6FD6A3; --keep-soft:#123F2E; --drop:#F59A86; --drop-soft:#4A2620; --warn:#F3BE6A; --warn-soft:#46361A;
   --topbar:rgba(14,74,68,.66); --notch:rgba(14,74,68,.95); --chatbg:rgba(9,54,49,.92); --field:#0A3934;
   --sky:#0E4A44;
@@ -726,8 +726,8 @@ input,select,textarea{background-color:var(--field)}
   }
   function base(segs) {
     if (C.base2) {   // pine: the first map line in white, the second in grey
-      [[C.base, .26, LEVELS[0]], [C.base2, .34, LEVELS[1]]].forEach(function (b) {
-        x.strokeStyle = rgba(b[0], b[1]); x.lineWidth = 1.25; x.beginPath();
+      [[C.base, .5, LEVELS[0], 1.6], [C.base2, .34, LEVELS[1], 1.25]].forEach(function (b) {
+        x.strokeStyle = rgba(b[0], b[1]); x.lineWidth = b[3]; x.beginPath();
         segs.forEach(function (g) { if (g[4] === b[2]) { x.moveTo(g[0], g[1]); x.lineTo(g[2], g[3]) } }); x.stroke();
       });
       return;
@@ -888,7 +888,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261112062738";
+const BUILD_ID = "20261112063002";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
