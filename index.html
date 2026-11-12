@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261112063134">
+<meta name="build" content="20261112064314">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -391,6 +391,12 @@ details.removed .idea{opacity:.75}
 .lb-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .lb-body{display:grid;place-items:center;min-height:0;color:#fff}
 .lb-body img,.lb-body video{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
+.lb-body.lb-doc{display:block;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-top:10px}
+.lb-pages{display:flex;flex-direction:column;align-items:center;gap:12px}
+.lb-page{display:block;max-width:100%;height:auto;background:#fff;border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+.lb-count{text-align:center;font-size:12.5px;color:rgba(255,255,255,.7);padding:12px 0 4px}
+.lb-text{max-width:900px;margin:0 auto;white-space:pre-wrap;word-break:break-word;text-align:left;background:#fff;color:#11181F;padding:18px 20px;border-radius:8px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.att-file.can-open{cursor:pointer}
 .phase-tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted)}
 .linkbtn.danger{color:var(--drop)}
 .addphase{border-style:dashed}
@@ -888,7 +894,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261112063134";
+const BUILD_ID = "20261112064314";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -3209,7 +3215,7 @@ async function addProjectFiles(p, list) {
   if (added) toast(added > 1 ? `${added} files added` : "File added");
 }
 function fileChip(p, f, editable) {
-  const open = () => (f.thumb || playable(f)) ? openViewer(f) : downloadFile(f);
+  const open = () => viewable(f) ? openViewer(f) : downloadFile(f);
   const chip = el("button", { class: "linkchip filechip", title: `${f.name} \u00b7 ${fmtSize(f.size)}`, onclick: open },
     f.thumb ? el("img", { src: f.thumb, alt: "", class: "fthumb" }) : el("span", { class: "fext" }, extOf(f.name)),
     el("span", {}, f.name));
@@ -4004,13 +4010,38 @@ function deleteMessage(m) {
   return Promise.all(jobs);
 }
 const playable = f => /^(video|audio)\//.test(f.type);
+// What the viewer can show inside the site, without downloading first
+const isPdf = f => f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
+const isText = f => /^text\//.test(f.type) || /^application\/(json|xml)$/.test(f.type) || /\.(txt|csv|md|json|log|xml|html?|css|js)$/i.test(f.name || "");
+const isPic = f => !!f.thumb || /^image\//.test(f.type);
+const viewable = f => isPic(f) || playable(f) || isPdf(f) || isText(f);
+let pdfjsLib = null;
+async function showPdf(url, body, lb) {
+  if (!pdfjsLib) {
+    pdfjsLib = await import(new URL("vendor/pdfjs/pdf.min.mjs", location.href).href);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("vendor/pdfjs/pdf.worker.min.mjs", location.href).href;
+  }
+  const pdf = await pdfjsLib.getDocument({ url }).promise;
+  const pages = el("div", { class: "lb-pages" }), count = el("div", { class: "lb-count" }, pdf.numPages === 1 ? "1 page" : pdf.numPages + " pages");
+  body.classList.add("lb-doc"); body.replaceChildren(pages, count);
+  const width = Math.min(body.clientWidth - 8, 900), dpr = Math.min(devicePixelRatio || 1, 2);
+  for (let i = 1; i <= pdf.numPages; i++) {
+    if (lb.hidden) return;
+    const page = await pdf.getPage(i), w0 = page.getViewport({ scale: 1 }).width;
+    const vp = page.getViewport({ scale: width / w0 * dpr });
+    const c = el("canvas", { class: "lb-page", "aria-label": `Page ${i} of ${pdf.numPages}` });
+    c.width = Math.floor(vp.width); c.height = Math.floor(vp.height); c.style.width = Math.floor(vp.width / dpr) + "px";
+    pages.append(c);
+    await page.render({ canvasContext: c.getContext("2d"), canvas: c, viewport: vp }).promise;
+  }
+}
 function attachmentEl(f) {
   if (f.thumb) return el("button", { type: "button", class: "att-img", "aria-label": "Open photo " + f.name, onclick: e => { e.stopPropagation(); openViewer(f) } },
     el("img", { src: f.thumb, alt: f.name, width: f.w || null, height: f.h || null }));
-  return el("div", { class: "att-file" },
+  return el("div", { class: "att-file" + (viewable(f) ? " can-open" : ""), onclick: viewable(f) ? e => { e.stopPropagation(); openViewer(f) } : null },
     el("span", { class: "att-ext" }, extOf(f.name)),
     el("div", { class: "att-info" }, el("div", { class: "att-name" }, f.name), el("div", { class: "att-size" }, fmtSize(f.size))),
-    el("button", { type: "button", class: "act", onclick: e => { e.stopPropagation(); playable(f) ? openViewer(f) : downloadFile(f) } }, playable(f) ? "Play" : "Download"));
+    el("button", { type: "button", class: "act", onclick: e => { e.stopPropagation(); viewable(f) ? openViewer(f) : downloadFile(f) } }, playable(f) ? "Play" : viewable(f) ? "Open" : "Download"));
 }
 async function openViewer(f) {
   const lb = $("#lightbox"); lb.hidden = false;
@@ -4024,11 +4055,17 @@ async function openViewer(f) {
   try {
     const url = await loadFile(f);
     if (lb.hidden) return;
+    if (isPdf(f)) return await showPdf(url, body, lb);
+    if (isText(f) && !isPic(f)) {
+      const t = await (await fetch(url)).text();
+      body.classList.add("lb-doc"); body.replaceChildren(el("pre", { class: "lb-text" }, t.length > 300000 ? t.slice(0, 300000) + "\n\n\u2026 (download the file to see the rest)" : t));
+      return;
+    }
     const media = f.type.startsWith("video/") ? el("video", { src: url, controls: true, autoplay: true, playsinline: true })
       : f.type.startsWith("audio/") ? el("audio", { src: url, controls: true, autoplay: true })
       : el("img", { src: url, alt: f.name });
     body.replaceChildren(media);
-  } catch { body.replaceChildren(el("p", {}, "That file couldn't be loaded. It may have been deleted.")) }
+  } catch { body.replaceChildren(el("p", {}, "This file couldn't be shown here. Tap Download to open it on your device.")) }
 }
 
 function jumpTo(id) {

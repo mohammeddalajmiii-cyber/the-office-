@@ -927,7 +927,7 @@ async function addProjectFiles(p, list) {
   if (added) toast(added > 1 ? `${added} files added` : "File added");
 }
 function fileChip(p, f, editable) {
-  const open = () => (f.thumb || playable(f)) ? openViewer(f) : downloadFile(f);
+  const open = () => viewable(f) ? openViewer(f) : downloadFile(f);
   const chip = el("button", { class: "linkchip filechip", title: `${f.name} \u00b7 ${fmtSize(f.size)}`, onclick: open },
     f.thumb ? el("img", { src: f.thumb, alt: "", class: "fthumb" }) : el("span", { class: "fext" }, extOf(f.name)),
     el("span", {}, f.name));
@@ -1722,13 +1722,38 @@ function deleteMessage(m) {
   return Promise.all(jobs);
 }
 const playable = f => /^(video|audio)\//.test(f.type);
+// What the viewer can show inside the site, without downloading first
+const isPdf = f => f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
+const isText = f => /^text\//.test(f.type) || /^application\/(json|xml)$/.test(f.type) || /\.(txt|csv|md|json|log|xml|html?|css|js)$/i.test(f.name || "");
+const isPic = f => !!f.thumb || /^image\//.test(f.type);
+const viewable = f => isPic(f) || playable(f) || isPdf(f) || isText(f);
+let pdfjsLib = null;
+async function showPdf(url, body, lb) {
+  if (!pdfjsLib) {
+    pdfjsLib = await import(new URL("vendor/pdfjs/pdf.min.mjs", location.href).href);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("vendor/pdfjs/pdf.worker.min.mjs", location.href).href;
+  }
+  const pdf = await pdfjsLib.getDocument({ url }).promise;
+  const pages = el("div", { class: "lb-pages" }), count = el("div", { class: "lb-count" }, pdf.numPages === 1 ? "1 page" : pdf.numPages + " pages");
+  body.classList.add("lb-doc"); body.replaceChildren(pages, count);
+  const width = Math.min(body.clientWidth - 8, 900), dpr = Math.min(devicePixelRatio || 1, 2);
+  for (let i = 1; i <= pdf.numPages; i++) {
+    if (lb.hidden) return;
+    const page = await pdf.getPage(i), w0 = page.getViewport({ scale: 1 }).width;
+    const vp = page.getViewport({ scale: width / w0 * dpr });
+    const c = el("canvas", { class: "lb-page", "aria-label": `Page ${i} of ${pdf.numPages}` });
+    c.width = Math.floor(vp.width); c.height = Math.floor(vp.height); c.style.width = Math.floor(vp.width / dpr) + "px";
+    pages.append(c);
+    await page.render({ canvasContext: c.getContext("2d"), canvas: c, viewport: vp }).promise;
+  }
+}
 function attachmentEl(f) {
   if (f.thumb) return el("button", { type: "button", class: "att-img", "aria-label": "Open photo " + f.name, onclick: e => { e.stopPropagation(); openViewer(f) } },
     el("img", { src: f.thumb, alt: f.name, width: f.w || null, height: f.h || null }));
-  return el("div", { class: "att-file" },
+  return el("div", { class: "att-file" + (viewable(f) ? " can-open" : ""), onclick: viewable(f) ? e => { e.stopPropagation(); openViewer(f) } : null },
     el("span", { class: "att-ext" }, extOf(f.name)),
     el("div", { class: "att-info" }, el("div", { class: "att-name" }, f.name), el("div", { class: "att-size" }, fmtSize(f.size))),
-    el("button", { type: "button", class: "act", onclick: e => { e.stopPropagation(); playable(f) ? openViewer(f) : downloadFile(f) } }, playable(f) ? "Play" : "Download"));
+    el("button", { type: "button", class: "act", onclick: e => { e.stopPropagation(); viewable(f) ? openViewer(f) : downloadFile(f) } }, playable(f) ? "Play" : viewable(f) ? "Open" : "Download"));
 }
 async function openViewer(f) {
   const lb = $("#lightbox"); lb.hidden = false;
@@ -1742,11 +1767,17 @@ async function openViewer(f) {
   try {
     const url = await loadFile(f);
     if (lb.hidden) return;
+    if (isPdf(f)) return await showPdf(url, body, lb);
+    if (isText(f) && !isPic(f)) {
+      const t = await (await fetch(url)).text();
+      body.classList.add("lb-doc"); body.replaceChildren(el("pre", { class: "lb-text" }, t.length > 300000 ? t.slice(0, 300000) + "\n\n\u2026 (download the file to see the rest)" : t));
+      return;
+    }
     const media = f.type.startsWith("video/") ? el("video", { src: url, controls: true, autoplay: true, playsinline: true })
       : f.type.startsWith("audio/") ? el("audio", { src: url, controls: true, autoplay: true })
       : el("img", { src: url, alt: f.name });
     body.replaceChildren(media);
-  } catch { body.replaceChildren(el("p", {}, "That file couldn't be loaded. It may have been deleted.")) }
+  } catch { body.replaceChildren(el("p", {}, "This file couldn't be shown here. Tap Download to open it on your device.")) }
 }
 
 function jumpTo(id) {

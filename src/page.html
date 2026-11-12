@@ -391,6 +391,12 @@ details.removed .idea{opacity:.75}
 .lb-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .lb-body{display:grid;place-items:center;min-height:0;color:#fff}
 .lb-body img,.lb-body video{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
+.lb-body.lb-doc{display:block;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-top:10px}
+.lb-pages{display:flex;flex-direction:column;align-items:center;gap:12px}
+.lb-page{display:block;max-width:100%;height:auto;background:#fff;border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+.lb-count{text-align:center;font-size:12.5px;color:rgba(255,255,255,.7);padding:12px 0 4px}
+.lb-text{max-width:900px;margin:0 auto;white-space:pre-wrap;word-break:break-word;text-align:left;background:#fff;color:#11181F;padding:18px 20px;border-radius:8px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.att-file.can-open{cursor:pointer}
 .phase-tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted)}
 .linkbtn.danger{color:var(--drop)}
 .addphase{border-style:dashed}
