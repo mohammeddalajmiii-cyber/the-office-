@@ -105,6 +105,7 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 const VIEWS = ["me", "ideas", "projects", "chat", "partners", "skills", "settings", "money", "project"];
 function route() {
   const h = location.hash.slice(1);
+  if (h.startsWith("task-")) { const [id, task] = h.slice(5).split("-"); return { view: "project", id, task } }
   for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
   if (h === "projects-done" || h === "current") return { view: "projects" };
   if (h === "mine" || h === "notes") return { view: "me" };
@@ -118,8 +119,11 @@ function show() {
   const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "settings" || r.view === "money" ? "me" : r.view;
   for (const b of document.querySelectorAll("#app .tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
+  if (r.task) { projTab = "tasks"; taskFilter[r.id] = null; openTask = "p:" + r.task; showTaskAt = r.task }
   render();
+  if (showTaskAt) { const id = showTaskAt; showTaskAt = null; setTimeout(() => { const c = document.getElementById("c-p:" + id); if (c) { const row = c.closest(".task"); scrollTo({ top: row.getBoundingClientRect().top + scrollY - 96, behavior: "smooth" }); row.classList.add("flash") } }, 80) }
 }
+let showTaskAt = null;
 for (const b of document.querySelectorAll("#app .tab")) b.onclick = () => { location.hash = b.dataset.view };
 for (const b of document.querySelectorAll("#partner .tab")) b.onclick = () => { location.hash = b.dataset.pview };
 addEventListener("hashchange", () => { show(); scrollTo(0, 0) });
@@ -337,7 +341,7 @@ function renderAll() {
   if (r.view === "me") renderMe();
   if (r.view === "partners") renderPartnersTeam(r.gid);
   { const pu = pGroups.reduce((a, g) => a + partnerUnread(g.id), 0); const pc = $("#c-partners"); pc.hidden = !pu; pc.textContent = pu > 9 ? "9+" : pu }
-  const open = myTasks().filter(x => !x.t.done && !x.closed).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
+  const open = myTasks().filter(x => !x.t.done && !x.closed && (x.personal || !isBlocked(x.p, x.t))).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
   renderAlerts();
   pushTick();
   renderAssistant();
@@ -1153,7 +1157,8 @@ function phaseCard(p, ph, n, phases, list, mode = {}) {
   }
   if (!list.length) sec.append(el("p", { style: "font-size:14px" }, planner ? "No tasks yet. Add the first one below." : "No tasks yet."));
   // Most important first: urgent, high, medium, low. Done tasks go to the bottom.
-  for (const t of [...list].sort((a, b) => (a.done - b.done) || taskPrioRank(a) - taskPrioRank(b))) sec.append(taskItem(p, t, "p", { people: "always" }));
+  // Most important first: urgent, high, medium, low. Tasks still waiting for others come after the ones you can start. Done tasks go to the bottom.
+  for (const t of [...list].sort((a, b) => (a.done - b.done) || (isBlocked(p, a) - isBlocked(p, b)) || taskPrioRank(a) - taskPrioRank(b))) sec.append(taskItem(p, t, "p", { people: "always" }));
   if (planner && !loose && !mode.filtered) sec.append(addTaskRow(p, ph));
   return sec;
 }
@@ -1184,16 +1189,23 @@ function addPhaseRow(p, phases, placeholder) {
 
 /* ----- tasks: the same row everywhere; tap a task to open its details ----- */
 
-let openTask = null, delTask = null;          // "<where>:<taskId>"
+let openTask = null, delTask = null, doneAnyway = null, waitPick = null;   // "<where>:<taskId>"
 const isAssignee = (t, u) => t.owner === u || !!(t.helpers || {})[u];
 const assignees = t => [...new Set([t.owner, ...Object.entries(t.helpers || {}).filter(([, v]) => v).map(([u]) => u)].filter(Boolean))];
 const checkList = t => Object.entries(t.check || {}).filter(([, c]) => c && c.text).map(([id, c]) => ({ id, ...c })).sort((a, b) => (a.order || 0) - (b.order || 0));
 const TASK_PRIOS = ["urgent", "high", "medium", "low"];
 const taskPrioRank = t => TASK_PRIOS.indexOf(t.priority || "medium");
+const taskLink = (p, t) => "task-" + p.id + "-" + t.id;   // opens the project with this task open
+const plusDays = n => { const d = new Date(); d.setDate(d.getDate() + n); return ymd(d) };
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
+function dueText(due, done) {
+  const today = todayStr(), late = !done && due < today;
+  return late ? "Overdue · " + fmtDate(due) : due === today ? "Due today" : due === plusDays(1) ? "Due tomorrow" : "Due " + fmtDate(due);
+}
 function dueChip(t) {
   if (!t.due) return null;
-  const today = todayStr(), late = !t.done && t.due < today, soon = !t.done && t.due === today;
-  return el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, late ? "Overdue · " + fmtDate(t.due) : soon ? "Due today" : "Due " + fmtDate(t.due));
+  const today = todayStr(), late = !t.done && t.due < today, soon = !t.done && (t.due === today || t.due === plusDays(1));
+  return el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, dueText(t.due, t.done));
 }
 
 /* Waiting for: a task can depend on other tasks. It shows as waiting until they're done. */
@@ -1202,37 +1214,65 @@ function waitInfo(p, t) {
   const all = tasksOf(p), deps = waitIds(t).map(id => all.find(x => x.id === id)).filter(Boolean);
   return { deps, open: deps.filter(d => !d.done) };
 }
+const isBlocked = (p, t) => !t.done && waitInfo(p, t).open.length > 0;
+const waitingOn = (p, t) => tasksOf(p).filter(x => x.id !== t.id && waitIds(x).includes(t.id));   // tasks that need this one
+// Every task that waits for this one, directly or through other tasks. Picking one of them would make a loop.
+function waitersOf(p, id) {
+  const all = tasksOf(p), out = new Set(), stack = [id];
+  while (stack.length) { const cur = stack.pop(); for (const x of all) if (!out.has(x.id) && waitIds(x).includes(cur)) { out.add(x.id); stack.push(x.id) } }
+  return out;
+}
 const ownerName = d => { const ps = assignees(d); return ps.length ? ps.map(u => u === me ? "you" : name(u).split(" ")[0]).join(", ") : "nobody yet" };
+
+// Links in notes become tappable. PDFs and Google Drive, Docs, Sheets and Slides open in the viewer.
+function linkify(text) {
+  const out = []; let last = 0;
+  String(text).replace(/https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g, (m, i) => {
+    out.push(text.slice(last, i));
+    const label = m.replace(/^https?:\/\/(www\.)?/, ""), short = label.length > 42 ? label.slice(0, 40) + "…" : label;
+    out.push(el("a", { href: m, target: "_blank", rel: "noopener noreferrer", class: "notelink", onclick: previewClick(m, hostOf(m)) }, short));
+    last = i + m.length; return m;
+  });
+  out.push(text.slice(last)); return out;
+}
 
 function taskItem(p, t, where, opts = {}) {
   const key = where + ":" + t.id, open = openTask === key;
   const can = canPlan(p) || isAssignee(t, me);
   const cl = checkList(t), cld = cl.filter(c => c.done).length;
   const ncount = Object.values(t.notes || {}).filter(n => n && n.text).length;
-  const people = assignees(t);
+  const people = assignees(t), w = t.done ? null : waitInfo(p, t), blocked = !!(w && w.open.length);
   const showPeople = opts.people === "always" || (opts.people !== "never" && (opts.people !== "multi" || people.length > 1));
-  return el("div", { class: "task" + (t.done ? " done" : " tp-" + (t.priority || "medium")) + (isAssignee(t, me) ? " mytask" : "") + (open ? " open" : "") },
+  const toggle = () => { openTask = open ? null : key; delTask = null; waitPick = null; render() };
+  const stepsDone = !t.done && cl.length && cld === cl.length;
+  const needed = t.done ? [] : waitingOn(p, t).filter(x => !x.done);
+  return el("div", { class: "task" + (t.done ? " done" : " tp-" + (t.priority || "medium")) + (blocked ? " blocked" : "") + (isAssignee(t, me) ? " mytask" : "") + (open ? " open" : "") },
     el("input", { type: "checkbox", id: "c-" + key, checked: t.done, disabled: !can, "aria-label": "Done: " + t.text, title: can ? "" : "Only the people on this task or a planner can tick it", onchange: e => toggleDone(p, t, e.target.checked, key) }),
-    el("button", { class: "ttext", "aria-expanded": String(open), onclick: () => { openTask = open ? null : key; delTask = null; render() } }, t.text),
-    el("button", { class: "chev", "aria-label": open ? "Close details" : "Open details", onclick: () => { openTask = open ? null : key; delTask = null; render() } }, open ? "–" : "…"),
+    el("button", { class: "ttext", "aria-expanded": String(open), onclick: toggle }, t.text),
+    el("button", { class: "chev", "aria-label": open ? "Close details" : "Open details", onclick: toggle }, open ? "–" : "…"),
     el("div", { class: "meta" },
-      opts.project ? el("button", { class: "linkbtn", onclick: () => { location.hash = "plan-" + p.id } }, p.title) : null,
+      opts.project ? el("button", { class: "linkbtn", onclick: () => { location.hash = taskLink(p, t) } }, p.title) : null,
       opts.phase ? el("span", { class: "label" }, opts.phase) : null,
       showPeople ? (people.length ? el("span", { class: "stack", title: people.map(name).join(", ") }, people.slice(0, 4).map(av)) : el("span", { class: "label" }, "Not assigned")) : null,
-      !t.done && t.status === "doing" ? el("span", { class: "doing" }, "In progress") : null,
-      (() => { if (t.done) return null; const w = waitInfo(p, t); if (!w.deps.length) return null;
-        return w.open.length ? el("span", { class: "waitchip", title: w.open.map(d => `${d.text} (${ownerName(d)})`).join("\n") }, "\u23F3 Waiting for " + (w.open.length === 1 ? `${ownerName(w.open[0])}: ${w.open[0].text}` : `${w.open.length} tasks`))
-          : el("span", { class: "readychip" }, "\u2713 Ready to start") })(),
+      !t.done && t.status === "doing" ? el("span", { class: "doing" }, "In progress" + (t.startedBy && t.startedBy !== me ? " \u00b7 " + name(t.startedBy).split(" ")[0] : "")) : null,
+      w && w.deps.length ? (blocked ? el("span", { class: "waitchip", title: w.open.map(d => `${d.text} (${ownerName(d)})`).join("\n") }, "⏳ " + (w.open.length > 1 ? `Waiting for ${w.open.length} tasks` : ownerName(w.open[0]) === "you" ? `Waiting for your “${w.open[0].text}”` : `Waiting for ${ownerName(w.open[0])}: ${w.open[0].text}`))
+        : el("span", { class: "readychip" }, "✓ Ready to start")) : null,
+      needed.length ? el("span", { class: "needchip", title: needed.map(x => `${x.text} (${ownerName(x)})`).join("\n") }, needed.length > 1 ? `${needed.length} tasks need this` : ownerName(needed[0]) === "nobody yet" ? "Another task needs this" : `${cap(ownerName(needed[0]))} ${ownerName(needed[0]) === "you" ? "need" : "needs"} this next`) : null,
       t.priority && t.priority !== "medium" ? el("span", { class: "prio prio-" + t.priority }, PRIORITIES.find(x => x.id === t.priority).name) : null,
       dueChip(t),
-      cl.length ? el("span", { class: "label" }, `Checklist ${cld}/${cl.length}`) : null,
-      ncount ? el("span", { class: "label" }, `${ncount} note${ncount > 1 ? "s" : ""}`) : null),
+      cl.length ? el("span", { class: "label" + (stepsDone ? " ok" : "") }, `${cld}/${cl.length} steps`) : null,
+      ncount ? el("span", { class: "label" }, `${ncount} note${ncount > 1 ? "s" : ""}`) : null,
+      stepsDone && can ? el("button", { class: "btn small primary", onclick: () => toggleDone(p, t, true, key) }, "All steps done · Mark done") : null),
+    doneAnyway === key ? el("div", { class: "waitwarn" },
+      el("span", {}, `Not done yet: ${w.open.map(d => `“${d.text}” (${ownerName(d)})`).join(", ")}. Mark this one done anyway?`),
+      el("span", { class: "row", style: "gap:6px" }, el("button", { class: "btn small quiet", onclick: () => { doneAnyway = null; render() } }, "Not yet"),
+        el("button", { class: "btn small primary", onclick: () => toggleDone(p, t, true, key, true) }, "Mark done"))) : null,
     open ? taskDetail(p, t, key) : null);
 }
 
 function taskDetail(p, t, key) {
   const planner = canPlan(p), can = planner || isAssignee(t, me), phases = getPhases(p);
-  const set = (data, ok) => write(() => upd(p.id, data), ok);
+  const set = (data, ok) => write(() => upd(p.id, typeof data === "function" ? data() : data), ok);
   const box = el("div", { class: "tdetail" });
   const field = (label, ...kids) => el("div", { class: "tfield" }, el("span", { class: "tlabel" }, label), el("div", { class: "tval" }, ...kids));
 
@@ -1242,7 +1282,7 @@ function taskDetail(p, t, key) {
 
   const people = assignees(t);
   if (planner) {
-    const lead = el("select", { class: "mini", "aria-label": "Main person", onchange: e => set({ [t.path + ".owner"]: e.target.value || null, [t.path + ".assignedBy"]: me, [t.path + ".assignedAt"]: Date.now() }) },
+    const lead = el("select", { class: "mini", "aria-label": "Main person", onchange: e => set({ [t.path + ".owner"]: e.target.value || null, [t.path + ".assignedBy"]: me, [t.path + ".assignedAt"]: Date.now() }, e.target.value ? `Given to ${name(e.target.value)}` : null) },
       el("option", { value: "" }, "Nobody yet"), teamIds().map(u => el("option", { value: u }, name(u))));
     lead.value = t.owner || "";
     const helpers = Object.entries(t.helpers || {}).filter(([, v]) => v).map(([u]) => u).filter(u => u !== t.owner);
@@ -1250,75 +1290,105 @@ function taskDetail(p, t, key) {
     const addSel = others.length && t.owner ? el("select", { class: "mini", "aria-label": "Add someone", onchange: e => { const u = e.target.value; if (u) set({ [`${t.path}.helpers.${u}`]: { by: me, at: Date.now() } }, `${name(u)} added to the task`) } },
       el("option", { value: "" }, "+ Add someone"), others.map(u => el("option", { value: u }, name(u)))) : null;
     box.append(field("People", lead,
-      ...helpers.map(u => el("span", { class: "planner" }, av(u), name(u), el("button", { class: "x", "aria-label": "Remove " + name(u), onclick: () => set({ [`${t.path}.helpers.${u}`]: DEL() }) }, "✕"))),
+      ...helpers.map(u => el("span", { class: "planner" }, av(u), name(u), el("button", { class: "x", "aria-label": "Remove " + name(u), onclick: () => set(() => ({ [`${t.path}.helpers.${u}`]: DEL() })) }, "✕"))),
       addSel));
   } else {
     box.append(field("People", people.length ? people.map(u => el("span", { class: "planner" }, av(u), name(u))) : el("span", { class: "label" }, "Not assigned yet")));
   }
 
   if (planner) {
-    const pr = el("select", { class: "mini", "aria-label": "Task priority", onchange: e => set({ [t.path + ".priority"]: e.target.value }) }, PRIORITIES.map(x => el("option", { value: x.id }, x.name)));
-    pr.value = t.priority || "medium";
+    // due date: one tap for the usual ones, or pick any day
     const due = el("input", { type: "date", class: "mini", "aria-label": "Due date", value: t.due || "", onchange: e => set({ [t.path + ".due"]: e.target.value || null }) });
+    const quick = [["Today", 0], ["Tomorrow", 1], ["In a week", 7]].map(([l, n]) => { const d = plusDays(n);
+      return el("button", { class: "qd", "aria-pressed": String(t.due === d), onclick: () => set({ [t.path + ".due"]: d }, `Due ${l.toLowerCase()}`) }, l) });
+    box.append(field("Due", ...quick, due, t.due ? el("button", { class: "linkbtn", onclick: () => set({ [t.path + ".due"]: null }, "No due date") }, "Clear") : null));
+    const pr = el("select", { class: "mini", "aria-label": "Task priority", onchange: e => set({ [t.path + ".priority"]: e.target.value }) }, PRIORITIES.map(x => el("option", { value: x.id }, x.name + " priority")));
+    pr.value = t.priority || "medium";
     const sk = el("select", { class: "mini", "aria-label": "Skill needed", onchange: e => set({ [t.path + ".skill"]: e.target.value || null }) }, el("option", { value: "" }, "Any skill"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
     sk.value = t.skill || "";
-    box.append(field("Priority", pr), field("Due", due), field("Skill", sk));
+    let ph = null;
     if (phases.length > 1) {
-      const ph = el("select", { class: "mini", "aria-label": "Phase", onchange: e => write(() => phaseWrite(p, { [t.path + ".phase"]: e.target.value })) }, phases.map(x => el("option", { value: x.id }, x.name)));
-      ph.value = t.phase; box.append(field("Phase", ph));
+      ph = el("select", { class: "mini", "aria-label": "Phase", onchange: e => write(() => phaseWrite(p, { [t.path + ".phase"]: e.target.value })) }, phases.map(x => el("option", { value: x.id }, x.name)));
+      ph.value = t.phase;
     }
+    box.append(field("Details", pr, sk, ph));
   } else {
     box.append(field("Details", el("span", { class: "row", style: "gap:6px" },
       el("span", { class: "prio prio-" + (t.priority || "medium") }, PRIORITIES.find(x => x.id === (t.priority || "medium")).name), dueChip(t) || el("span", { class: "label" }, "No due date"),
       t.skill ? el("span", { class: "chip" }, SKILLS[t.skill].name) : null)));
   }
 
-  /* waiting for other tasks */
+  /* waiting for other tasks, and who's waiting on this one */
   {
-    const all = tasksOf(p), w = waitInfo(p, t), mine = waitIds(t);
-    const chips = w.deps.map(d => el("span", { class: "planner" + (d.done ? " waitdone" : "") }, (d.done ? "\u2713 " : "\u23F3 ") + d.text, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, ownerName(d)),
-      can ? el("button", { class: "x", "aria-label": "Stop waiting for " + d.text, onclick: () => set({ [`${t.path}.waitFor.${d.id}`]: DEL() }) }, "\u2715") : null));
-    const phs = getPhases(p), phName = id => (phs.find(x => x.id === id) || {}).name || "";
-    // other tasks, this task's phase first; never itself or a task that already waits for this one
-    const options = all.filter(x => x.id !== t.id && !mine.includes(x.id) && !waitIds(x).includes(t.id))
-      .sort((a, b) => (b.phase === t.phase) - (a.phase === t.phase) || (a.done - b.done) || (a.order || 0) - (b.order || 0));
-    const add = can && options.length ? el("select", { class: "mini", "aria-label": "Add a task to wait for", onchange: e => { const id = e.target.value; if (!id) return; const d = all.find(x => x.id === id);
-      set({ [`${t.path}.waitFor.${id}`]: true }, d.done ? "That task is already done" : `Waiting for ${ownerName(d)} to finish it`) } },
-      el("option", { value: "" }, w.deps.length ? "+ Wait for another task\u2026" : "Pick the task you're waiting for\u2026"),
-      options.map(x => el("option", { value: x.id }, `${x.done ? "\u2713 " : ""}${phs.length > 1 ? phName(x.phase) + " \u00B7 " : ""}${x.text} (${ownerName(x)})`))) : null;
-    if (w.deps.length || add) box.append(field("Waiting for", ...chips, add || (w.deps.length ? null : el("span", { class: "label" }, "Not waiting for anything"))));
+    const all = tasksOf(p), w = waitInfo(p, t), mine = waitIds(t), phs = getPhases(p), phName = id => (phs.find(x => x.id === id) || {}).name || "";
+    const chips = w.deps.map(d => el("span", { class: "planner" + (d.done ? " waitdone" : "") }, (d.done ? "✓ " : "⏳ ") + d.text, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, ownerName(d)),
+      can ? el("button", { class: "x", "aria-label": "Stop waiting for " + d.text, onclick: () => set(() => ({ [`${t.path}.waitFor.${d.id}`]: DEL() }), "Not waiting for it anymore") }, "✕") : null));
+    // other tasks, this task's phase first; never itself, one it already waits for, or one that waits for it (that would make a loop)
+    const loop = waitersOf(p, t.id);
+    const options = all.filter(x => x.id !== t.id && !mine.includes(x.id) && !loop.has(x.id) && !x.done)
+      .sort((a, b) => (b.phase === t.phase) - (a.phase === t.phase) || (a.order || 0) - (b.order || 0));
+    let add = null;
+    if (can && options.length) add = waitPick === key
+      ? el("select", { class: "mini", "aria-label": "Add a task to wait for", onchange: e => { const id = e.target.value; if (!id) return; const d = all.find(x => x.id === id); waitPick = null;
+          set({ [`${t.path}.waitFor.${id}`]: true }, `Waiting for ${ownerName(d)} to finish “${d.text}”`) } },
+          el("option", { value: "" }, "Pick the task this one needs first…"),
+          options.map(x => el("option", { value: x.id }, `${phs.length > 1 ? phName(x.phase) + " · " : ""}${x.text} (${ownerName(x)})`)))
+      : el("button", { class: "linkbtn", onclick: () => { waitPick = key; render() } }, w.deps.length ? "+ Another one" : "+ This needs another task done first");
+    if (w.deps.length || add) box.append(field("Waiting for", ...chips, add));
+    const needs = waitingOn(p, t);
+    if (needs.length) box.append(field("Needed by", ...needs.map(x => el("span", { class: "planner" + (x.done ? " waitdone" : "") }, (x.done ? "✓ " : "") + x.text, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, ownerName(x))))));
   }
 
-  /* checklist */
+  /* checklist: ticking a step starts the task; ticking the last one offers to finish it */
   const cl = checkList(t);
   const ck = el("div", { class: "checklist" });
+  const tick = (c, on) => {
+    const after = cl.filter(x => x.id === c.id ? on : x.done).length;
+    set(() => {
+      const d = { [`${t.path}.check.${c.id}.done`]: on };
+      if (on && !t.done && t.status !== "doing") { d[t.path + ".status"] = "doing"; d[t.path + ".startedBy"] = me; d[t.path + ".startedAt"] = Date.now() }
+      return d;
+    }, on && after === cl.length && !t.done ? "All steps done. Mark the task done when you're happy with it" : on && !t.done && t.status !== "doing" ? "Started. It's in progress now" : null);
+  };
+  if (cl.length) ck.append(el("div", { class: "track", style: "height:6px" }, el("div", { class: "fill", style: `width:${pctOf(cl.filter(c => c.done).length, cl.length)}%` })));
   for (const c of cl) ck.append(el("div", { class: "ck" + (c.done ? " done" : "") },
-    el("input", { type: "checkbox", id: `ck-${key}-${c.id}`, checked: !!c.done, disabled: !can, onchange: e => set({ [`${t.path}.check.${c.id}.done`]: e.target.checked }) }),
+    el("input", { type: "checkbox", id: `ck-${key}-${c.id}`, checked: !!c.done, disabled: !can, onchange: e => tick(c, e.target.checked) }),
     el("label", { for: `ck-${key}-${c.id}` }, c.text),
-    can ? el("button", { class: "x", "aria-label": "Remove step " + c.text, onclick: () => set({ [`${t.path}.check.${c.id}`]: DEL() }) }, "✕") : null));
+    can ? el("button", { class: "x", "aria-label": "Remove step " + c.text, onclick: () => set(() => ({ [`${t.path}.check.${c.id}`]: DEL() })) }, "✕") : null));
   if (can) {
-    const inp = el("input", { id: "ckadd-" + key, placeholder: "Add a step", maxlength: "120" });
+    const inp = el("input", { id: "ckadd-" + key, placeholder: cl.length ? "Add a step" : "Break it into steps (optional)", maxlength: "120" });
     const add = () => { const v = inp.value.trim(); if (!v) return; inp.value = ""; set({ [`${t.path}.check.${uid()}`]: { text: v, done: false, order: Date.now() } }) };
     inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
-    ck.append(el("div", { class: "addtask", style: "margin-top:2px" }, inp, el("button", { class: "btn", onclick: add }, "Add")));
+    ck.append(el("div", { class: "padd", style: "margin:2px 0 0" }, el("div", { class: "addtask", style: "margin:0;flex-wrap:nowrap" }, inp, el("button", { class: "btn", onclick: add }, "Add"))));
   } else if (!cl.length) ck.append(el("span", { class: "label" }, "No steps"));
-  box.append(field("Checklist", ck));
+  box.append(field("Steps", ck));
 
   box.append(field("Notes", notesBlock(p, t, key)));
 
   if (planner) box.append(el("div", { class: "row", style: "justify-content:flex-end" },
     delTask === key
-      ? el("button", { class: "linkbtn danger", onclick: () => { delTask = null; openTask = null; set({ [t.path]: DEL() }, "Task deleted") } }, "Tap again to delete this task")
+      ? el("button", { class: "linkbtn danger", onclick: () => { delTask = null; openTask = null; deleteTask(p, t) } }, "Tap again to delete this task")
       : el("button", { class: "linkbtn danger", onclick: () => { delTask = key; render() } }, "Delete task")));
   return box;
 }
 
+// Deleting a task also takes it off the "waiting for" list of every task that needed it.
+function deleteTask(p, t) {
+  const freed = waitingOn(p, t);
+  write(() => upd(p.id, Object.assign({ [t.path]: DEL() }, ...freed.map(x => ({ [`${x.path}.waitFor.${t.id}`]: DEL() })))), "Task deleted");
+}
+
 function setTaskStatus(p, t, v, key) {
   if (v === "done") return toggleDone(p, t, true, key);
-  const data = { [t.path + ".done"]: false };
+  if (t.done) { reopenTask(p, t, v); return }
+  const data = {};
   if (v === "doing") { data[t.path + ".status"] = "doing"; data[t.path + ".startedBy"] = me; data[t.path + ".startedAt"] = Date.now() }
   else data[t.path + ".status"] = null;
   write(() => upd(p.id, data), v === "doing" ? "Marked as in progress" : null);
+}
+function reopenTask(p, t, status) {
+  if (openNote && openNote.endsWith(":" + t.id)) openNote = null;
+  write(() => upd(p.id, { [t.path + ".done"]: false, [t.path + ".doneBy"]: DEL(), [t.path + ".doneAt"]: DEL(), [t.path + ".status"]: status === "todo" ? null : "doing" }), "Back on the to-do list");
 }
 
 /* ----- planners & phases ----- */
@@ -1493,32 +1563,52 @@ function bars(skills, limit) {
 
 /* ----- task notes ----- */
 
-let openNote = null;   // "<where>:<taskId>" of the note box that's open
-function toggleDone(p, t, done, key) {
-  openNote = done ? "any:" + t.id : (openNote && openNote.endsWith(":" + t.id) ? null : openNote);
-  if (done && key) openTask = key;
-  const data = { [t.path + ".done"]: done };
-  if (done) { data[t.path + ".doneBy"] = me; data[t.path + ".doneAt"] = Date.now() }
-  write(() => upd(p.id, data), done ? "Nice! Add a note about what you did" : null);
+let openNote = null, delNote = null;   // "<where>:<taskId>" of the note box that's open; note id waiting for a second tap
+function toggleDone(p, t, done, key, force) {
+  if (!done) { doneAnyway = null; return reopenTask(p, t, t.status === "doing" ? "doing" : "todo") }
+  // Still waiting for someone else's task? Ask first, so nothing gets ticked by mistake.
+  if (!force && waitInfo(p, t).open.length) { doneAnyway = key; render(); return }
+  doneAnyway = null;
+  openNote = "any:" + t.id;
+  if (key) openTask = key;
+  const msg = doneMessage(p, t);
+  write(() => upd(p.id, { [t.path + ".done"]: true, [t.path + ".doneBy"]: me, [t.path + ".doneAt"]: Date.now() })).then(ok => { if (ok) toast(msg, 4500) });
+}
+// What finishing this task unlocks: someone's next task, or the end of a phase.
+function doneMessage(p, t) {
+  const all = tasksOf(p);
+  const freed = all.filter(x => !x.done && waitIds(x).includes(t.id) && waitInfo(p, x).open.every(d => d.id === t.id));
+  if (freed.length) { const x = freed[0], who = ownerName(x);
+    return `Done! ${who === "nobody yet" ? "The next task" : who === "you" ? "You" : cap(who)} can start “${x.text}” now` + (freed.length > 1 ? ` (and ${freed.length - 1} more)` : "") }
+  if (!all.some(x => x.phase === t.phase && !x.done && x.id !== t.id)) {
+    const phs = getPhases(p), i = phs.findIndex(x => x.id === t.phase);
+    if (i >= 0) return `${phs[i].name} is complete ✓ ` + (phs[i + 1] ? `Next up: ${phs[i + 1].name}` : "That was the last phase");
+  }
+  return "Nice! Add a note about what you did";
 }
 function notesBlock(p, t, where) {
   const key = where + ":" + t.id;
   const isOpen = openNote === key || openNote === "any:" + t.id;
   const notes = Object.entries(t.notes || {}).filter(([, n]) => n && n.text).map(([id, n]) => ({ id, ...n })).sort((a, b) => (a.at || 0) - (b.at || 0));
   const box = el("div", { class: "notes" });
-  if (t.done && t.doneBy) box.append(el("div", { class: "note-meta" }, `Done by ${name(t.doneBy)}${t.doneAt ? " \u00b7 " + ago(t.doneAt) : ""}`));
+  if (t.done && t.doneBy) box.append(el("div", { class: "note-meta" }, `Done by ${name(t.doneBy)}${t.doneAt ? " · " + ago(t.doneAt) : ""}`));
   for (const n of notes) box.append(el("div", { class: "note" }, av(n.by),
-    el("div", { class: "note-body" }, el("div", { class: "note-meta" }, `${name(n.by)} \u00b7 ${ago(n.at)}`), el("div", {}, n.text)),
-    n.by === me ? el("button", { class: "x", title: "Delete note", "aria-label": "Delete note", onclick: () => write(() => upd(p.id, { [`${t.path}.notes.${n.id}`]: DEL() })) }, "\u2715") : null));
+    el("div", { class: "note-body" }, el("div", { class: "note-meta" }, `${name(n.by)} · ${ago(n.at)}`), el("div", {}, linkify(n.text))),
+    n.by === me ? (delNote === n.id
+      ? el("button", { class: "linkbtn danger", style: "font-size:12px", onclick: () => { delNote = null; write(() => upd(p.id, { [`${t.path}.notes.${n.id}`]: DEL() }), "Note deleted") } }, "Delete?")
+      : el("button", { class: "x", title: "Delete note", "aria-label": "Delete note", onclick: () => { delNote = n.id; render() } }, "✕")) : null));
   if (isOpen) {
+    // When someone is waiting on this task, remind them what the next person needs.
+    const next = t.done ? waitingOn(p, t).filter(x => !x.done) : [];
+    const nextWho = [...new Set(next.flatMap(assignees))].filter(u => u !== me).map(u => name(u).split(" ")[0]);
     const ta = el("textarea", { id: `note-${where}-${t.id}`, class: "noteinput", maxlength: "1000", rows: "2",
-      placeholder: t.done ? "What did you do? A link, what's finished, what's left\u2026" : "Add a note for the team" });
+      placeholder: !t.done ? "Add a note for the team" : nextWho.length ? `${nextWho.join(" and ")} ${nextWho.length > 1 ? "are" : "is"} next. Leave what they need: a link, where the files are…` : "What did you do? A link, what's finished, what's left…" });
     const save = () => {
       const text = ta.value.trim(); if (!text) return;
       ta.value = ""; openNote = null;
       write(() => upd(p.id, { [`${t.path}.notes.${uid()}`]: { by: me, text, at: Date.now() } }), "Note added");
     };
-    ta.addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save() } });
+    ta.addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || (!e.shiftKey && matchMedia("(min-width:760px)").matches))) { e.preventDefault(); save() } });
     setTimeout(() => { if (document.activeElement !== ta && openNote) ta.focus() }, 0);
     box.append(el("div", { class: "noteedit" }, ta, el("div", { class: "row", style: "gap:6px" }, el("span", { class: "spacer" }),
       el("button", { class: "btn quiet", onclick: () => { openNote = null; render() } }, t.done ? "Skip" : "Cancel"),
@@ -1941,20 +2031,31 @@ function renderMine(box) {
   // A task you just ticked stays in "To do" until you save or skip its note.
   const noting = x => openNote && openNote.endsWith(":" + x.t.id);
   const todo = all.filter(x => !x.closed && (!x.t.done || noting(x))), done = all.filter(x => x.t.done);
-  const today = todayStr();
-  const overdue = todo.filter(x => !x.t.done && x.t.due && x.t.due < today).length;
+  const today = todayStr(), soon = plusDays(1);
 
   box.append(addPersonalTaskRow());
   if (!all.length) { box.append(el("div", { class: "empty" }, "No tasks yet. Add one for yourself above. When a planner gives you a task in a project, it shows up here too.")); return }
 
+  // Three simple groups: what to do now, what's next, and what's waiting on someone else.
+  const group = x => {
+    if (x.t.done) return "now";
+    if (!x.personal && isBlocked(x.p, x.t)) return "wait";
+    if (x.t.status === "doing" || (x.t.due && x.t.due <= soon)) return "now";
+    return "next";
+  };
+  const order = (a, b) => (a.t.done - b.t.done) || taskPrioRank(a.t) - taskPrioRank(b.t) || prioRank(a.p) - prioRank(b.p) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (isActive(a.p) ? -1 : isActive(b.p) ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0);
+  const groups = [["now", "Now", "In progress or due by tomorrow"], ["next", "Next", "Ready when you are"], ["wait", "Waiting on others", "You can start these once the task before is done"]]
+    .map(([id, label, hint]) => ({ id, label, hint, list: todo.filter(x => group(x) === id).sort(order) })).filter(g => g.list.length);
+
   const list = el("section", { class: "idea", style: "gap:0" });
   if (!todo.length) list.append(el("p", { style: "padding:6px 0" }, "All done. Nice work."));
-  // Most urgent task first (then project priority), then the soonest due date.
-  todo.sort((a, b) => taskPrioRank(a.t) - taskPrioRank(b.t) || prioRank(a.p) - prioRank(b.p) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (isActive(a.p) ? -1 : isActive(b.p) ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0));
-  todo.forEach(x => list.append(myTaskRow(x)));
+  for (const g of groups) {
+    if (groups.length > 1 || g.id === "wait") list.append(el("div", { class: "mgroup" + (g.id === "wait" ? " wait" : "") }, el("b", {}, g.label), el("span", { class: "pcount" }, g.list.length), el("span", { class: "mhint" }, g.hint)));
+    g.list.forEach(x => list.append(myTaskRow(x)));
+  }
   box.append(list);
   const held = all.filter(x => x.held && !x.t.done);
-  if (held.length) box.append(el("p", { class: "label", style: "margin:8px 2px 0" }, `\u23f8 ${held.length} of your ${held.length === 1 ? "task is" : "tasks are"} on hold because ${[...new Set(held.map(x => x.p.title))].join(", ")} ${new Set(held.map(x => x.p.id)).size === 1 ? "is" : "are"} paused.`));
+  if (held.length) box.append(el("p", { class: "label", style: "margin:8px 2px 0" }, `⏸ ${held.length} of your ${held.length === 1 ? "task is" : "tasks are"} on hold because ${[...new Set(held.map(x => x.p.title))].join(", ")} ${new Set(held.map(x => x.p.id)).size === 1 ? "is" : "are"} paused.`));
   if (done.length) {
     box.append(el("button", { class: "linkbtn", style: "margin:12px 4px", onclick: () => { mineShow = mineShow === "done" ? "todo" : "done"; render() } }, mineShow === "done" ? "Hide finished" : `Show finished (${done.length})`));
     if (mineShow === "done") {
@@ -1972,30 +2073,34 @@ function addPersonalTaskRow() {
   const add = () => {
     const text = inp.value.trim(); if (!text) return;
     const data = { text, done: false, due: due.value || null, priority: pri.value, order: Date.now() };
-    inp.value = ""; due.value = "";
+    inp.value = ""; due.value = ""; pri.value = "medium";
     write(() => setDoc(doc(db, "private", me, "tasks", uid()), data), "Task added");
   };
   inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
+  const quick = [["Today", 0], ["Tomorrow", 1]].map(([l, n]) => el("button", { type: "button", class: "qd", onmousedown: e => e.preventDefault(), onclick: () => { due.value = plusDays(n); inp.focus() } }, l));
   return el("div", { class: "padd" },
-    el("div", { class: "addtask", style: "margin:0" }, inp, el("button", { class: "btn primary", onclick: add }, "Add")),
-    el("div", { class: "padd-more row", style: "gap:8px;font-size:13px;color:var(--muted)" }, pri, el("label", { class: "row", style: "gap:6px" }, "Due", due), el("span", { class: "spacer" }), el("span", {}, "Only you see these")));
+    el("div", { class: "addtask", style: "margin:0;flex-wrap:nowrap" }, inp, el("button", { class: "btn primary", onclick: add }, "Add")),
+    el("div", { class: "padd-more row", style: "gap:8px;font-size:13px;color:var(--muted)" }, pri, ...quick, due, el("span", { class: "spacer" }), el("span", {}, "Only you see these")));
 }
 function myTaskRow(x) {
   if (x.personal) return personalTaskRow(x.t);
   return taskItem(x.p, x.t, "mine", { project: true, phase: x.phase, people: "multi" });
 }
 
+let delPTask = null;
 function personalTaskRow(t) {
-  const cid = "myp-" + t.id, today = todayStr();
-  const late = !t.done && t.due && t.due < today, soon = !t.done && t.due === today;
-  const ref = doc(db, "private", me, "tasks", t.id);
-  return el("div", { class: "task" + (t.done ? " done" : "") },
-    el("input", { type: "checkbox", id: cid, checked: !!t.done, onchange: e => write(() => setDoc(ref, { done: e.target.checked, doneAt: e.target.checked ? Date.now() : null }, { merge: true }), e.target.checked ? "Done" : null) }),
+  const cid = "myp-" + t.id;
+  const ref = () => doc(db, "private", me, "tasks", t.id);   // only when tapped: drawing must work before the database has loaded
+  return el("div", { class: "task" + (t.done ? " done" : " tp-" + (t.priority || "medium")) },
+    el("input", { type: "checkbox", id: cid, checked: !!t.done, onchange: e => { const on = e.target.checked; write(() => setDoc(ref(), { done: on, doneAt: on ? Date.now() : null }, { merge: true }), on ? "Done" : "Back on the to-do list") } }),
     el("label", { for: cid, class: "ttext" }, t.text),
-    el("button", { class: "x", title: "Delete task", "aria-label": "Delete task " + t.text, onclick: () => write(() => deleteDoc(ref), "Task deleted") }, "\u2715"),
+    delPTask === t.id
+      ? el("button", { class: "linkbtn danger", style: "font-size:12.5px", onclick: () => { delPTask = null; write(() => deleteDoc(ref()), "Task deleted") } }, "Delete?")
+      : el("button", { class: "x", title: "Delete task", "aria-label": "Delete task " + t.text, onclick: () => { delPTask = t.id; render(); setTimeout(() => { if (delPTask === t.id) { delPTask = null; render() } }, 4000) } }, "✕"),
     el("div", { class: "meta" },
       el("span", { class: "label" }, "Just for me"),
-      t.due ? el("span", { class: "due" + (late ? " late" : soon ? " soon" : "") }, late ? "Overdue \u00b7 " + fmtDate(t.due) : soon ? "Due today" : "Due " + fmtDate(t.due)) : null));
+      t.priority && t.priority !== "medium" && !t.done ? el("span", { class: "prio prio-" + t.priority }, PRIORITIES.find(x => x.id === t.priority).name) : null,
+      dueChip(t)));
 }
 
 /* ----- private notes (only the person who wrote them can read them) ----- */
@@ -2055,7 +2160,7 @@ function buildAlerts() {
     const w = waitInfo(p, t); if (!w.deps.length || w.open.length) continue;
     const last = w.deps.reduce((a, d) => (d.doneAt || 0) > (a.doneAt || 0) ? d : a, w.deps[0]);
     if (last.doneBy === me) continue;
-    add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, last.doneBy || null, `You can start "${t.text}": ${last.doneBy ? name(last.doneBy).split(" ")[0] : "someone"} finished "${last.text}"`, "project-" + p.id);
+    add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, last.doneBy || null, `You can start "${t.text}": ${last.doneBy ? name(last.doneBy).split(" ")[0] : "someone"} finished "${last.text}"`, taskLink(p, t));
   }
   for (const p of ideas) {
     if (p.status === "voting" && p.author !== me) add("idea:" + p.id, p.createdAt, p.author, `${name(p.author)} pitched a new idea: ${p.title}`, "ideas");
@@ -2064,12 +2169,19 @@ function buildAlerts() {
     if (pl && typeof pl === "object" && pl.by !== me) add("planner:" + p.id, pl.at, pl.by, `${name(pl.by)} made you a planner of ${p.title}`, "plan-" + p.id);
     if (p.status !== "approved") continue;
     for (const t of tasksOf(p)) {
-      if (!isAssignee(t, me)) continue;
-      if (t.assignedBy && t.assignedBy !== me) add("task:" + t.id + ":" + t.assignedAt, t.assignedAt, t.assignedBy, `${name(t.assignedBy)} gave you a task: ${t.text} (${p.title})`, "me");
+      const go = taskLink(p, t);
+      if (!isAssignee(t, me)) {
+        // tasks you gave someone else: hear when they finish it or leave a note
+        if (t.assignedBy !== me) continue;
+        if (t.done && t.doneBy && t.doneBy !== me) add("fin:" + t.id + ":" + (t.doneAt || 0), t.doneAt, t.doneBy, `${name(t.doneBy)} finished "${t.text}" (${p.title})`, go);
+        for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by !== me) add("note:" + nid, n.at, n.by, `${name(n.by)} left a note on a task you gave out: ${t.text}`, go);
+        continue;
+      }
+      if (t.assignedBy && t.assignedBy !== me) add("task:" + t.id + ":" + t.assignedAt, t.assignedAt, t.assignedBy, `${name(t.assignedBy)} gave you a task: ${t.text} (${p.title})`, go);
       const h = (t.helpers || {})[me];
-      if (h && h.by !== me) add("help:" + t.id, h.at, h.by, `${name(h.by)} added you to a task: ${t.text} (${p.title})`, "me");
-      for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by !== me) add("note:" + nid, n.at, n.by, `${name(n.by)} left a note on your task: ${t.text}`, "plan-" + p.id);
-      if (!t.done && t.due && t.due <= tomorrow) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text} (${p.title})` : t.due === today ? `Due today: ${t.text} (${p.title})` : `Due tomorrow: ${t.text} (${p.title})`, "me");
+      if (h && h.by !== me) add("help:" + t.id, h.at, h.by, `${name(h.by)} added you to a task: ${t.text} (${p.title})`, go);
+      for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by !== me) add("note:" + nid, n.at, n.by, `${name(n.by)} left a note on your task: ${t.text}`, go);
+      if (!t.done && t.due && t.due <= tomorrow && !isPaused(p)) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text} (${p.title})` : t.due === today ? `Due today: ${t.text} (${p.title})` : `Due tomorrow: ${t.text} (${p.title})`, go);
     }
   }
   for (const t of personal) if (!t.done && t.due && t.due <= tomorrow) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text}` : t.due === today ? `Due today: ${t.text}` : `Due tomorrow: ${t.text}`, "me");
