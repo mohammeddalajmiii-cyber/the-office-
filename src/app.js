@@ -2699,7 +2699,9 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && moreOpen) 
    It only ever suggests: people review and tap to add or save anything. */
 
 const AI_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
-const AI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview"];   // free-tier models, tried in order
+// Current Gemini models on the free Gemini Developer API, best first; older ones are backups. Google retires models
+// over time, so the site also remembers which one worked last and tries that first.
+const AI_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash"];
 let asstOpen = false, asstBusy = false, asstMsgs = [], aiP = null, checkinDraft = null;
 
 function loadAI() {
@@ -2712,20 +2714,31 @@ function loadAI() {
 }
 async function askAI(prompt, system) {
   const { aiM, ai } = await loadAI();
+  let good = ""; try { good = localStorage.getItem("aiModel") || "" } catch { }
+  const order = [...new Set([good, ...AI_MODELS].filter(m => AI_MODELS.includes(m)))];
   let last;
-  for (const m of AI_MODELS) {
-    try {
-      const model = aiM.getGenerativeModel(ai, { model: m, systemInstruction: system });
-      const r = await model.generateContent(prompt);
-      return r.response.text();
-    } catch (e) {
-      // a model that's missing or out of free requests: try the next one
-      last = e; const k = aiErrorKind(e);
-      if (k !== "model" && k !== "busy") throw e;
+  // two rounds: if every model is busy, wait a moment and try once more before giving up
+  for (let round = 0; round < 2; round++) {
+    if (round) { asstStatus = "Google's AI is busy. Trying again\u2026"; render(); await new Promise(r => setTimeout(r, 2500)) }
+    for (const m of order) {
+      try {
+        const model = aiM.getGenerativeModel(ai, { model: m, systemInstruction: system });
+        const r = await model.generateContent(prompt);
+        try { localStorage.setItem("aiModel", m) } catch { }
+        asstStatus = "";
+        return r.response.text();
+      } catch (e) {
+        // a model that's missing, out of free requests, or overloaded right now: try the next one
+        last = e; const k = aiErrorKind(e);
+        if (k !== "model" && k !== "busy" && k !== "overloaded") { asstStatus = ""; throw e }
+        if (k === "model" && good === m) try { localStorage.removeItem("aiModel") } catch { }
+      }
     }
   }
+  asstStatus = "";
   throw last;
 }
+let asstStatus = "";
 function aiErrorRaw(e) {
   const parts = [e && e.code, e && e.customErrorData && e.customErrorData.status, e && e.customErrorData && e.customErrorData.statusText, e && e.message].filter(Boolean);
   return parts.join(" \u00b7 ").slice(0, 300) || String(e);
@@ -2735,6 +2748,7 @@ function aiErrorKind(e) {
   if (/api-not-enabled|SERVICE_DISABLED|has not been used|API_KEY_SERVICE_BLOCKED|is disabled|not been enabled|enable the/i.test(t) || status === 403) return "off";
   if (status === 404 || /\b404\b|not found for API version|is not found|not supported for generateContent|no longer available/i.test(t)) return "model";
   if (status === 429 || /RESOURCE_EXHAUSTED|\b429\b|quota exceeded|exceeded your current quota|Too Many Requests/i.test(t)) return "busy";
+  if (status === 500 || status === 502 || status === 503 || status === 504 || /high demand|overloaded|UNAVAILABLE|\b50[0234]\b|try again later|INTERNAL|deadline exceeded/i.test(t)) return "overloaded";
   if (/Failed to fetch|NetworkError|Load failed|ERR_INTERNET|network error/i.test(t)) return "net";
   if (/Failed to fetch dynamically imported module|Importing a module script failed/i.test(t)) return "load";
   return "other";
@@ -2743,6 +2757,7 @@ function aiErrorText(e) {
   const k = aiErrorKind(e);
   if (k === "off") return isAdmin ? "The assistant isn't switched on yet. In Firebase, open AI Logic and turn on the Gemini Developer API." : `The assistant isn't switched on yet. Ask ${ADMIN_NAME} to turn it on.`;
   if (k === "busy") return "The free Gemini limit was reached for now. Try again in a minute (daily limits reset overnight).";
+  if (k === "overloaded") return "Google's AI is very busy right now. I tried every model twice. Tap Try again in a minute: it usually works by then.";
   if (k === "model") return "The Gemini models this site uses aren't available on your Firebase project.";
   if (k === "net") return "Couldn't reach the assistant. Check your connection and try again.";
   if (k === "load") return "The assistant couldn't load. Reload the page and try again.";
@@ -2854,7 +2869,9 @@ async function runAssistant(userText, opts = {}) {
     }
   } catch (e) {
     try { console.error("Assistant error", e) } catch { }
-    asstMsgs.push({ role: "ai", error: true, text: e instanceof SyntaxError ? "I couldn't draft the check-in this time. Try again." : aiErrorText(e), detail: e instanceof SyntaxError ? "" : aiErrorRaw(e) });
+    const kind = e instanceof SyntaxError ? "" : aiErrorKind(e);
+    asstMsgs.push({ role: "ai", error: true, text: e instanceof SyntaxError ? "I couldn't draft the check-in this time. Try again." : aiErrorText(e), detail: e instanceof SyntaxError || kind === "overloaded" || kind === "busy" ? "" : aiErrorRaw(e),
+      retry: kind === "overloaded" || kind === "busy" || kind === "net" || e instanceof SyntaxError ? { text: userText, opts } : null });
   }
   asstBusy = false; render();
   const log = document.getElementById("asst-log"); if (log) log.scrollTop = log.scrollHeight;
@@ -2981,7 +2998,8 @@ function renderAssistant() {
   if (!asstMsgs.length) log.append(el("p", { class: "asst-hint small" }, "Tell it what you did (\u201cI finished the assessment, the file is in Drive\u201d) and it ticks the task and leaves a note for the team. Ask it to explain anything. It always shows what it will do first: nothing changes until you tap Do it. Powered by Google Gemini, so don't put passwords here."));
   if (!asstTplOpen) for (const m of asstMsgs) {
     const b = el("div", { class: "asst-msg " + (m.role === "me" ? "mine" : "ai") + (m.error ? " err" : "") }, m.text,
-      m.detail ? el("div", { class: "asst-detail" }, "Details: " + m.detail) : null);
+      m.detail ? el("div", { class: "asst-detail" }, "Details: " + m.detail) : null,
+      m.error && m.retry && m === asstMsgs[asstMsgs.length - 1] && !asstBusy ? el("div", { style: "margin-top:8px" }, el("button", { class: "btn small primary", onclick: () => { const r = m.retry; asstMsgs.splice(asstMsgs.indexOf(m) - 1, 2); runAssistant(r.text, r.opts) } }, "Try again")) : null);
     log.append(b);
     if (m.actions && m.actions.length) log.append(actionsCard(m));
     if (m.ideas && m.ideas.length) log.append(el("div", { class: "idea-sugs" }, m.ideas.map(x => el("div", { class: "idea-sug" },
@@ -2992,7 +3010,7 @@ function renderAssistant() {
       el("button", { class: "btn primary small", onclick: () => { asstOpen = false; openImport(p, m.text) } }, "Preview and add to plan"),
       el("button", { class: "btn quiet small", onclick: async () => { try { await navigator.clipboard.writeText(m.text); toast("Copied") } catch { toast("Couldn't copy") } } }, "Copy")));
   }
-  if (asstBusy) log.append(el("div", { class: "asst-msg ai typing" }, "Thinking…"));
+  if (asstBusy) log.append(el("div", { class: "asst-msg ai typing" }, asstStatus || "Thinking…"));
   panel.append(log);
   if (!asstBusy && asstMsgs.length) panel.append(el("div", { class: "asst-chips" },
     asstTplOpen ? null : el("button", { class: "pchip", onclick: () => { const i = document.getElementById("asst-input"); if (i) { i.value = "I finished "; i.focus() } } }, "I finished something"),
