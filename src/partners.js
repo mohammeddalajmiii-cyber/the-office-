@@ -586,16 +586,13 @@ function renderPortalNow() {
 
 /* ---------- files for a partner group: PDFs, price lists, scripts (stored in pieces, tagged with the group) ---------- */
 function linkOrFile(k) {
-  if (!k.file) return el("a", { href: k.url, target: "_blank", rel: "noopener" }, k.label || k.url);
+  if (!k.file) return el("a", { href: k.url, target: "_blank", rel: "noopener", onclick: previewClick(k.url, k.label || k.url) }, k.label || k.url);
   return el("button", { class: "filelink", onclick: () => openGroupFile(k.file) }, el("span", { class: "att-ext" }, extOf(k.file.name)),
     el("span", {}, k.label || k.file.name), el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, fmtSize(k.file.size)));
 }
 async function openGroupFile(f) {
-  // PDFs and pictures open in a new tab; anything else downloads
-  if (/^(application\/pdf|image\/)/.test(f.type)) {
-    const w = window.open("", "_blank");
-    try { const url = await loadFile(f); if (w) w.location.href = url; else downloadFile(f) } catch { if (w) w.close(); toast("That file couldn't be loaded. It may have been deleted.") }
-  } else downloadFile(f);
+  // PDFs, pictures, videos and text open inside the site; anything else downloads
+  viewable(f) ? openViewer(f) : downloadFile(f);
 }
 function pickGroupFile(gid, labelInput) {
   const inp = el("input", { type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.html,.htm,image/*", hidden: true });

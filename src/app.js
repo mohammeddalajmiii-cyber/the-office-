@@ -858,7 +858,7 @@ function cleanUrl(raw) {
 const hostOf = url => { try { return new URL(url).hostname.replace(/^www\./, "") } catch { return url } };
 function linkChip(p, l, editable) {
   const mine = editable && (l.by === me || canPlan(p));
-  const a = el("a", { class: "linkchip", href: l.url, target: "_blank", rel: "noopener noreferrer", title: l.url },
+  const a = el("a", { class: "linkchip", href: l.url, target: "_blank", rel: "noopener noreferrer", title: l.url, onclick: previewClick(l.url, l.label || hostOf(l.url)) },
     el("img", { src: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostOf(l.url))}&sz=32`, alt: "", width: "16", height: "16", loading: "lazy", onerror: e => { e.target.remove() } }),
     el("span", {}, l.label || hostOf(l.url)));
   if (!mine) return a;
@@ -1754,6 +1754,41 @@ function attachmentEl(f) {
     el("span", { class: "att-ext" }, extOf(f.name)),
     el("div", { class: "att-info" }, el("div", { class: "att-name" }, f.name), el("div", { class: "att-size" }, fmtSize(f.size))),
     el("button", { type: "button", class: "act", onclick: e => { e.stopPropagation(); viewable(f) ? openViewer(f) : downloadFile(f) } }, playable(f) ? "Play" : viewable(f) ? "Open" : "Download"));
+}
+// Links that can be read inside the site: PDF links, and Google Drive, Docs, Sheets and Slides files
+function linkPreview(url) {
+  let u; try { u = new URL(url) } catch { return null }
+  const h = u.hostname.replace(/^www\./, ""); let m;
+  if (h === "drive.google.com") {
+    const id = (u.pathname.match(/\/file\/d\/([\w-]+)/) || [])[1] || u.searchParams.get("id");
+    if (id) return { frame: `https://drive.google.com/file/d/${id}/preview` };
+  }
+  if (h === "docs.google.com" && (m = u.pathname.match(/^\/(document|spreadsheets|presentation)\/d\/([\w-]+)/)))
+    return { frame: `https://docs.google.com/${m[1]}/d/${m[2]}/preview` };
+  if (/\.pdf$/i.test(u.pathname)) {
+    if (h === "dropbox.com") { u.searchParams.delete("dl"); u.searchParams.set("raw", "1") }
+    return { pdf: u.href };
+  }
+  return null;
+}
+// onclick for a link: opens it in the viewer when it can be read here (ctrl/cmd-click still opens a new tab)
+function previewClick(url, label) {
+  const pv = linkPreview(url); if (!pv) return null;
+  return e => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return; e.preventDefault(); e.stopPropagation(); openLinkViewer(url, label, pv) };
+}
+async function openLinkViewer(url, label, pv) {
+  const lb = $("#lightbox"); lb.hidden = false;
+  const body = el("div", { class: "lb-body" }, el("p", {}, "Loading…"));
+  const close = () => { lb.hidden = true; lb.replaceChildren(); document.removeEventListener("keydown", esc) };
+  const esc = e => { if (e.key === "Escape") close() };
+  document.addEventListener("keydown", esc);
+  lb.replaceChildren(el("div", { class: "lb-bar" }, el("span", { class: "lb-name" }, label || hostOf(url)), el("span", { class: "spacer" }),
+    el("a", { class: "btn", href: url, target: "_blank", rel: "noopener noreferrer" }, "Open original"), el("button", { class: "btn", onclick: close }, "Close")), body);
+  lb.onclick = e => { if (e.target === lb) close() };
+  const frame = src => { body.classList.add("lb-fill"); body.replaceChildren(el("iframe", { class: "lb-frame", src, title: label || "Preview", allow: "autoplay; fullscreen", referrerpolicy: "no-referrer" })) };
+  if (pv.frame) return frame(pv.frame);
+  try { await showPdf(pv.pdf, body, lb) }
+  catch { if (!lb.hidden) frame("https://docs.google.com/viewer?embedded=true&url=" + encodeURIComponent(pv.pdf)) }   // the site doesn't let us read it directly
 }
 async function openViewer(f) {
   const lb = $("#lightbox"); lb.hidden = false;
