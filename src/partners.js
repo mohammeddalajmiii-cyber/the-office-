@@ -138,6 +138,13 @@ let pMe = null, pGroup = null, pGroupGone = false, pGroupUnsubs = [], pGid = nul
 let pgTab = "updates", plFilter = {}, pQuery = {}, pSel = {}, pDelGroup = null, pDelMember = null, pImport = {}, pImportText = {}, pImportOpen = {};
 
 const leadDigits = s => String(s || "").replace(/\D/g, "");
+// The same number can be written many ways: "+46 72 877 32 83", "0046728773283" and "072-877 32 83" all end in the same 9 digits.
+const leadKey = s => { const d = leadDigits(s); return d.length > 9 ? d.slice(-9) : d.replace(/^0+/, "") };
+// Where a number already is on the board, or "" if it's new. Team members see every group, so this checks all of them.
+function leadWhere(phone, gid) {
+  const k = leadKey(phone), l = k && pLeads.find(x => leadKey(x.phone) === k);
+  return !l ? "" : l.gid === gid ? "already in this group" : "already in the " + groupName(l.gid) + " group";
+}
 const waLink = s => "https://wa.me/" + leadDigits(s);
 const stPill = s => el("span", { class: "st " + (s || "new") }, LEAD_NAME[s] || "New");
 const groupName = gid => (pGroups.find(g => g.id === gid) || (pGroup && pGroup.id === gid ? pGroup : null) || {}).name || "a group";
@@ -204,7 +211,7 @@ function looseLead(line) {
 // A header row is used when there is one.
 function parseLeads(text, gid) {
   const lines = String(text || "").split(/\r?\n/).filter(l => l.trim());
-  if (!lines.length) return { rows: [], noPhone: 0, dupes: 0 };
+  if (!lines.length) return { rows: [], noPhone: 0, dupes: 0, repeats: [] };
   const sep = lines[0].includes("\t") ? "\t" : (lines[0].includes(";") && !lines[0].includes(",")) ? ";" : ",";
   const cells = lines.map(l => sep === "," ? csvSplit(l) : l.split(sep).map(x => x.trim()));
   const isPhone = v => leadDigits(v).length >= 7 && /^[\d\s+()\-./]+$/.test(String(v).trim());
@@ -218,8 +225,8 @@ function parseLeads(text, gid) {
     ix.name = find(/name|contact|client|owner|person|اسم|عميل/, [ix.phone, ix.biz]);
     ix.city = find(/city|area|location|country|address|مدينة|منطقة|عنوان/, [ix.phone, ix.biz, ix.name]);
   }
-  const existing = new Set(pLeads.filter(l => l.gid === gid).map(l => leadDigits(l.phone)));
-  const rows = []; let noPhone = 0, dupes = 0;
+  const seen = new Set(); // numbers met earlier in this same paste
+  const rows = [], repeats = []; let noPhone = 0, dupes = 0;
   for (const r of hasHeader ? cells.slice(1) : cells) {
     let phone, name = "", biz = "", city = "", extra = [];
     if (hasHeader) {
@@ -238,11 +245,12 @@ function parseLeads(text, gid) {
     }
     const d = leadDigits(phone);
     if (d.length < 6) { noPhone++; continue }
-    if (existing.has(d)) { dupes++; continue }
-    existing.add(d);
+    const k = leadKey(phone), where = seen.has(k) ? "twice in what you pasted" : leadWhere(phone, gid);
+    if (where) { dupes++; repeats.push({ phone: phone.trim(), title: biz || name || "", why: where }); continue }
+    seen.add(k);
     rows.push({ phone: phone.trim(), name: name.slice(0, 80), biz: biz.slice(0, 80), city: city.slice(0, 60), extra: extra.join(" · ").slice(0, 400) });
   }
-  return { rows, noPhone, dupes };
+  return { rows, noPhone, dupes, repeats };
 }
 async function addLeads(gid, rows) {
   await fbReady;
@@ -432,9 +440,12 @@ function renderPartnerGroupTeam(box, gid) {
     const showPrev = () => {
       const prev = pImport[gid]; const n = prev ? prev.rows.length : 0;
       preview.replaceChildren(...[
-        prev && ta.value.trim() ? el("p", { class: "label", style: "margin:0" }, `Found ${n} new ${n === 1 ? "number" : "numbers"}` + (prev.dupes ? ` · ${prev.dupes} already here` : "") + (prev.noPhone ? ` · ${prev.noPhone} rows without a phone` : "")) : null,
+        prev && ta.value.trim() ? el("p", { class: "label", style: "margin:0" }, `Found ${n} new ${n === 1 ? "number" : "numbers"}` + (prev.dupes ? ` · ${prev.dupes} repeated` : "") + (prev.noPhone ? ` · ${prev.noPhone} rows without a phone` : "")) : null,
         n ? el("div", { class: "pimport" }, prev.rows.slice(0, 5).map(r => el("div", {}, el("b", {}, r.name || r.biz || "No name"), " ", r.phone, r.biz && r.name ? " · " + r.biz : "", r.city ? " · " + r.city : "")),
-          n > 5 ? el("div", { class: "label" }, `…and ${n - 5} more`) : null) : null].filter(Boolean));
+          n > 5 ? el("div", { class: "label" }, `…and ${n - 5} more`) : null) : null,
+        prev && ta.value.trim() && prev.repeats && prev.repeats.length ? el("div", { class: "pimport prepeat" },
+          el("b", {}, prev.repeats.length === 1 ? "This number is repeated, so it won't be added:" : `These ${prev.repeats.length} numbers are repeated, so they won't be added:`),
+          prev.repeats.map(r => el("div", {}, r.phone, r.title ? " · " + r.title : "", el("span", { class: "label" }, " — " + r.why)))) : null].filter(Boolean));
       addBtn.disabled = !n; addBtn.textContent = n ? `Add ${n} ${n === 1 ? "number" : "numbers"}` : "Add numbers";
     };
     const check = () => { pImportText[gid] = ta.value; pImport[gid] = parseLeads(ta.value, gid); showPrev() };
@@ -451,7 +462,8 @@ function renderPartnerGroupTeam(box, gid) {
     const addOne = async () => {
       const phone = f.phone.value.trim(), d = leadDigits(phone);
       if (d.length < 6) { toast("Type a phone number first"); f.phone.focus(); return }
-      if (pLeads.some(l => l.gid === gid && leadDigits(l.phone) === d)) { toast("That number is already in this group"); return }
+      const where = leadWhere(phone, gid);
+      if (where) { toast(`${phone} is repeated. It's ${where}, so it wasn't added.`, 5000); return }
       const row = { phone, name: f.name.value.trim(), biz: f.biz.value.trim(), city: f.city.value.trim(), extra: "" };
       Object.values(f).forEach(i => i.value = "");
       await write(() => addLeads(gid, [row]), "Number added");
@@ -464,6 +476,14 @@ function renderPartnerGroupTeam(box, gid) {
       el("summary", { style: "cursor:pointer;font-weight:600" }, "Add many numbers from a sheet"),
       el("p", { class: "label", style: "margin:0" }, "Copy the rows from Google Sheets or Excel (with the header row) and paste. Columns called name, phone, business and city are picked up. A typed list works too, one per line, like \"1. Shop name – City – +46 72 877 32 83\". Numbers already in this group are skipped."),
       ta, preview, el("div", { class: "row" }, el("span", { class: "spacer" }), addBtn)));
+    // Copies of one number already sitting in this group (written two ways, or added before repeats were checked).
+    // Remove keeps the copy with the most calls on it, or the oldest one.
+    const byKey = {}; leads.forEach(l => { const k = leadKey(l.phone); if (k) (byKey[k] = byKey[k] || []).push(l) });
+    const extras = Object.values(byKey).filter(a => a.length > 1)
+      .flatMap(a => [...a].sort((x, y) => historyOf(y).length - historyOf(x).length || (x.createdAt || 0) - (y.createdAt || 0)).slice(1));
+    if (extras.length) box.append(el("div", { class: "wonbar", style: "margin-top:12px" },
+      el("span", {}, `${extras.length === 1 ? "This number is" : extras.length + " numbers are"} repeated in this group: ${[...new Set(extras.map(l => l.phone))].join(", ")}`),
+      el("button", { class: "btn small primary", onclick: () => write(async () => { for (const l of extras) await deleteDoc(doc(db, "pleads", l.id)) }, `Removed ${extras.length} repeated ${extras.length === 1 ? "number" : "numbers"}`) }, "Remove repeats")));
     const waiting = leads.filter(l => l.status === "won" && !(l.projectId && ideas.find(i => i.id === l.projectId)));
     if (waiting.length) box.append(el("div", { class: "wonbar", style: "margin-top:12px" }, el("span", {}, `\u{1F389} ${waiting.length} new client${waiting.length > 1 ? "s" : ""} from partners need${waiting.length > 1 ? "" : "s"} a project`),
       el("button", { class: "btn small primary", onclick: () => { plFilter["t-" + gid] = "won"; render() } }, "Show " + (waiting.length > 1 ? "them" : "it"))));
