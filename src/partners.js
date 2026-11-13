@@ -190,7 +190,18 @@ function csvSplit(line) {
   }
   out.push(cur.trim()); return out;
 }
-// Works with rows copied from Google Sheets or Excel (tabs), or CSV. A header row is used when there is one.
+// Finds the phone number inside a line of plain text, and splits what's left on dashes, bars or tabs.
+// The list number at the start ("1.", "12)") is dropped.
+function looseLead(line) {
+  const found = (String(line || "").match(/\+?\(?\d[\d\s().\-\/]{5,}\d/g) || []).filter(x => leadDigits(x).length >= 7);
+  if (!found.length) return null;
+  const phone = found.sort((a, b) => leadDigits(b).length - leadDigits(a).length)[0].trim();
+  const parts = String(line).replace(phone, " ").replace(/^\s*\d{1,3}\s*[.)]\s*/, "")
+    .split(/\s*[–—|·\t]\s*|\s+-\s+/).map(x => x.trim().replace(/^[\s,:;-]+|[\s,:;-]+$/g, "")).filter(Boolean);
+  return { phone, parts };
+}
+// Works with rows copied from Google Sheets or Excel (tabs), or CSV, or a plain typed list with one number per line.
+// A header row is used when there is one.
 function parseLeads(text, gid) {
   const lines = String(text || "").split(/\r?\n/).filter(l => l.trim());
   if (!lines.length) return { rows: [], noPhone: 0, dupes: 0 };
@@ -198,7 +209,7 @@ function parseLeads(text, gid) {
   const cells = lines.map(l => sep === "," ? csvSplit(l) : l.split(sep).map(x => x.trim()));
   const isPhone = v => leadDigits(v).length >= 7 && /^[\d\s+()\-./]+$/.test(String(v).trim());
   const H = cells[0].map(x => x.toLowerCase());
-  const hasHeader = !cells[0].some(isPhone) && H.some(h => /phone|number|mobile|tel|whats|رقم|هاتف|موبايل|جوال/.test(h));
+  const hasHeader = !cells[0].some(isPhone) && !looseLead(lines[0]) && H.some(h => /phone|number|mobile|tel|whats|رقم|هاتف|موبايل|جوال/.test(h));
   const ix = { phone: -1, biz: -1, name: -1, city: -1 };
   if (hasHeader) {
     const find = (re, not = []) => H.findIndex((h, n) => re.test(h) && !not.includes(n));
@@ -215,8 +226,15 @@ function parseLeads(text, gid) {
       phone = r[ix.phone] || ""; name = ix.name >= 0 ? r[ix.name] || "" : ""; biz = ix.biz >= 0 ? r[ix.biz] || "" : ""; city = ix.city >= 0 ? r[ix.city] || "" : "";
       r.forEach((v, n) => { if (v && ![ix.phone, ix.name, ix.biz, ix.city].includes(n)) extra.push((cells[0][n] ? cells[0][n] + ": " : "") + v) });
     } else {
-      const pi = r.findIndex(isPhone); phone = pi >= 0 ? r[pi] : "";
-      const rest = r.filter((v, n) => n !== pi && v); name = rest[0] || ""; biz = rest[1] || ""; extra = rest.slice(2);
+      const pi = r.findIndex(isPhone);
+      if (pi >= 0) {
+        phone = r[pi];
+        const rest = r.filter((v, n) => n !== pi && v); name = rest[0] || ""; biz = rest[1] || ""; extra = rest.slice(2);
+      } else {
+        // a line typed as a list, like "1. Shop name – City – +46 72 877 32 83": the shop comes first, then the city
+        const lo = looseLead(r.join(" – "));
+        phone = lo ? lo.phone : ""; biz = lo ? lo.parts[0] || "" : ""; city = lo ? lo.parts[1] || "" : ""; extra = lo ? lo.parts.slice(2) : [];
+      }
     }
     const d = leadDigits(phone);
     if (d.length < 6) { noPhone++; continue }
@@ -444,7 +462,7 @@ function renderPartnerGroupTeam(box, gid) {
       el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: addOne }, "Add number"))));
     box.append(el("details", { class: "idea", style: "margin-top:12px", open: !leads.length || pImportOpen[gid] || (pImportText[gid] || "").trim() ? true : false, ontoggle: e => { pImportOpen[gid] = e.target.open } },
       el("summary", { style: "cursor:pointer;font-weight:600" }, "Add many numbers from a sheet"),
-      el("p", { class: "label", style: "margin:0" }, "Copy the rows from Google Sheets or Excel (with the header row) and paste. Columns called name, phone, business and city are picked up. Anything else is kept with the number. Numbers already in this group are skipped."),
+      el("p", { class: "label", style: "margin:0" }, "Copy the rows from Google Sheets or Excel (with the header row) and paste. Columns called name, phone, business and city are picked up. A typed list works too, one per line, like \"1. Shop name – City – +46 72 877 32 83\". Numbers already in this group are skipped."),
       ta, preview, el("div", { class: "row" }, el("span", { class: "spacer" }), addBtn)));
     const waiting = leads.filter(l => l.status === "won" && !(l.projectId && ideas.find(i => i.id === l.projectId)));
     if (waiting.length) box.append(el("div", { class: "wonbar", style: "margin-top:12px" }, el("span", {}, `\u{1F389} ${waiting.length} new client${waiting.length > 1 ? "s" : ""} from partners need${waiting.length > 1 ? "" : "s"} a project`),
