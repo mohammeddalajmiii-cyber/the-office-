@@ -200,7 +200,7 @@ function csvSplit(line) {
 // Finds the phone number inside a line of plain text, and splits what's left on dashes, bars or tabs.
 // The list number at the start ("1.", "12)") is dropped.
 function looseLead(line) {
-  const found = (String(line || "").match(/\+?\(?\d[\d\s().\-\/]{5,}\d/g) || []).filter(x => leadDigits(x).length >= 7);
+  const found = (String(line || "").match(/\+?\(?\d[\d\s().\-\/]{5,}\d/g) || []).filter(x => leadDigits(x).length >= 7 && !/^\s*(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\s*$/.test(x));
   if (!found.length) return null;
   const phone = found.sort((a, b) => leadDigits(b).length - leadDigits(a).length)[0].trim();
   const parts = String(line).replace(phone, " ").replace(/^\s*\d{1,3}\s*[.)]\s*/, "")
@@ -209,9 +209,9 @@ function looseLead(line) {
 }
 // Works with rows copied from Google Sheets or Excel (tabs), or CSV, or a plain typed list with one number per line.
 // A header row is used when there is one.
-function parseLeads(text, gid) {
+function parseLeads(text, gid, checkBoard = true) {
   const lines = String(text || "").split(/\r?\n/).filter(l => l.trim());
-  if (!lines.length) return { rows: [], noPhone: 0, dupes: 0, repeats: [] };
+  if (!lines.length) return { rows: [], noPhone: 0, dupes: 0, repeats: [], skipped: [] };
   const sep = lines[0].includes("\t") ? "\t" : (lines[0].includes(";") && !lines[0].includes(",")) ? ";" : ",";
   const cells = lines.map(l => sep === "," ? csvSplit(l) : l.split(sep).map(x => x.trim()));
   const isPhone = v => leadDigits(v).length >= 7 && /^[\d\s+()\-./]+$/.test(String(v).trim());
@@ -226,7 +226,7 @@ function parseLeads(text, gid) {
     ix.city = find(/city|area|location|country|address|مدينة|منطقة|عنوان/, [ix.phone, ix.biz, ix.name]);
   }
   const seen = new Set(); // numbers met earlier in this same paste
-  const rows = [], repeats = []; let noPhone = 0, dupes = 0;
+  const rows = [], repeats = [], skipped = []; let noPhone = 0, dupes = 0;
   for (const r of hasHeader ? cells.slice(1) : cells) {
     let phone, name = "", biz = "", city = "", extra = [];
     if (hasHeader) {
@@ -244,13 +244,13 @@ function parseLeads(text, gid) {
       }
     }
     const d = leadDigits(phone);
-    if (d.length < 6) { noPhone++; continue }
-    const k = leadKey(phone), where = seen.has(k) ? "twice in what you pasted" : leadWhere(phone, gid);
+    if (d.length < 6) { noPhone++; skipped.push(r.filter(Boolean).join(" ").replace(/^\s*\d{1,3}\s*[.)]\s*/, "").slice(0, 60)); continue }
+    const k = leadKey(phone), where = seen.has(k) ? "twice in what you pasted" : checkBoard ? leadWhere(phone, gid) : "";
     if (where) { dupes++; repeats.push({ phone: phone.trim(), title: biz || name || "", why: where }); continue }
     seen.add(k);
     rows.push({ phone: phone.trim(), name: name.slice(0, 80), biz: biz.slice(0, 80), city: city.slice(0, 60), extra: extra.join(" · ").slice(0, 400) });
   }
-  return { rows, noPhone, dupes, repeats };
+  return { rows, noPhone, dupes, repeats, skipped };
 }
 async function addLeads(gid, rows) {
   await fbReady;
@@ -440,7 +440,8 @@ function renderPartnerGroupTeam(box, gid) {
     const showPrev = () => {
       const prev = pImport[gid]; const n = prev ? prev.rows.length : 0;
       preview.replaceChildren(...[
-        prev && ta.value.trim() ? el("p", { class: "label", style: "margin:0" }, `Found ${n} new ${n === 1 ? "number" : "numbers"}` + (prev.dupes ? ` · ${prev.dupes} repeated` : "") + (prev.noPhone ? ` · ${prev.noPhone} rows without a phone` : "")) : null,
+        prev && ta.value.trim() ? el("p", { class: "label", style: "margin:0" }, `Found ${n} new ${n === 1 ? "number" : "numbers"}` + (prev.dupes ? ` · ${prev.dupes} repeated` : "") + (prev.noPhone ? ` · ${prev.noPhone} ${prev.noPhone === 1 ? "line" : "lines"} without a number skipped` : "")) : null,
+        prev && ta.value.trim() && prev.skipped && prev.skipped.length ? el("p", { class: "label", style: "margin:0" }, "Skipped, no number: " + prev.skipped.slice(0, 6).join(", ") + (prev.skipped.length > 6 ? ` and ${prev.skipped.length - 6} more` : "")) : null,
         n ? el("div", { class: "pimport" }, prev.rows.slice(0, 5).map(r => el("div", {}, el("b", {}, r.name || r.biz || "No name"), " ", r.phone, r.biz && r.name ? " · " + r.biz : "", r.city ? " · " + r.city : "")),
           n > 5 ? el("div", { class: "label" }, `…and ${n - 5} more`) : null) : null,
         prev && ta.value.trim() && prev.repeats && prev.repeats.length ? el("div", { class: "pimport prepeat" },
@@ -760,4 +761,82 @@ function startProjectFromLead(l) {
       votes: { [me]: "keep" }, tasks: {}, backers: {}, money, fromLead: { id: l.id, gid: l.gid }, moneyLog: { [uid()]: { by: me, at: now, what: `Deal started from ${groupName(l.gid)}: partner ${pm ? pm.name || pm.id : "unknown"} at 10% (change it in Edit deal)`, kind: "deal" } } });
     await updateDoc(doc(db, "pleads", l.id), { projectId: id, projectAt: now });
   }, "Project made. Set the price and the shares in its Money tab").then(ok => { if (ok) { projTab = "money"; location.hash = "project-" + id } });
+}
+
+
+/* ---------- numbers pasted in a chat: the team can put them in partner groups ---------- */
+// Only the team gets this. Partners and clients never see the list of groups.
+const chatLeadCache = new Map();
+function chatLeadCount(text) {
+  if (partnerMode || clientMode || !text || !/\d{3}/.test(text)) return 0;
+  if (!chatLeadCache.has(text)) chatLeadCache.set(text, parseLeads(text, "", false).rows.length);
+  return chatLeadCache.get(text);
+}
+let lastPickGid = "";
+// Guess the group from the country code: a +46 number goes to a group called Sweden, if there is one.
+const DIAL = { 1: "usa|united states|america|canada", 20: "egypt|مصر", 27: "south africa", 30: "greece", 31: "netherlands|holland", 32: "belgium", 33: "france", 34: "spain", 39: "italy", 41: "switzerland", 43: "austria", 44: "uk|united kingdom|england|britain|london", 45: "denmark", 46: "sweden|sverige", 47: "norway", 48: "poland", 49: "germany", 61: "australia", 90: "turkey|türkiye", 212: "morocco", 216: "tunisia", 351: "portugal", 353: "ireland", 358: "finland", 961: "lebanon", 962: "jordan", 965: "kuwait", 966: "saudi|ksa", 968: "oman", 971: "uae|emirates|dubai|abu dhabi", 973: "bahrain", 974: "qatar|doha" };
+function groupForPhone(phone, groups) {
+  const t = String(phone || "").trim(); if (!/^(\+|00)/.test(t)) return "";
+  const d = leadDigits(t).replace(/^00/, "");
+  for (const len of [3, 2, 1]) {
+    const names = DIAL[d.slice(0, len)]; if (!names) continue;
+    const re = new RegExp(names, "i"), g = groups.find(x => re.test(x.name || ""));
+    return g ? g.id : "";
+  }
+  return "";
+}
+function openLeadPicker(text) {
+  document.querySelectorAll(".leadpick").forEach(x => x.remove());
+  const found = parseLeads(text, "", false);
+  const groups = [...pGroups].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const close = () => { wrap.remove(); document.removeEventListener("keydown", esc) };
+  const esc = e => { if (e.key === "Escape") close() };
+  const card = el("div", { class: "leadpick-card", role: "dialog", "aria-modal": "true", "aria-label": "Put numbers in a group" });
+  const wrap = el("div", { class: "leadpick", onclick: e => { if (e.target === wrap) close() } }, card);
+  document.addEventListener("keydown", esc);
+  const head = el("div", { class: "row" }, el("h2", { style: "margin:0" }, "Put numbers in a group"), el("span", { class: "spacer" }), el("button", { class: "x", "aria-label": "Close", onclick: close }, "✕"));
+  if (!groups.length) {
+    card.append(head, el("p", { class: "lede" }, "There are no partner groups yet. Make a group for the country first, then come back to this message."),
+      el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: () => { close(); location.hash = "partners" } }, "Go to Partners")));
+    document.body.append(wrap); return;
+  }
+  const gid0 = groups.some(g => g.id === lastPickGid) ? lastPickGid : groups[0].id;
+  const pick = found.rows.map(r => ({ r, gid: groupForPhone(r.phone, groups) || gid0 }));
+  const opts = sel => [...groups.map(g => el("option", { value: g.id, selected: g.id === sel }, g.name)), el("option", { value: "", selected: !sel }, "Don't add")];
+  const list = el("div", { class: "lp-list" });
+  const addBtn = el("button", { class: "btn primary" });
+  const draw = () => {
+    let n = 0;
+    list.replaceChildren(...pick.map(it => {
+      const where = it.gid ? leadWhere(it.r.phone, it.gid) : "";
+      if (it.gid && !where) n++;
+      const s = el("select", { class: "mini", "aria-label": "Group for " + it.r.phone, onchange: e => { it.gid = e.target.value; draw() } }, opts(it.gid));
+      return el("div", { class: "lp-row" + (where || !it.gid ? " off" : "") },
+        el("div", { style: "min-width:0" }, el("b", {}, it.r.biz || it.r.name || it.r.phone), " ", el("span", { class: "label" }, [it.r.biz || it.r.name ? it.r.phone : "", it.r.city].filter(Boolean).join(" · ")),
+          where ? el("div", { class: "lp-why" }, `Repeated, ${where}. It won't be added.`) : null), s);
+    }));
+    addBtn.disabled = !n; addBtn.textContent = n ? `Add ${n} ${n === 1 ? "number" : "numbers"}` : "Nothing new to add";
+  };
+  const most = pick.reduce((c, it) => (c[it.gid] = (c[it.gid] || 0) + 1, c), {});
+  const top = Object.keys(most).sort((a, b) => most[b] - most[a])[0] || gid0;
+  const all = el("select", { class: "mini", "aria-label": "Put all in", onchange: e => { lastPickGid = e.target.value; pick.forEach(it => it.gid = e.target.value); draw() } }, groups.map(g => el("option", { value: g.id, selected: g.id === top }, g.name)));
+  addBtn.onclick = async () => {
+    const by = {};
+    for (const it of pick) if (it.gid && !leadWhere(it.r.phone, it.gid)) (by[it.gid] = by[it.gid] || []).push(it.r);
+    const gids = Object.keys(by), total = gids.reduce((t, g) => t + by[g].length, 0); if (!total) return;
+    addBtn.disabled = true;
+    const ok = await write(async () => { for (const g of gids) await addLeads(g, by[g]) },
+      `Added ${total} ${total === 1 ? "number" : "numbers"} to ` + gids.map(groupName).join(" and "));
+    if (ok === false) { addBtn.disabled = false; return }
+    close();
+    if (gids.length === 1) { pgTab = "leads"; location.hash = "pg-" + gids[0] }
+  };
+  card.append(head,
+    el("p", { class: "label", style: "margin:0" }, `Found ${found.rows.length} ${found.rows.length === 1 ? "number" : "numbers"} in this message.` +
+      (found.dupes ? ` ${found.dupes} ${found.dupes === 1 ? "was" : "were"} written twice and only counted once.` : "") +
+      (found.skipped.length ? ` Skipped, no number: ${found.skipped.slice(0, 4).join(", ")}${found.skipped.length > 4 ? ` and ${found.skipped.length - 4} more` : ""}.` : "")),
+    el("div", { class: "row", style: "gap:8px" }, el("span", { class: "label" }, "Put all in"), all, el("span", { class: "label" }, "or pick a group for each number below.")),
+    list, el("div", { class: "row" }, el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("span", { class: "spacer" }), addBtn));
+  draw();
+  document.body.append(wrap);
 }

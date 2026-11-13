@@ -2130,7 +2130,11 @@ function reactRow(m, toggle) {
   if (!r.length) return null;
   return el("div", { class: "reacts" }, r.map(x => el("button", { type: "button", class: "react" + (x.mine ? " mine" : ""), title: x.who.map(u => u === me ? "You" : chatName(u)).join(", "), onclick: e => { e.stopPropagation(); toggle && toggle(x.e, !x.mine) } }, x.e, x.n > 1 ? el("b", {}, x.n) : null)));
 }
-const msgBody = t => el("span", { class: "msg-text" + (isEmojiOnly(t) ? " big" : "") }, linkify(t));
+const msgBody = t => {
+  const body = el("span", { class: "msg-text" + (isEmojiOnly(t) ? " big" : "") }, linkify(t));
+  const n = chatLeadCount(t); // phone numbers in the message: the team can put them in a partner group
+  return n ? [body, el("button", { type: "button", class: "msg-leads", onclick: e => { e.stopPropagation(); openLeadPicker(t) } }, `\u260E Put ${n} ${n === 1 ? "number" : "numbers"} in a group`)] : body;
+};
 
 // Who someone is in a chat: team member or partner (with their group)
 const pmByUid = u => (typeof pMembers !== "undefined" ? pMembers : []).find(m => m.uid === u);
@@ -2169,7 +2173,7 @@ function chatView(items, { onDelete, empty } = {}) {
 // The box at the bottom of a chat: emoji, text, send. Enter sends on a computer; Shift+Enter makes a new line.
 const composerOpen = {};
 function chatComposer(id, placeholder, onSend) {
-  const ta = el("textarea", { id, class: "noteinput", rows: "1", maxlength: "1000", placeholder, "aria-label": "Message" });
+  const ta = el("textarea", { id, class: "noteinput", rows: "1", maxlength: "6000", placeholder, "aria-label": "Message" });
   ta.addEventListener("input", () => autoGrow(ta));
   const send = () => { const t = ta.value.trim(); if (!t) return; ta.value = ""; autoGrow(ta); composerOpen[id] = false; onSend(t) };
   ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && matchMedia("(min-width:760px)").matches) { e.preventDefault(); send() } });
