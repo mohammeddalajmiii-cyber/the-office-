@@ -213,7 +213,9 @@ async function onAuth(u) {
   unsubs.push(onSnapshot(doc(db, "meta", "push"), s => { pushConfig(s.exists() ? s.data() : null); render() }, () => {}));
   teamLoaded = false; teamDoc = null;
   unsubs.push(...partnerTeamSubs(), ...clientTeamSubs());
-  if (isAdmin) unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
+  unsubs.push(onSnapshot(doc(db, "meta", "upgrades"), s => { upgradesDoc = s.exists() ? s.data() : null; render() }, () => {}));
+  // everyone on the team reads the team list (the rules allow it), so creators show up for all; only the admin changes it
+  unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
   subscribePrivate();
   show();
 }
@@ -502,6 +504,7 @@ function deleteProject(p) {
   write(async () => {
     // remove its files' stored pieces where allowed, then the project itself
     for (const f of filesOf(p)) if (f.by === me || isAdmin) for (let n = 0; n < f.parts; n++) deleteDoc(doc(db, "fileparts", `${f.id}_${n}`)).catch(() => {});
+    for (const t of tasksOf(p)) taskFilesOf(t).forEach(dropFileParts);
     if (isAdmin && (activeMap[p.id] || focusId === p.id)) await updateDoc(doc(db, "meta", "focus"), { ["active." + p.id]: DEL(), ...(focusId === p.id ? { projectId: null } : {}) }).catch(() => {});
     await deleteDoc(doc(db, "ideas", p.id));
   }, `\u201c${title}\u201d was deleted`);
@@ -1317,7 +1320,7 @@ function taskItem(p, t, where, opts = {}) {
   const key = where + ":" + t.id, open = openTask === key;
   const can = canPlan(p) || isAssignee(t, me);
   const cl = checkList(t), cld = cl.filter(c => c.done).length;
-  const ncount = Object.values(t.notes || {}).filter(n => n && n.text).length;
+  const ncount = Object.values(t.notes || {}).filter(n => n && n.text).length, fcount = taskFilesOf(t).length;
   const people = assignees(t), w = t.done ? null : waitInfo(p, t), blocked = !!(w && w.open.length);
   const showPeople = opts.people === "always" || (opts.people !== "never" && (opts.people !== "multi" || people.length > 1));
   const toggle = () => { openTask = open ? null : key; delTask = null; waitPick = null; render() };
@@ -1339,6 +1342,7 @@ function taskItem(p, t, where, opts = {}) {
       dueChip(t),
       cl.length ? el("span", { class: "label" + (stepsDone ? " ok" : "") }, `${cld}/${cl.length} steps`) : null,
       ncount ? el("span", { class: "label" }, `${ncount} note${ncount > 1 ? "s" : ""}`) : null,
+      fcount ? el("span", { class: "label", title: taskFilesOf(t).map(f => f.name).join("\n") }, `\u{1F4CE} ${fcount} file${fcount > 1 ? "s" : ""}`) : null,
       stepsDone && can ? el("button", { class: "btn small primary", onclick: () => toggleDone(p, t, true, key) }, "All steps done · Mark done") : null),
     doneAnyway === key ? el("div", { class: "waitwarn" },
       el("span", {}, `Not done yet: ${w.open.map(d => `“${d.text}” (${ownerName(d)})`).join(", ")}. Mark this one done anyway?`),
@@ -1440,6 +1444,12 @@ function taskDetail(p, t, key) {
   } else if (!cl.length) ck.append(el("span", { class: "label" }, "No steps"));
   box.append(field("Steps", ck));
 
+  box.append(field("Files", taskFilesBlock(p, t, key)));
+  // drop files anywhere on the open task to attach them
+  box.addEventListener("dragover", e => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); box.classList.add("dropping") } });
+  box.addEventListener("dragleave", e => { if (!box.contains(e.relatedTarget)) box.classList.remove("dropping") });
+  box.addEventListener("drop", e => { e.preventDefault(); box.classList.remove("dropping"); addTaskFiles(p, t, key, [...e.dataTransfer.files]) });
+
   box.append(field("Notes", notesBlock(p, t, key)));
 
   if (planner) box.append(el("div", { class: "row", style: "justify-content:flex-end" },
@@ -1449,8 +1459,67 @@ function taskDetail(p, t, key) {
   return box;
 }
 
-// Deleting a task also takes it off the "waiting for" list of every task that needed it.
+/* ----- files on a task (PDFs, docs, photos…), stored in pieces like project and chat files ----- */
+const taskFilesOf = t => Object.values((t && t.files) || {}).filter(f => f && f.id && f.parts).sort((a, b) => (a.at || 0) - (b.at || 0));
+let taskUpKey = null, taskUpMsg = "", delTaskFile = null;
+function pickFiles(onPick) {
+  const inp = el("input", { type: "file", multiple: true, hidden: true });
+  inp.addEventListener("change", () => { onPick([...inp.files]); inp.remove() });
+  document.body.append(inp); inp.click();
+}
+// Uploads each file and hands it to save(file), which writes it onto the task. Progress shows in the element with id "tup-<key>".
+async function uploadFilesTo(key, list, save) {
+  list = list.filter(Boolean);
+  if (!list.length) return;
+  if (taskUpKey) { toast("Wait for the other upload to finish"); return }
+  await fbReady;
+  taskUpKey = key;
+  let added = 0;
+  const msg = s => { taskUpMsg = s; const n = document.getElementById("tup-" + key); if (n) n.textContent = s; else render() };
+  for (const f of list) {
+    const isImg = /^image\/(jpeg|png|webp|heic|heif|bmp)$/.test(f.type);
+    if (f.size > (isImg ? MAX_IMAGE_IN : MAX_FILE)) { toast(`${f.name} is too big. The limit is 5 MB per file.`); continue }
+    try {
+      msg(`Uploading ${f.name}…`);
+      const file = await uploadFile(await prepareFile(f), pct => msg(`Uploading ${f.name}… ${pct}%`));
+      await save({ ...file, by: me, at: Date.now() });
+      added++;
+    } catch (e) {
+      toast(e.code === "permission-denied" ? `Uploading isn't allowed yet. Ask ${ADMIN_NAME} to update the database rules.` : e.message === "too big" ? `${f.name} is too big, even after shrinking it.` : `${f.name} didn't upload. Check your connection and try again.`);
+    }
+  }
+  taskUpKey = null; taskUpMsg = ""; render();
+  if (added) toast(added > 1 ? `${added} files added to the task` : "File added to the task");
+}
+const dropFileParts = f => { if (f.by === me || isAdmin) for (let n = 0; n < f.parts; n++) deleteDoc(doc(db, "fileparts", `${f.id}_${n}`)).catch(() => {}) };
+const addTaskFiles = (p, t, key, list) => uploadFilesTo(key, list, file => upd(p.id, { [`${t.path}.files.${file.id}`]: file }));
+// A row of file chips plus "Attach": tap a file to open it (PDFs and photos open inside the site).
+function fileRow(files, key, canRemove, onRemove, onAdd) {
+  const row = el("div", { class: "links" });
+  for (const f of files) {
+    const chip = el("button", { class: "linkchip filechip", title: `${f.name} · ${fmtSize(f.size)}${f.by ? " · added by " + (f.by === me ? "you" : name(f.by)) : ""}`, onclick: () => viewable(f) ? openViewer(f) : downloadFile(f) },
+      f.thumb ? el("img", { src: f.thumb, alt: "", class: "fthumb" }) : el("span", { class: "fext" }, extOf(f.name)), el("span", {}, f.name));
+    const dk = key + ":" + f.id;
+    row.append(!canRemove(f) ? chip : el("span", { class: "linkwrap" }, chip,
+      delTaskFile === dk
+        ? el("button", { class: "linkdel sure", "aria-label": "Confirm remove " + f.name, onclick: () => { delTaskFile = null; write(() => onRemove(f), "File removed") } }, "Remove?")
+        : el("button", { class: "linkdel", "aria-label": "Remove " + f.name, onclick: () => { delTaskFile = dk; render() } }, "✕")));
+  }
+  if (onAdd) row.append(taskUpKey === key
+    ? el("span", { class: "label", id: "tup-" + key, style: "text-transform:none;letter-spacing:0" }, taskUpMsg)
+    : el("button", { class: "linkchip addlink", title: "PDFs, documents, photos, anything up to 5 MB", onclick: () => pickFiles(onAdd) }, files.length ? "+ File" : "+ Add a file or PDF"));
+  return row;
+}
+function taskFilesBlock(p, t, key) {
+  const files = taskFilesOf(t), planner = canPlan(p);
+  return el("div", { style: "display:grid;gap:6px" },
+    fileRow(files, key, f => f.by === me || planner, f => upd(p.id, { [`${t.path}.files.${f.id}`]: DEL() }).then(() => dropFileParts(f)), list => addTaskFiles(p, t, key, list)),
+    files.length ? null : el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "PDFs, briefs, designs, photos. Up to 5 MB each. You can also drop files on this task."));
+}
+
+// Deleting a task also takes it off the "waiting for" list of every task that needed it, and removes its files.
 function deleteTask(p, t) {
+  taskFilesOf(t).forEach(dropFileParts);
   const freed = waitingOn(p, t);
   write(() => upd(p.id, Object.assign({ [t.path]: DEL() }, ...freed.map(x => ({ [`${x.path}.waitFor.${t.id}`]: DEL() })))), "Task deleted");
 }
@@ -2283,18 +2352,23 @@ function myTaskRow(x) {
 
 let delPTask = null;
 function personalTaskRow(t) {
-  const cid = "myp-" + t.id;
+  const cid = "myp-" + t.id, pkey = "me:" + t.id;
   const ref = () => doc(db, "private", me, "tasks", t.id);   // only when tapped: drawing must work before the database has loaded
+  const addP = list => uploadFilesTo(pkey, list, file => setDoc(ref(), { files: { [file.id]: file } }, { merge: true }));
   return el("div", { class: "task" + (t.done ? " done" : " tp-" + (t.priority || "medium")) },
     el("input", { type: "checkbox", id: cid, checked: !!t.done, onchange: e => { const on = e.target.checked; write(() => setDoc(ref(), { done: on, doneAt: on ? Date.now() : null }, { merge: true }), on ? "Done" : "Back on the to-do list") } }),
     el("label", { for: cid, class: "ttext" }, t.text),
     delPTask === t.id
-      ? el("button", { class: "linkbtn danger", style: "font-size:12.5px", onclick: () => { delPTask = null; write(() => deleteDoc(ref()), "Task deleted") } }, "Delete?")
+      ? el("button", { class: "linkbtn danger", style: "font-size:12.5px", onclick: () => { delPTask = null; taskFilesOf(t).forEach(dropFileParts); write(() => deleteDoc(ref()), "Task deleted") } }, "Delete?")
       : el("button", { class: "x", title: "Delete task", "aria-label": "Delete task " + t.text, onclick: () => { delPTask = t.id; render(); setTimeout(() => { if (delPTask === t.id) { delPTask = null; render() } }, 4000) } }, "✕"),
     el("div", { class: "meta" },
       el("span", { class: "label" }, "Just for me"),
       t.priority && t.priority !== "medium" && !t.done ? el("span", { class: "prio prio-" + t.priority }, PRIORITIES.find(x => x.id === t.priority).name) : null,
-      dueChip(t)));
+      dueChip(t),
+      taskFilesOf(t).length ? null : taskUpKey === pkey ? el("span", { class: "label", id: "tup-" + pkey, style: "text-transform:none;letter-spacing:0" }, taskUpMsg)
+        : el("button", { class: "linkbtn", style: "font-size:12.5px", title: "Attach a PDF or file", "aria-label": "Attach a file to " + t.text, onclick: () => pickFiles(addP) }, "\u{1F4CE} Attach")),
+    taskFilesOf(t).length ? el("div", { class: "meta" }, fileRow(taskFilesOf(t), pkey, () => true,
+      f => setDoc(ref(), { files: { [f.id]: DEL() } }, { merge: true }).then(() => dropFileParts(f)), addP)) : null);
 }
 
 /* ----- private notes (only the person who wrote them can read them) ----- */
@@ -2557,15 +2631,105 @@ function ensureTeamDoc() {
   teamDoc = { emails: STARTING_TEAM };
   setDoc(doc(db, "meta", "team"), { emails: STARTING_TEAM, updatedAt: Date.now(), updatedBy: me }).catch(() => {});
 }
+/* ----- creators: team members who can also change Pitch Room itself (its code on GitHub) ----- */
+const REPO = "mohammeddalajmiii-cyber/the-office-", REPO_URL = "https://github.com/" + REPO;
+const creatorsMap = () => (teamDoc && teamDoc.creators) || {};
+const isCreatorEmail = e => !!e && (ADMINS.includes(e) || !!creatorsMap()[e]);
+const emailOfUid = u => ((people[u] || {}).email || "").toLowerCase();
+const uidOfEmail = e => (Object.entries(people).find(([, x]) => (x.email || "").toLowerCase() === e) || [])[0] || null;
+const amCreator = () => isAdmin || isCreatorEmail(((myProfile && myProfile.email) || "").toLowerCase());
+function saveCreator(e, on, github, ok) {
+  const gh = (github || "").trim().replace(/^@/, "").replace(/^https?:\/\/github\.com\//i, "").replace(/\/.*$/, "").slice(0, 39);
+  const val = { github: gh, by: me, at: Date.now() };
+  const map = { ...creatorsMap() }; if (on) map[e] = val; else delete map[e];
+  teamDoc = { ...(teamDoc || {}), creators: map }; render();
+  // keys inside a merged object are taken as plain names, so the dots in an email are fine here
+  return write(() => setDoc(doc(db, "meta", "team"), { creators: { [e]: on ? val : DEL() }, updatedAt: Date.now(), updatedBy: me }, { merge: true }), ok);
+}
 function saveTeam(emails, ok) {
   const list = [...new Set(emails.map(e => e.trim().toLowerCase()).filter(Boolean))];
   teamDoc = { ...(teamDoc || {}), emails: list }; render();
   write(() => setDoc(doc(db, "meta", "team"), { emails: list, updatedAt: Date.now(), updatedBy: me }, { merge: true }), ok);
 }
 
+/* ----- Build Pitch Room: who can change the site, what the team wants changed, and how creators ship it ----- */
+let upgradesDoc = null, upKind = "feature", delUpgrade = null;
+const UP_KINDS = { feature: "New feature", fix: "Something's broken", design: "Look and feel" };
+const UP_STATUS = { asked: "Asked", doing: "Being built", done: "Done" };
+const upgradeList = () => Object.entries((upgradesDoc && upgradesDoc.items) || {}).filter(([, x]) => x && x.text).map(([id, x]) => ({ id, ...x }))
+  .sort((a, b) => (a.status === "done") - (b.status === "done") || (b.status === "doing") - (a.status === "doing") || (b.at || 0) - (a.at || 0));
+const saveUpgrade = (id, data, ok) => write(() => setDoc(doc(db, "meta", "upgrades"), { items: { [id]: data } }, { merge: true }), ok);
+function buildPage() {
+  const wrap = el("div", { style: "display:grid;gap:14px" });
+  const card = (...kids) => el("section", { class: "idea", style: "gap:10px" }, ...kids.filter(Boolean));
+  const creator = amCreator();
+
+  // who the creators are
+  const list = [...new Set([...ADMINS, ...Object.keys(creatorsMap())])];
+  wrap.append(card(
+    el("div", { class: "row" }, el("h3", {}, "Creators"), el("span", { class: "spacer" }), creator ? el("span", { class: "done-badge" }, "\u{1F6E0}️ You're one") : null),
+    el("p", { style: "margin:0;font-size:14px" }, "Creators can change Pitch Room itself: add features, fix problems and change the design. Everyone on the team can ask for an upgrade below."),
+    el("div", { style: "display:grid;gap:2px" }, list.map(e => {
+      const u = uidOfEmail(e), gh = (creatorsMap()[e] || {}).github;
+      return el("div", { class: "teamrow" }, u ? av(u) : null, el("span", { class: "teammail" }, u ? name(u) : e),
+        el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, ADMINS.includes(e) ? "Admin" : gh ? "GitHub @" + gh : u ? "" : "Hasn't signed in yet"));
+    })),
+    isAdmin ? el("div", { class: "row" }, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "Make someone a creator in People and access."), el("span", { class: "spacer" }),
+      el("button", { class: "btn small", onclick: () => { accessRole = "creator"; location.hash = "settings-access" } }, "Add a creator")) : null));
+
+  // what the team wants changed
+  const items = upgradeList();
+  const ta = el("textarea", { id: "up-text", class: "noteinput", rows: "2", maxlength: "600", placeholder: "What should Pitch Room do better? e.g. Let us add files to meeting notes" });
+  const add = () => {
+    const text = ta.value.trim(); if (!text) { ta.focus(); return }
+    ta.value = "";
+    saveUpgrade(uid(), { text, kind: upKind, status: "asked", by: me, at: Date.now() }, "Sent to the creators");
+  };
+  const box = card(el("div", { class: "row" }, el("h3", {}, "Upgrade requests"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${items.filter(x => x.status !== "done").length} open`)),
+    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Kind of request" }, Object.entries(UP_KINDS).map(([k, l]) => el("button", { "aria-pressed": String(upKind === k), onclick: () => { upKind = k; render() } }, l))),
+    ta, el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: add }, "Ask for it")));
+  if (!items.length) box.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "No requests yet."));
+  for (const x of items) {
+    const st = x.status || "asked";
+    const acts = [];
+    if (creator && st === "asked") acts.push(el("button", { class: "btn small", onclick: () => saveUpgrade(x.id, { status: "doing", doer: me, startedAt: Date.now() }, "It's yours. Tell the team when it's live") }, "I'll build it"));
+    if (creator && st === "doing") acts.push(el("button", { class: "btn small primary", onclick: () => saveUpgrade(x.id, { status: "done", doneBy: me, doneAt: Date.now() }, "Marked done") }, "It's live"));
+    if (creator && st !== "asked") acts.push(el("button", { class: "linkbtn", onclick: () => saveUpgrade(x.id, { status: "asked", doer: DEL(), doneBy: DEL(), doneAt: DEL() }, "Back to asked") }, st === "done" ? "Reopen" : "Let it go"));
+    if (x.by === me || isAdmin) acts.push(delUpgrade === x.id
+      ? el("button", { class: "linkdel sure", onclick: () => { delUpgrade = null; write(() => setDoc(doc(db, "meta", "upgrades"), { items: { [x.id]: DEL() } }, { merge: true }), "Request removed") } }, "Remove?")
+      : el("button", { class: "linkdel", "aria-label": "Remove request", onclick: () => { delUpgrade = x.id; render() } }, "✕"));
+    box.append(el("div", { class: "teamrow", style: "align-items:flex-start;flex-wrap:wrap" + (st === "done" ? ";opacity:.65" : "") },
+      el("div", { style: "flex:1 1 240px;min-width:0;display:grid;gap:3px" },
+        el("span", { style: "font-size:14.5px;white-space:pre-wrap;overflow-wrap:anywhere" + (st === "done" ? ";text-decoration:line-through" : "") }, x.text),
+        el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, [UP_KINDS[x.kind] || "Request", (x.by === me ? "you" : name(x.by)) + " · " + ago(x.at),
+          st === "doing" ? "being built by " + (x.doer === me ? "you" : name(x.doer)) : st === "done" ? "live" + (x.doneBy ? ", built by " + (x.doneBy === me ? "you" : name(x.doneBy)) : "") : null].filter(Boolean).join(" · "))),
+      el("span", { class: st === "done" ? "done-badge" : "chip" }, UP_STATUS[st] || st),
+      acts.length ? el("span", { class: "row", style: "gap:6px" }, ...acts) : null));
+  }
+  wrap.append(box);
+
+  // how a creator changes the site
+  if (creator) {
+    const step = (n, title, ...body) => el("div", { class: "teamrow", style: "align-items:flex-start" }, el("span", { class: "chip", style: "flex:none" }, n), el("div", { style: "display:grid;gap:4px;min-width:0" }, el("b", {}, title), ...body));
+    const p = t => el("span", { style: "font-size:14px" }, t);
+    wrap.append(card(el("h3", {}, "How to change Pitch Room"),
+      step("1", "Get the code", p(`The site's code is on GitHub. ${ADMIN_NAME} invites your GitHub account, then you accept the invite once.`),
+        el("span", { class: "row", style: "gap:6px" }, el("a", { class: "btn small", href: REPO_URL + "/invitations", target: "_blank", rel: "noopener noreferrer" }, "Accept the invite"), el("a", { class: "btn small", href: REPO_URL, target: "_blank", rel: "noopener noreferrer" }, "Open the code"))),
+      step("2", "Make the change with Claude", p(`Open Claude Code, pick the ${REPO.split("/")[1]} repository and describe the change in plain words, like "add a dark blue theme". Ask it to run build.py and push to main when you're happy.`),
+        el("span", { class: "row", style: "gap:6px" }, el("a", { class: "btn small", href: "https://claude.ai/code", target: "_blank", rel: "noopener noreferrer" }, "Open Claude Code"), el("button", { class: "btn small quiet", onclick: () => copyText(REPO, "Repository name copied") }, "Copy repo name"))),
+      step("3", "Where things live", p("src/app.js is most of the site, src/page.html is the layout and styles, and partners.js, clients.js, push.js and money-engine.js are the partner, client, alert and money parts."),
+        p("Don't edit index.html by hand: build.py rebuilds it from the src folder.")),
+      step("4", "Ship it", p("Once the change is on main, the live site updates within a couple of minutes and everyone gets it on their next reload. Then tap “It's live” on the request above.")),
+      step("5", "Leave these to " + ADMIN_NAME, p(`Database rules (who can see and change what), the team list, money and the fund. If a change needs new database rules, update firestore.rules and tell ${ADMIN_NAME}: only he can publish them.`))));
+  } else {
+    wrap.append(el("p", { class: "label", style: "text-transform:none;letter-spacing:0;margin:0" }, `Want to help build Pitch Room yourself? Ask ${ADMIN_NAME} to make you a creator.`));
+  }
+  return wrap;
+}
+
 /* ----- settings: a home page of grouped rows (like a phone's Settings app), each opening its own page ----- */
 let setQuery = "";
-const SET_PAGES = { profile: "Profile", appearance: "Appearance", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
+const SET_PAGES = { build: "Build Pitch Room", profile: "Profile", appearance: "Appearance", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
 function setIcon(sym, color) { return el("span", { class: "seticon", style: `background:${color}` }, sym) }
 function renderSettings() {
   const box = $("#settings"); box.replaceChildren();
@@ -2593,6 +2757,7 @@ function renderSettings() {
       row("✦", "#0D5E63", "What's new", (prof.newsOff ? "Off" : "On"), goto("news"), "updates news post")),
     group("Team",
       isAdmin ? row("\u{1F465}", "#2F80ED", "People and access", `${teamN} team · ${partners} partners`, goto("access"), "add member partner client email invite remove") : null,
+      row("\u{1F6E0}️", "#0D5E63", "Build Pitch Room", (() => { const n = upgradeList().filter(x => x.status !== "done").length; return (amCreator() && !isAdmin ? "You're a creator · " : "") + (n ? `${n} request${n > 1 ? "s" : ""}` : "Ask for an upgrade") })(), goto("build"), "creator creators upgrade feature fix bug request code github developer edit site"),
       row("\u{1F3F7}️", "#F2994A", "Nicknames", String(Object.keys(nicks).length || "None"), goto("nicknames"), "names"),
       row("⭐", "#E0B12E", "Skills", topSkills(me).map(s => SKILLS[s].name).join(", ") || "Take the quiz", () => { location.hash = "skills" }, "quiz strengths"),
       row("\u{1F4B0}", "#27AE60", "Money rules", agreed ? `Version ${ver} · agreed ✓` : `Version ${ver} · please agree`, () => { moneyTab = "rules"; location.hash = "money" }, "fund finder shares agreement")),
@@ -2641,6 +2806,7 @@ function settingsPage(box, sub, prof) {
   }
   if (sub === "alerts") box.append(pushSettings());
   if (sub === "news") box.append(newsSettings());
+  if (sub === "build") box.append(buildPage());
   if (sub === "access") box.append(isAdmin ? accessSection() : el("div", { class: "empty" }, `Only ${ADMIN_NAME} manages who can sign in.`));
   if (sub === "nicknames") {
     const crew = Object.entries(people).filter(([id, x]) => x && x.name && isTeamUid(id)).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""));
@@ -3052,6 +3218,10 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-build-1", date: "2026-11-15", icon: "🛠️", title: "Build Pitch Room with us",
+    text: "Some of us are now creators: they can change Pitch Room itself. Anyone can ask for a new feature or a fix in Settings › Build Pitch Room, and see who's building it.", go: "settings-build" },
+  { id: "f-taskfiles-1", date: "2026-11-15", icon: "📎", title: "Files on tasks",
+    text: "Open any task and attach PDFs, briefs, designs or photos (up to 5 MB each), or just drop them on the task. Your own tasks in Me can have files too.", go: "mine" },
   { id: "f-look-2", date: "2026-11-10", icon: "🗺️", title: "A new look",
     text: "Plain grey with deep teal buttons, and a faint contour map in the background that lights up as a slow prism scan passes. You can switch the animation off in Me › Settings › Look.", go: "settings" },
   { id: "f-partners-1", date: "2026-11-09", icon: "🌍", title: "Partners",
@@ -3875,7 +4045,7 @@ const RULES_VERSION = "2026-11-12";
 function downloadBackup() {
   const strip = o => { const x = { ...o }; delete x.pushSubs; return x };
   const data = { app: "Pitch Room", at: new Date().toISOString(), by: myProfile && myProfile.email,
-    ideas, people: Object.fromEntries(Object.entries(people).map(([k, v]) => [k, strip(v)])), chat, meta: { money: moneyRules, fund: fundDoc, news: newsDoc, nicks, team: teamDoc, focus: { projectId: focusId, active: activeMap } },
+    ideas, people: Object.fromEntries(Object.entries(people).map(([k, v]) => [k, strip(v)])), chat, meta: { money: moneyRules, fund: fundDoc, news: newsDoc, nicks, team: teamDoc, upgrades: upgradesDoc, focus: { projectId: focusId, active: activeMap } },
     partners: { groups: pGroups, members: pMembers, numbers: pLeads, posts: pPosts }, clients: { projects: cProjects, posts: cPosts, tasks: cTasks }, mine: { tasks: personal, notes: myNotes } };
   const a = el("a", { href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: "application/json" })), download: `pitch-room-backup-${todayStr()}.json` });
   document.body.append(a); a.click(); a.remove();

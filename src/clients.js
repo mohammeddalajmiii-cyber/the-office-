@@ -255,8 +255,8 @@ function renderPartnerProjects(box) {
 }
 
 /* ---------- Settings › People and access: one place to add and remove team members, partners and clients ---------- */
-let accessRole = "team", accessGid = "", accessPid = "", accessDel = null;
-const ROLE_NAME = { team: "Team member", partner: "Partner", client: "Client" };
+let accessRole = "team", accessGid = "", accessPid = "", accessDel = null, creatorStep = null;
+const ROLE_NAME = { team: "Team member", creator: "Creator", partner: "Partner", client: "Client" };
 function roleOf(e) {
   if (ADMINS.includes(e) || teamEmails().includes(e)) return "team";
   if (pMembers.some(m => m.id === e)) return "partner";
@@ -269,10 +269,22 @@ function accessSection() {
   if (!accessPid || !projects.find(p => p.id === accessPid)) accessPid = (projects[0] || {}).id || "";
   const em = el("input", { id: "acc-email", class: "noteinput", type: "email", inputmode: "email", placeholder: "Their Google email", maxlength: "120", autocomplete: "off" });
   const nm = el("input", { id: "acc-name", class: "noteinput", maxlength: "60", placeholder: "Their name (optional)" });
+  const gh = el("input", { id: "acc-gh", class: "noteinput", maxlength: "60", placeholder: "Their GitHub username (optional, you can add it later)", autocomplete: "off", autocapitalize: "off", spellcheck: "false" });
   const add = () => {
     const e = lower(em.value), n = nm.value.trim();
     if (!emailOk(e)) { toast("That doesn't look like an email address"); em.focus(); return }
     const has = roleOf(e);
+    if (accessRole === "creator") {
+      // a creator is a team member who can also change the site itself
+      if (has && has !== "team") { toast(`${e} is a ${ROLE_NAME[has].toLowerCase()}. Remove them there first`); return }
+      if (ADMINS.includes(e)) { toast("That's you. You can already change everything"); return }
+      if (creatorsMap()[e]) { toast("Already a creator"); return }
+      const g = gh.value; em.value = ""; gh.value = "";
+      if (has !== "team") saveTeam([...teamEmails(), e]);
+      creatorStep = e;
+      saveCreator(e, true, g, `${e} is a creator${has === "team" ? "" : " and on the team"}`);
+      return;
+    }
     if (has === "team" || (has && has !== accessRole)) { toast(`${e} is already a ${ROLE_NAME[has].toLowerCase()}. Remove them there first`); return }
     if (accessRole === "team") { em.value = ""; nm.value = ""; saveTeam([...teamEmails(), e], `${e} is on the team and can sign in`); return }
     if (accessRole === "partner") {
@@ -290,17 +302,31 @@ function accessSection() {
   const pick = accessRole === "partner"
     ? (pGroups.length ? el("select", { class: "mini", "aria-label": "Partner group", onchange: ev => { accessGid = ev.target.value } }, [...pGroups].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(g => el("option", { value: g.id, selected: g.id === accessGid }, "Group: " + g.name)))
       : el("span", { class: "label" }, "No partner groups yet. Make one in the Partners tab."))
+    : accessRole === "creator" ? gh
     : accessRole === "client"
       ? (projects.length ? el("select", { class: "mini", "aria-label": "Client's project", onchange: ev => { accessPid = ev.target.value } }, projects.map(p => el("option", { value: p.id, selected: p.id === accessPid }, "Project: " + p.title)))
         : el("span", { class: "label" }, "No projects yet."))
       : null;
-  const what = { team: "Sees everything: ideas, projects, chat, money and partners.", partner: "Sees only their group's numbers, updates and info, plus projects you add them to.", client: "Sees only their project's progress, next step, files and updates." }[accessRole];
+  const what = { team: "Sees everything: ideas, projects, chat, money and partners.", creator: "A team member who can also change Pitch Room itself: features, fixes and design. They get its code on GitHub. Money, the team list and database rules stay yours.", partner: "Sees only their group's numbers, updates and info, plus projects you add them to.", client: "Sees only their project's progress, next step, files and updates." }[accessRole];
   const sec = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "People and access"), el("span", { class: "spacer" }), el("span", { class: "label" }, "Only you see this")),
     el("p", { style: "margin:0;font-size:14px" }, "Everyone signs in on the same link with Google, using exactly the email you add here. What they see depends on who they are."),
-    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Add as" }, ["team", "partner", "client"].map(r => el("button", { "aria-pressed": String(accessRole === r), onclick: () => { accessRole = r; render() } }, ROLE_NAME[r]))),
+    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Add as" }, ["team", "creator", "partner", "client"].map(r => el("button", { "aria-pressed": String(accessRole === r), onclick: () => { accessRole = r; render() } }, ROLE_NAME[r]))),
     el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, what),
     em, accessRole === "partner" ? nm : null, pick,
     el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: add }, "Add " + ROLE_NAME[accessRole].toLowerCase())));
+  // after making someone a creator: give their GitHub account access to the code
+  if (creatorStep && creatorsMap()[creatorStep]) {
+    const c = creatorsMap()[creatorStep], who = creatorStep;
+    const ghIn = el("input", { class: "noteinput", maxlength: "60", placeholder: "Their GitHub username", value: c.github || "", autocomplete: "off", autocapitalize: "off", spellcheck: "false" });
+    sec.append(el("div", { class: "note", style: "display:grid;gap:8px" },
+      el("b", {}, `Last step: give ${who} the code`),
+      el("span", { style: "font-size:14px" }, "Pitch Room's code is on GitHub. Invite their GitHub account as a collaborator (Add people, then type their username). They accept the email invite, and their Build Pitch Room page shows them how to make changes."),
+      el("div", { class: "addtask", style: "margin:0;flex-wrap:nowrap" }, ghIn, el("button", { class: "btn small", onclick: () => saveCreator(who, true, ghIn.value, "GitHub username saved") }, "Save")),
+      el("span", { class: "row", style: "gap:6px" },
+        el("a", { class: "btn small primary", href: REPO_URL + "/settings/access", target: "_blank", rel: "noopener noreferrer" }, "Open GitHub › Collaborators"),
+        (c.github || "") ? el("button", { class: "btn small quiet", onclick: () => copyText(c.github, "Username copied") }, "Copy @" + c.github) : null,
+        el("span", { class: "spacer" }), el("button", { class: "btn small quiet", onclick: () => { creatorStep = null; render() } }, "Done"))));
+  }
   if (!teamLoaded) sec.append(el("p", { class: "label" }, "Loading…"));
 
   const joined = new Set(Object.values(people).map(p => (p.email || "").toLowerCase()).filter(Boolean));
@@ -311,8 +337,14 @@ function accessSection() {
   const group = (title, n, rows) => el("div", { style: "display:grid;gap:2px;margin-top:10px" }, el("div", { class: "label" }, `${title} (${n})`), rows.length ? rows : el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Nobody yet."));
 
   const team = teamEmails();
-  sec.append(group("Team", team.length, team.map(e => row("t:" + e, e, el("span", { class: joined.has(e) ? "done-badge" : "label" }, ADMINS.includes(e) ? "Admin" : joined.has(e) ? "Joined" : "Hasn't signed in yet"),
-    () => saveTeam(team.filter(x => x !== e), `${e} isn't on the team anymore`), ADMINS.includes(e)))));
+  // each team member: joined or not, and a creator switch (creators can change the site itself)
+  const crBtn = e => ADMINS.includes(e) ? null : creatorsMap()[e]
+    ? (accessDel === "cr:" + e
+      ? el("button", { class: "linkdel sure", onclick: () => { accessDel = null; if (creatorStep === e) creatorStep = null; saveCreator(e, false, "", `${e} isn't a creator anymore. Remove them on GitHub too`) } }, "Not a creator?")
+      : el("button", { class: "chip", style: "cursor:pointer;border:0;font:inherit;font-size:12.5px", title: "Creator: can change Pitch Room itself. Tap to change", onclick: () => { accessDel = "cr:" + e; render() } }, "\u{1F6E0}️ Creator"))
+    : el("button", { class: "linkbtn", style: "font-size:12.5px", onclick: () => { creatorStep = e; saveCreator(e, true, "", `${e} is a creator`) } }, "Make creator");
+  sec.append(group("Team", team.length, team.map(e => row("t:" + e, e, el("span", { class: "row", style: "gap:8px;flex:none" }, el("span", { class: joined.has(e) ? "done-badge" : "label" }, ADMINS.includes(e) ? "Admin" : joined.has(e) ? "Joined" : "Hasn't signed in yet"), crBtn(e)),
+    () => { saveTeam(team.filter(x => x !== e), `${e} isn't on the team anymore`); if (creatorsMap()[e]) saveCreator(e, false) }, ADMINS.includes(e)))));
   const parts = [...pMembers].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
   sec.append(group("Partners", parts.length, parts.map(m => row("p:" + m.id, (m.name ? m.name + " · " : "") + m.id, el("span", { class: "label" }, groupName(m.gid) + (m.uid ? "" : " · not signed in yet")),
     () => write(async () => {
