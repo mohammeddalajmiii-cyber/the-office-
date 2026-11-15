@@ -13,7 +13,9 @@
    once the client has fully paid. Monthly and installment deals split every payment.
    A deal that's only a proposal has no payments due yet, so nothing can be late.
    When a deal is over (a one-time project fully paid, or any deal marked Ended) and costs
-   are still owed back, the team fund covers them: nobody stays out of pocket. */
+   are still owed back, the team fund covers them: nobody stays out of pocket.
+   Payment plan (one-time deals): the price can be split into steps, like a deposit and a final payment.
+   Each step says which tasks it pays for. Money that comes in fills the steps in order. */
 
 const MONEY_DEFAULTS = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 2, version: 2 };
 const toP = x => Math.round((Number(x) || 0) * 100);
@@ -54,14 +56,15 @@ function computeMoney(p, todayStr, rules) {
 
   const proposal = m.stage === "proposal", ended = m.stage === "ended";
   const res = { type, currency: cur, rate: dealRate, receivedEGP: 0, partner: pa ? { email: pa.email, name: pa.name || pa.email, mode: paMode, value: paVal, earned: 0, paid: 0 } : null, proposal, ended, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0, fundCover: 0,
-    people: {}, unassigned: 0, pending: false, held: 0, preview: null, schedule: [], late: [], monthsUnpaid: 0, ads: { in: 0, spent: 0, held: 0 } };
+    people: {}, unassigned: 0, pending: false, held: 0, preview: null, schedule: [], late: [], monthsUnpaid: 0, ads: { in: 0, spent: 0, held: 0 },
+    flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 }, planned: false, planOff: 0 };
   const person = u => res.people[u] || (res.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
 
   // costs queue: paid back in order
   const queue = costs.map(c => ({ by: c.paidBy, left: toP(c.amount) }));
   res.costsTotal = queue.reduce((s, q) => s + q.left, 0);
   const reimburse = avail => {
-    for (const q of queue) { if (avail <= 0) break; const take = Math.min(avail, q.left); if (!take) continue; q.left -= take; avail -= take; if (q.by) person(q.by).back += take; else res.unassigned += take }
+    for (const q of queue) { if (avail <= 0) break; const take = Math.min(avail, q.left); if (!take) continue; q.left -= take; avail -= take; res.flow.costs += take; if (q.by) person(q.by).back += take; else res.unassigned += take }
     return avail;
   };
   const commission = (amt, withPartner, into) => {
@@ -74,10 +77,11 @@ function computeMoney(p, todayStr, rules) {
   };
   const splitProfit = (amt, shares, withFinder, into) => {
     const t = into || res; if (amt <= 0) return;
-    amt -= commission(amt, withFinder, into); if (amt <= 0) return;
+    const c = commission(amt, withFinder, into); t.flow.partner += c; amt -= c; if (amt <= 0) return;
     const fund = Math.round(amt * fundPct / 100), find = withFinder && hasFinder ? Math.round(amt * findPct / 100) : 0;
     t.fund += fund; t.finderAmt += find;
     const rest = amt - fund - find, parts = splitByShares(rest, shares);
+    t.flow.fund += fund; t.flow.finder += find; t.flow.shares += rest;
     const pp = u => (into ? (into.people[u] || (into.people[u] = { earned: 0 })) : person(u));
     if (find && m.finderTeam) t.fund += find;
     else if (find) for (const [u, v] of Object.entries(splitByShares(find, Object.fromEntries(finders.map(u => [u, 1]))))) pp(u).earned += v;
@@ -94,9 +98,10 @@ function computeMoney(p, todayStr, rules) {
     else {
       res.pending = true; res.held = avail;
       // what it will look like once fully paid (assuming no more costs)
-      const pv = { fund: 0, finderAmt: 0, unassigned: 0, people: {} };
-      const totalCosts = res.costsTotal;
-      splitProfit(Math.max(0, Math.round(res.expected * dealRate) - totalCosts), m.shares, true, pv);
+      const pv = { fund: 0, finderAmt: 0, unassigned: 0, people: {}, flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 } };
+      const totalCosts = res.costsTotal, whole = Math.round(res.expected * dealRate);
+      pv.whole = whole; pv.flow.costs = Math.min(whole, totalCosts);
+      splitProfit(Math.max(0, whole - totalCosts), m.shares, true, pv);
       res.preview = pv;
     }
   } else {
@@ -113,7 +118,7 @@ function computeMoney(p, todayStr, rules) {
   }
   // The deal is over and some costs were never earned back: the team fund pays them, so the person isn't out of pocket.
   const over = ended || (type === "one" && res.expected > 0 && res.received >= res.expected);
-  if (over) for (const q of queue) if (q.left > 0) { res.fundCover += q.left; res.fund -= q.left; if (q.by) person(q.by).back += q.left; else res.unassigned += q.left; q.left = 0 }
+  if (over) for (const q of queue) if (q.left > 0) { res.fundCover += q.left; res.fund -= q.left; res.flow.fund -= q.left; res.flow.costs += q.left; if (q.by) person(q.by).back += q.left; else res.unassigned += q.left; q.left = 0 }
   res.costsUnpaid = queue.reduce((s, q) => s + q.left, 0);
 
   // payment schedule and late payments
@@ -143,6 +148,19 @@ function computeMoney(p, todayStr, rules) {
       res.schedule.push({ label: `Payment ${i + 1} of ${n}`, month: mm, expected: amt, received: got, status: got >= amt ? "paid" : pastDue(mm) ? "late" : mm === nowM ? "due" : "upcoming" });
     }
     res.expected = total;
+  } else if (type === "one" && res.expected > 0 && planOf(m).length) {
+    // the payment plan: money fills the steps in order (deposit first)
+    const plan = planOf(m), amts = plan.map(st => toP(st.amount));
+    res.planOff = res.expected - amts.reduce((s, x) => s + x, 0);
+    amts[amts.length - 1] = Math.max(0, amts[amts.length - 1] + res.planOff);   // the last step takes any difference, so the plan always matches the price
+    let pool = res.received, open = false;
+    plan.forEach((st, i) => {
+      const amt = amts[i], got = Math.min(pool, amt); pool -= got;
+      const status = got >= amt ? "paid" : st.date && st.date < todayStr ? "late" : !open ? "due" : "upcoming";
+      if (status !== "paid") open = true;
+      res.schedule.push({ label: st.label || `Payment ${i + 1}`, month: st.date ? monthOf(st.date) : "", date: st.date || "", expected: amt, received: got, status, step: st.id, tasks: Array.isArray(st.tasks) ? st.tasks : [], covers: st.covers || "", n: i + 1 });
+    });
+    res.planned = true;
   } else if (type === "one" && res.expected > 0) {
     res.schedule.push({ label: "Total", month: nowM, expected: res.expected, received: res.received, status: res.received >= res.expected ? "paid" : "due" });
   }
@@ -162,6 +180,9 @@ function computeMoney(p, todayStr, rules) {
   res.ads.held = res.ads.in - res.ads.spent;
   return res;
 }
+
+// The payment plan of a one-time deal: steps like Deposit and Final payment, each with the tasks it pays for.
+function planOf(m) { return (m && m.type !== "monthly" && m.type !== "installments" && Array.isArray(m.plan) ? m.plan : []).filter(st => st && toP(st.amount) >= 0) }
 
 // Shares suggested from who has which tasks (bigger checklists count a bit more).
 function suggestShares(tasks, people) {
