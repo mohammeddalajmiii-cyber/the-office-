@@ -2908,7 +2908,7 @@ function guidePage() {
       ["Every change is logged", "on the Money tab, and the team gets an alert when the deal changes."],
       ["Made a test deal, or it fell through?", "Edit deal › Delete the deal, at the bottom. The tasks stay."]]),
     card("\u{1F91D}", "Client and partners", [
-      ["Client tab:", "turn on the client view to give the client their own page. What they see shows the client's page live, next to simple switches: progress (from tasks or by hand), stages (your plan's phases or simple ones), next step, the work part by part, payments, files. Rename the project or tick tasks and the client's page updates by itself. Make a monthly report there too."],
+      ["Client tab › Client page:", "three steps at the top (add the client's email, check what they see, send the link on WhatsApp), then one line per part of their page with an on/off switch and Change. The live preview next to it is exactly what the client sees. It follows the project by itself: name, progress, stages, payments. Pick which parts of the work they see, and use \u201cUse our next task\u201d to fill the next step."],
       ["Partner tasks:", "give partners on this project their own small tasks; they tick them in their portal."]]));
   if (tab === "creators" && creator) wrap.append(
     card("\u{1F6E0}️", "What creators do", [
@@ -3472,7 +3472,7 @@ const WHATS_NEW = [
   { id: "f-bugs-ideas-1", date: "2026-11-16", icon: "\u{1F41E}", title: "Bugs and ideas, straight to the creators",
     text: "Found something broken, or know what would make work easier? ⋯ › Bugs and ideas. Creators get an alert, and you hear back when it's fixed. Also new: if you pitched an idea and 2 others voted Keep, you can make it a project yourself.", go: "settings-feedback" },
   { id: "f-client-live-1", date: "2026-11-16", icon: "\u{1F441}", title: "See exactly what the client sees",
-    text: "A project's Client tab › What they see shows the client's page live, next to simple on/off switches for each part. The project name, progress, stages and payments update by themselves from the project.", go: "projects" },
+    text: "A project's Client tab › Client page shows the client's page live, next to three setup steps and simple on/off switches for each part. The project name, progress, stages and payments update by themselves from the project.", go: "projects" },
   { id: "f-quiz2-1", date: "2026-11-16", icon: "\u2B50", title: "A new skills quiz that finds your roles",
     text: "Real situations, quick tests and what you've actually done, not just what you like. It gives you a main role (like Brand designer or Client closer), other roles you fit, and your hidden skill: something you're better at than you think. About 6 minutes. Skills and team shows who does what.", go: "skills" },
   { id: "f-fund-hands-1", date: "2026-11-16", icon: "\u{1F3E6}", title: "The fund shows its own money and project money apart",

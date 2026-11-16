@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261116073053">
+<meta name="build" content="20261116073823">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -742,6 +742,10 @@ input,select,textarea{background-color:var(--field)}
 .cvfake{margin-top:10px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;color:var(--muted);font-size:14px}
 .workcard{gap:8px}.workrow{display:grid;grid-template-columns:minmax(0,1.2fr) 2fr auto;gap:10px;align-items:center;font-size:14px}.workrow .wname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.workrow.done .wname{color:var(--keep)}.workrow .label{min-width:36px;text-align:right}
 .cprog-note{margin:-6px 0 0;font-size:12.5px;color:var(--muted);line-height:1.4}
+.cvsetup{gap:10px}.cvstep{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}.cvstep .label{text-transform:none;letter-spacing:0}.cvstep.ok>.pstep-n{background:var(--keep);color:#fff}
+.cvparts{gap:6px}.cvline{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}.cvline-main{flex:1;min-width:0;display:grid;gap:2px;text-align:left;background:none;border:0;padding:0;color:var(--ink);font:inherit;cursor:pointer}
+.cvline-main .label{text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis}.cvline-main .label.warn{color:var(--warn)}.cvline.off .cvline-main b{color:var(--muted)}.cvline.open{border-bottom:0}
+.cvbody{display:grid;gap:8px;padding:2px 0 12px}.cvbody .label{text-transform:none;letter-spacing:0}.switch:disabled{opacity:.4;cursor:not-allowed}
 .tipline{font-size:13px;color:var(--muted);margin:0}.tipline b{color:var(--ink)}
 @media (max-width:480px){.mtile{padding:8px 9px}.mtile b{font-size:15.5px}.pstep-top{grid-template-columns:auto minmax(0,1fr) auto}.pstep-top .mstat{grid-column:2/-1;justify-self:start}}
 .hrow{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
@@ -1405,7 +1409,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261116073053";
+const BUILD_ID = "20261116073823";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -2801,7 +2805,7 @@ const CSTAGES = ["Planning", "Design", "Build", "Review", "Live"];
 let clientMode = false;
 let cProjects = [], cPosts = [], cTasks = [];                 // team: everything
 let myCP = [], myCPosts = {}, myPTasks = [], cUnsubs = [], cSel = null, clientEmail = "";
-let shareTab = "status";
+let shareTab = "status", cvOpen = {};
 
 const stagesOf = cp => (cp && Array.isArray(cp.stages) && cp.stages.length ? cp.stages : CSTAGES);
 // What the client sees. Everything is on except the work list; the team switches each part on or off.
@@ -2894,61 +2898,94 @@ function renderShare(box, p) {
     return;
   }
   box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Sharing", style: "margin:0 0 12px" },
-    [["status", "What they see"], ["people", "People"], ["updates", "Messages"], ["tasks", "Partner tasks"]].map(([k, v]) =>
+    [["status", "Client page"], ["updates", "Messages"], ["people", "Partners"], ["tasks", "Partner tasks"]].map(([k, v]) =>
       el("button", { "aria-pressed": String(shareTab === k), onclick: () => { shareTab = k; render() } }, v + (k === "updates" ? countNew(p.id) : "")))));
 
   if (shareTab === "status") {
-    const sh = cvShow(cp), live = { ...cp, ...clientLive(p, cp) }, setShow = (k, v) => saveCP(p, { show: { ...sh, [k]: v }, ...(k === "pay" ? { showPay: v } : {}) }, v ? "The client sees it now" : "Hidden from the client");
-    const clientNames = (cp.clients || []).map(e => e.split("@")[0]).join(", ");
-    const wrap = el("div", { class: "cvsplit" });
+    const sh = cvShow(cp), live = { ...cp, ...clientLive(p, cp) }, open = cvOpen[p.id] || "";
+    const setShow = (k, v) => saveCP(p, { show: { ...sh, [k]: v }, ...(k === "pay" ? { showPay: v } : {}) }, v ? "The client sees it now" : "Hidden from the client");
+    const toggle = k => { cvOpen[p.id] = open === k ? "" : k; render() };
+    const clients = cp.clients || [], who = clients.map(e => cap1(e.split("@")[0].split(/[._-]/)[0])).join(", ");
     const ctl = el("div", { class: "cvctl" });
-    ctl.append(el("section", { class: "compose" }, el("h3", {}, "What the client sees"),
-      el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "It updates by itself from the project: its name, its tasks, its payments. Switch any part on or off."),
-      el("div", { class: "cvrow" }, el("div", {}, el("b", {}, "Project name"), el("span", { class: "label" }, "Live: “" + p.title + "”. Rename the project and the client sees the new name.")))));
-    const sw = (k, label, sub, extra) => el("div", { class: "cvrow" + (sh[k] ? "" : " off") }, el("div", {}, el("b", {}, label), el("span", { class: "label" }, sub), extra || null),
-      el("button", { class: "switch", role: "switch", "aria-checked": String(sh[k]), "aria-label": label, onclick: () => setShow(k, !sh[k]) }, el("span", {})));
-    const sec = ctl.firstChild;
-    // progress: automatic from the tasks, or set by hand
-    const auto = cp.progressMode !== "manual", rng = el("input", { type: "range", min: "0", max: "100", step: "5", value: String(cp.progress || 0), "aria-label": "Progress", style: "flex:1" });
-    rng.onchange = () => saveCP(p, { progress: +rng.value }, "Progress saved");
-    sec.append(sw("progress", "Progress bar", auto ? `Automatic from the tasks in the phases they see: ${live.progress}% now. It can go back when a new phase starts; the client sees a note explaining that.` : `Set by hand: ${cp.progress || 0}%`,
-      sh.progress ? el("div", { class: "row", style: "gap:6px;margin-top:6px" }, el("div", { class: "seg seg-sm" }, el("button", { "aria-pressed": String(auto), onclick: () => saveCP(p, { progressMode: "auto" }, "Progress follows the tasks") }, "From tasks"), el("button", { "aria-pressed": String(!auto), onclick: () => saveCP(p, { progressMode: "manual" }, "You set the progress") }, "By hand")), !auto ? rng : null) : null));
-    // stages: our plan's phases, or simple stages
-    const fromPlan = cp.stageMode !== "simple" && cvPhases(p, cp).length > 0, st = stagesOf(live);
-    sec.append(sw("stages", "Stages", fromPlan ? `Our plan's phases: ${st.join(" → ")}. Now: ${st[live.stage || 0]}` : `Simple stages. Now: ${st[cp.stage || 0]}`,
-      sh.stages ? el("div", { style: "display:grid;gap:6px;margin-top:6px" }, el("div", { class: "seg seg-sm" }, el("button", { "aria-pressed": String(fromPlan), disabled: !getPhases(p).length, onclick: () => saveCP(p, { stageMode: "plan" }, "Stages follow your plan") }, "Our plan's phases"), el("button", { "aria-pressed": String(!fromPlan), onclick: () => saveCP(p, { stageMode: "simple", stages: CSTAGES }, "Simple stages") }, "Simple")),
-        !fromPlan ? el("div", { class: "row", style: "gap:4px" }, CSTAGES.map((s2, i2) => el("button", { class: "btn small" + ((cp.stage || 0) === i2 ? " primary" : " quiet"), onclick: () => saveCP(p, { stage: i2 }, "Stage: " + s2) }, s2))) : null) : null));
-    // next step
-    const nt = el("input", { class: "noteinput", id: "cpn-" + p.id, maxlength: "120", placeholder: "e.g. We send you the homepage design" }), nd = el("input", { class: "mini", id: "cpd-" + p.id, type: "date" });
-    if (!nt.value && cp.next && cp.next.text) nt.value = cp.next.text; if (!nd.value && cp.next && cp.next.date) nd.value = cp.next.date;
-    sec.append(sw("next", "Next step", cp.next && cp.next.text ? "Showing: " + cp.next.text : "Nothing written yet",
-      sh.next ? el("div", { class: "row", style: "gap:6px;margin-top:6px;flex-wrap:nowrap" }, nt, nd, el("button", { class: "btn small primary", onclick: () => saveCP(p, { next: { text: nt.value.trim(), date: nd.value || "" } }, nt.value.trim() ? "Next step saved" : "Next step cleared") }, "Save")) : null));
-    // which parts of the plan the client sees
-    const allPh = getPhases(p), shownIds = cvPhases(p, cp).map(ph => ph.id);
-    if (allPh.length) sec.append(el("div", { class: "cvrow" }, el("div", {}, el("b", {}, "Which parts of the work they see"),
-      el("span", { class: "label" }, "Only these phases count for the client's stages, progress bar and work list. Untick the ones that are only for us."),
-      el("div", { class: "pickrow", style: "margin-top:6px" }, allPh.map(ph => { const on = shownIds.includes(ph.id);
-        return el("button", { type: "button", class: "pickchip", "aria-pressed": String(on), onclick: () => {
-          const next = on ? shownIds.filter(x => x !== ph.id) : [...shownIds, ph.id];
-          if (!next.length) { toast("Keep at least one phase, or switch the stages off"); return }
-          saveCP(p, { showPhases: allPh.filter(x => next.includes(x.id)).map(x => x.id) }, on ? `${ph.name} is hidden from the client` : `The client sees ${ph.name}`) } }, (on ? "✓ " : "") + ph.name) })))));
-    sec.append(sw("work", "The work, part by part", "Each phase they see, with how much is done. Off by default"));
-    sec.append(sw("pay", "Payments", p.money ? "From the Money tab: what they paid and what's next" : "Set up the money first, on the Money tab"));
-    // files and links
+
+    /* 1. three steps to get the page to the client */
+    const reviewed = !!cp.reviewedAt, sent = !!cp.linkSentAt, steps = [!!clients.length, reviewed, sent], doneN = steps.filter(Boolean).length;
+    const addIn = el("input", { class: "noteinput", id: "cv-add-" + p.id, type: "email", placeholder: "The client's Google email", autocomplete: "off" });
+    const addClient = () => { const e = lower(addIn.value); if (!emailOk(e)) { toast("Type their full Google email"); addIn.focus(); return }
+      if (ADMINS.includes(e) || teamEmails().includes(e)) { toast("That's a team member. They already see everything"); return }
+      if (clients.map(lower).includes(e)) { toast("Already added"); return }
+      addIn.value = ""; saveCP(p, { clients: [...clients.map(lower), e] }, "Client added. Now check what they see") };
+    addIn.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); addClient() } });
+    const msg = `Hi${who ? " " + who.split(",")[0] : ""}! You can follow your project with Ardent Creative Studios here: ${SITE_LINK} (sign in with ${clients[0] || "your Google email"}).`;
+    const markSent = () => saveCP(p, { linkSentAt: Date.now() }, null);
+    const step = (n, ok, title, sub, ...body) => el("div", { class: "cvstep" + (ok ? " ok" : "") }, el("span", { class: "pstep-n" }, ok ? "✓" : String(n)), el("div", { style: "display:grid;gap:6px;min-width:0;flex:1" }, el("b", {}, title), sub ? el("span", { class: "label" }, sub) : null, ...body));
+    const setup = el("section", { class: "compose cvsetup" }, el("div", { class: "row" }, el("h3", {}, doneN === 3 ? "The client page is live" : "Get the page to the client"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${doneN} of 3`)),
+      step(1, steps[0], "Who can see it", clients.length ? null : "The Google email your client signs in with. Add more if several people at the client follow it.",
+        clients.length ? el("div", { class: "pickrow" }, clients.map(e => el("span", { class: "linkwrap" }, el("span", { class: "linkchip" }, e), el("button", { class: "linkdel", "aria-label": "Remove " + e, onclick: () => saveCP(p, { clients: clients.filter(x => x !== e) }, "Removed. They can't see the page anymore") }, "✕")))) : null,
+        el("div", { class: "row", style: "gap:6px;flex-wrap:nowrap" }, addIn, el("button", { class: "btn small" + (clients.length ? "" : " primary"), onclick: addClient }, "Add"))),
+      step(2, steps[1], "Check what they see", reviewed ? "Done. Change anything below whenever you want." : "Look at the preview, switch off anything they shouldn't see, then tap Looks good.",
+        reviewed ? null : el("div", { class: "row" }, el("button", { class: "btn small" + (steps[0] ? " primary" : ""), onclick: () => saveCP(p, { reviewedAt: Date.now() }, "Great. Now send them the link") }, "Looks good"))),
+      step(3, steps[2], "Send them the link", sent ? `Sent ${ago(cp.linkSentAt)}. Send it again any time.` : "They open it and sign in with the email above.",
+        el("div", { class: "row", style: "gap:6px" },
+          el("a", { class: "btn small" + (steps[0] && steps[1] && !sent ? " primary" : ""), href: "https://wa.me/?text=" + encodeURIComponent(msg), target: "_blank", rel: "noopener noreferrer", onclick: markSent }, "Send on WhatsApp"),
+          el("button", { class: "btn small", onclick: async () => { try { await navigator.clipboard.writeText(msg); toast("Message copied with the link") } catch { toast(SITE_LINK, 5000) } markSent() } }, "Copy the message"))));
+    ctl.append(doneN === 3 ? el("details", { class: "fold" }, el("summary", {}, el("b", {}, "✓ The client page is live"), el("span", { class: "label" }, clients.join(", "))), setup) : setup);
+
+    /* 2. what they see: one line each, open a line to change it */
+    const card = el("section", { class: "compose cvparts" }, el("h3", {}, "What they see"), el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "It updates by itself from the project. Switch a part off, or open it to change it."));
+    const line = (k, title, state, opts = {}) => {
+      const on = opts.sw ? sh[opts.sw] : true, isOpen = open === k;
+      const r = el("div", { class: "cvline" + (on ? "" : " off") + (isOpen ? " open" : "") },
+        el("button", { class: "cvline-main", onclick: () => opts.body ? toggle(k) : null, "aria-expanded": opts.body ? String(isOpen) : null }, el("b", {}, title), el("span", { class: "label" + (opts.warn ? " warn" : "") }, on ? state : "Hidden from the client")),
+        opts.body && on ? el("button", { class: "linkbtn", onclick: () => toggle(k) }, isOpen ? "Done" : "Change") : null,
+        opts.sw ? el("button", { class: "switch", role: "switch", "aria-checked": String(on), "aria-label": title, disabled: !!opts.lock, title: opts.lock || "", onclick: () => setShow(opts.sw, !on) }, el("span", {})) : el("span", { class: "label" }, opts.fixed || ""));
+      card.append(r); if (isOpen && on && opts.body) card.append(el("div", { class: "cvbody" }, ...[].concat(opts.body())));
+    };
+    // parts of the work
+    const allPh = getPhases(p), shownPh = cvPhases(p, cp), shownIds = shownPh.map(x => x.id);
+    if (allPh.length) line("phases", "Parts of the work they see", shownPh.length === allPh.length ? "All: " + allPh.map(x => x.name).join(", ") : shownPh.map(x => x.name).join(", ") + ` (${allPh.length - shownPh.length} hidden)`, { fixed: "", body: () => [
+      el("span", { class: "label" }, "Only these count for their stages, progress bar and work list."),
+      el("div", { class: "pickrow" }, allPh.map(ph => { const on = shownIds.includes(ph.id); return el("button", { type: "button", class: "pickchip", "aria-pressed": String(on), onclick: () => {
+        const next = on ? shownIds.filter(x => x !== ph.id) : [...shownIds, ph.id]; if (!next.length) { toast("Keep at least one"); return }
+        saveCP(p, { showPhases: allPh.filter(x => next.includes(x.id)).map(x => x.id) }, on ? `${ph.name} is hidden from the client` : `They see ${ph.name}`) } }, (on ? "✓ " : "") + ph.name) }))] });
+    // progress
+    const auto = cp.progressMode !== "manual";
+    line("progress", "Progress bar", auto ? `${live.progress}% · follows the tasks (can go back when a new phase starts)` : `${cp.progress || 0}% · set by hand`, { sw: "progress", body: () => {
+      const rng = el("input", { type: "range", min: "0", max: "100", step: "5", value: String(cp.progress || 0), "aria-label": "Progress", style: "flex:1" });
+      rng.onchange = () => saveCP(p, { progress: +rng.value }, "Progress saved");
+      return [el("div", { class: "seg seg-sm" }, el("button", { "aria-pressed": String(auto), onclick: () => saveCP(p, { progressMode: "auto" }, "It follows the tasks now") }, "Follow the tasks"), el("button", { "aria-pressed": String(!auto), onclick: () => saveCP(p, { progressMode: "manual", progress: live.progress }, "You set it now") }, "Set it by hand")),
+        !auto ? el("div", { class: "row", style: "gap:8px" }, rng, el("b", {}, (cp.progress || 0) + "%")) : el("span", { class: "label" }, "Under the bar the client reads that it follows our phases and can go back when the next one starts.")] } });
+    // stages
+    const fromPlan = cp.stageMode !== "simple" && shownPh.length > 0, st = stagesOf(live);
+    line("stages", "Stages", (fromPlan ? "Our phases: " : "Simple: ") + `now ${st[live.stage || 0] || st[0]}`, { sw: "stages", body: () => [
+      el("div", { class: "seg seg-sm" }, el("button", { "aria-pressed": String(fromPlan), disabled: !shownPh.length, onclick: () => saveCP(p, { stageMode: "plan" }, "Stages follow your phases") }, "Our phases"), el("button", { "aria-pressed": String(!fromPlan), onclick: () => saveCP(p, { stageMode: "simple", stages: CSTAGES }, "Simple stages") }, "Simple")),
+      fromPlan ? el("span", { class: "label" }, `${st.join(" → ")}. The stage moves on by itself when a phase's tasks are all done.`)
+        : el("div", { class: "pickrow" }, CSTAGES.map((s2, i2) => el("button", { class: "pickchip", "aria-pressed": String((cp.stage || 0) === i2), onclick: () => saveCP(p, { stage: i2 }, "Stage: " + s2) }, s2)))] });
+    // next step: suggest our next open task; warn when its date has passed
+    const nx = cp.next || {}, past = nx.date && nx.date < todayStr();
+    const nextTask = tasksOf(p).filter(t => !t.done && shownIds.includes(t.phase)).sort((a, b) => shownIds.indexOf(a.phase) - shownIds.indexOf(b.phase) || (a.order || 0) - (b.order || 0))[0];
+    line("next", "Next step", nx.text ? (past ? `⚠ “${nx.text}” was due ${fmtDay(new Date(nx.date + "T12:00").getTime())}: update it` : `“${nx.text}”` + (nx.date ? " · " + fmtDay(new Date(nx.date + "T12:00").getTime()) : "")) : "Not written yet", { sw: "next", warn: past || !nx.text, body: () => {
+      const nt = el("input", { class: "noteinput", id: "cpn-" + p.id, maxlength: "120", placeholder: "e.g. We send you the first profile draft" }), nd = el("input", { class: "mini", id: "cpd-" + p.id, type: "date" });
+      if (!nt.value && nx.text) nt.value = nx.text; if (!nd.value && nx.date) nd.value = nx.date;
+      return [el("div", { class: "row", style: "gap:6px;flex-wrap:nowrap" }, nt, nd, el("button", { class: "btn small primary", onclick: () => { cvOpen[p.id] = ""; saveCP(p, { next: { text: nt.value.trim(), date: nd.value || "" } }, nt.value.trim() ? "Next step saved" : "Next step cleared") } }, "Save")),
+        nextTask ? el("button", { class: "linkbtn", style: "justify-self:start", onclick: () => { cvOpen[p.id] = ""; saveCP(p, { next: { text: nextTask.text, date: nextTask.due || "" } }, "Next step set from your plan") } }, `Use our next task: “${nextTask.text}”` + (nextTask.due ? " · " + fmtDay(new Date(nextTask.due + "T12:00").getTime()) : "")) : null] } });
+    // the rest
+    line("work", "The work, part by part", `${(live.work || []).length} part${(live.work || []).length === 1 ? "" : "s"} with how much of each is done`, { sw: "work" });
+    line("pay", "Payments", p.money ? (live.pay ? `${fmtCur(live.pay.paid, live.pay.currency)} paid` + (live.pay.next ? ` · next: ${live.pay.next.label}` : "") : "Nothing to show yet") : "No deal yet: set up the money first", { sw: "pay", lock: p.money ? "" : "Set up the money on the Money tab first" });
     const links = Object.entries(cp.links || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v }));
-    const lab = el("input", { class: "noteinput", id: "cpl-" + p.id, maxlength: "60", placeholder: "Name, e.g. Homepage design" }), url = el("input", { class: "noteinput", id: "cpu-" + p.id, type: "url", maxlength: "500", placeholder: "https://…" });
-    sec.append(sw("links", "Files and links", links.length ? `${links.length} shared` : "Nothing shared yet",
-      sh.links ? el("div", { style: "display:grid;gap:6px;margin-top:6px" }, links.length ? el("ul", { class: "plinks" }, links.map(k => el("li", {}, el("a", { href: k.url, target: "_blank", rel: "noopener" }, k.label || k.url),
-        el("button", { class: "x", "aria-label": "Remove " + (k.label || "link"), onclick: () => saveCP(p, { links: { [k.id]: DEL() } }, "Removed") }, "✕")))) : null,
-        el("div", { class: "row", style: "gap:6px;flex-wrap:nowrap" }, lab, url, el("button", { class: "btn small", onclick: () => { let u = url.value.trim(), t = lab.value.trim(); if (!u) { url.focus(); return } if (!/^https?:\/\//i.test(u)) u = "https://" + u; lab.value = ""; url.value = ""; saveCP(p, { links: { [uid()]: { label: t, url: u, at: Date.now() } } }, "Link shared") } }, "Add"))) : null));
-    sec.append(el("div", { class: "cvrow" }, el("div", {}, el("b", {}, "Messages"), el("span", { class: "label" }, "Always on. Reply in the Messages tab above."))));
-    ctl.append(el("section", { class: "compose", style: "margin-top:12px" }, el("div", { class: "row" }, el("span", { style: "flex:1 1 220px;font-size:14px" }, "A branded monthly report for the client: what was done, what's next, progress. Save it as a PDF and send it."),
-      el("button", { class: "btn small", onclick: () => clientReport(p, live) }, "Make this month's report"))));
-    // the preview: exactly the client's page
-    const pv = el("div", { class: "cvpreview" }, el("div", { class: "cvbar" }, el("span", { class: "cvdots" }, el("i"), el("i"), el("i")), el("span", {}, (cp.clients || []).length ? `What ${clientNames} sees, live` : "What the client will see, live")),
-      el("div", { class: "cvpage" }, ...clientPage(live, { first: (cp.clients || [])[0] ? cap1(cp.clients[0].split("@")[0].split(/[._-]/)[0]) : "", preview: true, posts: cPosts.filter(x => x.pid === p.id) })));
-    if (!(cp.clients || []).length) ctl.prepend(el("div", { class: "notice", style: "margin:0 0 12px" }, "No client added yet. Add their Google email in People, then send them the link."));
-    wrap.append(ctl, pv); box.append(wrap);
+    line("links", "Files and links", links.length ? `${links.length} shared` : "Nothing shared yet", { sw: "links", body: () => {
+      const lab = el("input", { class: "noteinput", id: "cpl-" + p.id, maxlength: "60", placeholder: "Name, e.g. Profile draft v1" }), url = el("input", { class: "noteinput", id: "cpu-" + p.id, type: "url", maxlength: "500", placeholder: "https://…" });
+      return [links.length ? el("ul", { class: "plinks" }, links.map(k => el("li", {}, el("a", { href: k.url, target: "_blank", rel: "noopener" }, k.label || k.url), el("button", { class: "x", "aria-label": "Remove " + (k.label || "link"), onclick: () => saveCP(p, { links: { [k.id]: DEL() } }, "Removed") }, "✕")))) : null,
+        el("div", { class: "row", style: "gap:6px;flex-wrap:nowrap" }, lab, url, el("button", { class: "btn small", onclick: () => { let u = url.value.trim(), t = lab.value.trim(); if (!u) { url.focus(); return } if (!/^https?:\/\//i.test(u)) u = "https://" + u; lab.value = ""; url.value = ""; saveCP(p, { links: { [uid()]: { label: t, url: u, at: Date.now() } } }, "Shared with the client") } }, "Share"))] } });
+    const unread = countNew(p.id);
+    line("msgs", "Messages", unread ? `Always on ·${unread} new from the client` : "Always on", { fixed: "" });
+    card.append(el("div", { class: "row", style: "gap:8px;margin-top:8px" }, el("button", { class: "btn small", onclick: () => { shareTab = "updates"; render() } }, "Open messages"), el("span", { class: "spacer" }), el("button", { class: "btn small quiet", onclick: () => clientReport(p, live) }, "This month's report (PDF)")));
+    ctl.append(card);
+
+    /* 3. the preview: exactly the client's page */
+    const pv = el("div", { class: "cvpreview" }, el("div", { class: "cvbar" }, el("span", { class: "cvdots" }, el("i"), el("i"), el("i")), el("span", {}, clients.length ? `What ${who} sees, live` : "What the client will see, live")),
+      el("div", { class: "cvpage" }, ...clientPage(live, { first: who.split(",")[0], preview: true, posts: cPosts.filter(x => x.pid === p.id) })));
+    box.append(el("div", { class: "cvsplit" }, ctl, pv));
   }
 
   if (shareTab === "people") {
@@ -2966,8 +3003,7 @@ function renderShare(box, p) {
       return el("li", { class: "row" }, el("span", {}, pm && pm.name ? `${pm.name} · ${e}` : e), el("span", { class: "spacer" }),
         el("button", { class: "btn quiet small", onclick: () => saveCP(p, { [kind]: (cp[kind] || []).filter(x => x !== e) }, "Removed") }, "Remove"));
     });
-    box.append(el("section", { class: "compose" }, el("h3", {}, "Client"), el("p", { class: "label", style: "margin:0" }, "The Google email your client signs in with. Add more than one if several people at the client should see it."),
-      (cp.clients || []).length ? el("ul", { class: "plist" }, people("clients")) : null, addRow("clients", "client@company.com")));
+    box.append(el("p", { class: "label", style: "margin:0 0 8px;text-transform:none;letter-spacing:0" }, "The client is added on the Client page tab."));
     const known = pMembers.filter(m => !(cp.partners || []).includes(m.id));
     box.append(el("section", { class: "compose", style: "margin-top:12px" }, el("h3", {}, "Partners on this project"),
       el("p", { class: "label", style: "margin:0" }, "They see this project in their Projects tab, with the tasks you give them."),
@@ -6678,7 +6714,7 @@ function guidePage() {
       ["Every change is logged", "on the Money tab, and the team gets an alert when the deal changes."],
       ["Made a test deal, or it fell through?", "Edit deal › Delete the deal, at the bottom. The tasks stay."]]),
     card("\u{1F91D}", "Client and partners", [
-      ["Client tab:", "turn on the client view to give the client their own page. What they see shows the client's page live, next to simple switches: progress (from tasks or by hand), stages (your plan's phases or simple ones), next step, the work part by part, payments, files. Rename the project or tick tasks and the client's page updates by itself. Make a monthly report there too."],
+      ["Client tab › Client page:", "three steps at the top (add the client's email, check what they see, send the link on WhatsApp), then one line per part of their page with an on/off switch and Change. The live preview next to it is exactly what the client sees. It follows the project by itself: name, progress, stages, payments. Pick which parts of the work they see, and use \u201cUse our next task\u201d to fill the next step."],
       ["Partner tasks:", "give partners on this project their own small tasks; they tick them in their portal."]]));
   if (tab === "creators" && creator) wrap.append(
     card("\u{1F6E0}️", "What creators do", [
@@ -7242,7 +7278,7 @@ const WHATS_NEW = [
   { id: "f-bugs-ideas-1", date: "2026-11-16", icon: "\u{1F41E}", title: "Bugs and ideas, straight to the creators",
     text: "Found something broken, or know what would make work easier? ⋯ › Bugs and ideas. Creators get an alert, and you hear back when it's fixed. Also new: if you pitched an idea and 2 others voted Keep, you can make it a project yourself.", go: "settings-feedback" },
   { id: "f-client-live-1", date: "2026-11-16", icon: "\u{1F441}", title: "See exactly what the client sees",
-    text: "A project's Client tab › What they see shows the client's page live, next to simple on/off switches for each part. The project name, progress, stages and payments update by themselves from the project.", go: "projects" },
+    text: "A project's Client tab › Client page shows the client's page live, next to three setup steps and simple on/off switches for each part. The project name, progress, stages and payments update by themselves from the project.", go: "projects" },
   { id: "f-quiz2-1", date: "2026-11-16", icon: "\u2B50", title: "A new skills quiz that finds your roles",
     text: "Real situations, quick tests and what you've actually done, not just what you like. It gives you a main role (like Brand designer or Client closer), other roles you fit, and your hidden skill: something you're better at than you think. About 6 minutes. Skills and team shows who does what.", go: "skills" },
   { id: "f-fund-hands-1", date: "2026-11-16", icon: "\u{1F3E6}", title: "The fund shows its own money and project money apart",

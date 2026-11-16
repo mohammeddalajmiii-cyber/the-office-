@@ -742,6 +742,10 @@ input,select,textarea{background-color:var(--field)}
 .cvfake{margin-top:10px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;color:var(--muted);font-size:14px}
 .workcard{gap:8px}.workrow{display:grid;grid-template-columns:minmax(0,1.2fr) 2fr auto;gap:10px;align-items:center;font-size:14px}.workrow .wname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.workrow.done .wname{color:var(--keep)}.workrow .label{min-width:36px;text-align:right}
 .cprog-note{margin:-6px 0 0;font-size:12.5px;color:var(--muted);line-height:1.4}
+.cvsetup{gap:10px}.cvstep{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}.cvstep .label{text-transform:none;letter-spacing:0}.cvstep.ok>.pstep-n{background:var(--keep);color:#fff}
+.cvparts{gap:6px}.cvline{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}.cvline-main{flex:1;min-width:0;display:grid;gap:2px;text-align:left;background:none;border:0;padding:0;color:var(--ink);font:inherit;cursor:pointer}
+.cvline-main .label{text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis}.cvline-main .label.warn{color:var(--warn)}.cvline.off .cvline-main b{color:var(--muted)}.cvline.open{border-bottom:0}
+.cvbody{display:grid;gap:8px;padding:2px 0 12px}.cvbody .label{text-transform:none;letter-spacing:0}.switch:disabled{opacity:.4;cursor:not-allowed}
 .tipline{font-size:13px;color:var(--muted);margin:0}.tipline b{color:var(--ink)}
 @media (max-width:480px){.mtile{padding:8px 9px}.mtile b{font-size:15.5px}.pstep-top{grid-template-columns:auto minmax(0,1fr) auto}.pstep-top .mstat{grid-column:2/-1;justify-self:start}}
 .hrow{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
