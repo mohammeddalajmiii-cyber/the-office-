@@ -716,6 +716,11 @@ input,select,textarea{background-color:var(--field)}
 .mprow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:14px}.mprow.later{opacity:.7}.mpname{font-weight:600}.mptasks{display:flex;flex-wrap:wrap;gap:4px;flex-basis:100%}
 .mptasks .chip.ok{color:var(--keep)}.mpchip{font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;background:var(--accent-soft);color:var(--ink)}
 .papers{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.paperslot{display:grid;gap:4px;align-content:start;padding:10px;border:1px dashed var(--line);border-radius:12px}
+.paperslot{min-width:0;overflow:hidden}.paperslot .links{min-width:0;max-width:100%}
+.paperslot .linkwrap,.papergroup .linkwrap{max-width:100%;min-width:0;overflow:hidden}
+.paperslot .filechip,.papergroup .filechip{min-width:0;max-width:100%;overflow:hidden}
+.paperslot .filechip>span:last-child,.papergroup .filechip>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.paperslot .fext,.papergroup .fext{flex:none}.paperslot .linkdel{flex:none}
 .paperslot.has{border-style:solid;border-color:var(--accent)}.paperslot b{font-size:14px}.paperslot .label{text-transform:none;letter-spacing:0;font-size:12px}
 .paperrow{display:grid;gap:4px;margin-top:4px}.papergroup{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.papergroup>.label{text-transform:none;letter-spacing:0;font-size:12px;min-width:110px}
 .donefold{margin-top:4px}.donefold>summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:baseline;font-size:13.5px;font-weight:600;color:var(--keep);padding:8px 2px}

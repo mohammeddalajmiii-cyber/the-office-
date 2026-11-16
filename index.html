@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261116062522">
+<meta name="build" content="20261116062656">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -716,6 +716,11 @@ input,select,textarea{background-color:var(--field)}
 .mprow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:14px}.mprow.later{opacity:.7}.mpname{font-weight:600}.mptasks{display:flex;flex-wrap:wrap;gap:4px;flex-basis:100%}
 .mptasks .chip.ok{color:var(--keep)}.mpchip{font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;background:var(--accent-soft);color:var(--ink)}
 .papers{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.paperslot{display:grid;gap:4px;align-content:start;padding:10px;border:1px dashed var(--line);border-radius:12px}
+.paperslot{min-width:0;overflow:hidden}.paperslot .links{min-width:0;max-width:100%}
+.paperslot .linkwrap,.papergroup .linkwrap{max-width:100%;min-width:0;overflow:hidden}
+.paperslot .filechip,.papergroup .filechip{min-width:0;max-width:100%;overflow:hidden}
+.paperslot .filechip>span:last-child,.papergroup .filechip>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.paperslot .fext,.papergroup .fext{flex:none}.paperslot .linkdel{flex:none}
 .paperslot.has{border-style:solid;border-color:var(--accent)}.paperslot b{font-size:14px}.paperslot .label{text-transform:none;letter-spacing:0;font-size:12px}
 .paperrow{display:grid;gap:4px;margin-top:4px}.papergroup{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.papergroup>.label{text-transform:none;letter-spacing:0;font-size:12px;min-width:110px}
 .donefold{margin-top:4px}.donefold>summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:baseline;font-size:13.5px;font-weight:600;color:var(--keep);padding:8px 2px}
@@ -1383,7 +1388,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261116062522";
+const BUILD_ID = "20261116062656";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -7911,7 +7916,7 @@ function payFilesPicker(f, first) {
   for (const [k, label, sub] of PAPER_KINDS) {
     const mine = f.files.map((x, i) => ({ ...x, i })).filter(x => x.kind === k);
     wrap.append(el("div", { class: "paperslot" + (mine.length ? " has" : "") }, el("b", {}, label), el("span", { class: "label" }, sub),
-      el("div", { class: "links" }, mine.map(x => el("span", { class: "linkwrap" }, el("span", { class: "linkchip filechip" }, el("span", { class: "fext" }, extOf(x.file.name)), el("span", {}, x.file.name)),
+      el("div", { class: "links" }, mine.map(x => el("span", { class: "linkwrap" }, el("span", { class: "linkchip filechip", title: x.file.name }, el("span", { class: "fext" }, extOf(x.file.name)), el("span", {}, x.file.name)),
         el("button", { class: "linkdel", type: "button", "aria-label": "Remove " + x.file.name, onclick: () => { f.files.splice(x.i, 1); render() } }, "✕"))),
         el("button", { class: "linkchip addlink", type: "button", onclick: () => pickFiles(list => { f.files.push(...list.map(file => ({ file, kind: k }))); render() }) }, mine.length ? "+ Another" : "+ Add"))));
   }

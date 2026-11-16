@@ -4366,7 +4366,7 @@ function payFilesPicker(f, first) {
   for (const [k, label, sub] of PAPER_KINDS) {
     const mine = f.files.map((x, i) => ({ ...x, i })).filter(x => x.kind === k);
     wrap.append(el("div", { class: "paperslot" + (mine.length ? " has" : "") }, el("b", {}, label), el("span", { class: "label" }, sub),
-      el("div", { class: "links" }, mine.map(x => el("span", { class: "linkwrap" }, el("span", { class: "linkchip filechip" }, el("span", { class: "fext" }, extOf(x.file.name)), el("span", {}, x.file.name)),
+      el("div", { class: "links" }, mine.map(x => el("span", { class: "linkwrap" }, el("span", { class: "linkchip filechip", title: x.file.name }, el("span", { class: "fext" }, extOf(x.file.name)), el("span", {}, x.file.name)),
         el("button", { class: "linkdel", type: "button", "aria-label": "Remove " + x.file.name, onclick: () => { f.files.splice(x.i, 1); render() } }, "✕"))),
         el("button", { class: "linkchip addlink", type: "button", onclick: () => pickFiles(list => { f.files.push(...list.map(file => ({ file, kind: k }))); render() }) }, mine.length ? "+ Another" : "+ Add"))));
   }
