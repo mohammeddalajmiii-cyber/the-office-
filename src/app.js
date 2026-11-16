@@ -1012,7 +1012,7 @@ async function addProjectFiles(p, list) {
   let added = 0;
   for (const f of list) {
     const isImg = /^image\/(jpeg|png|webp|heic|heif|bmp)$/.test(f.type);
-    if (f.size > (isImg ? MAX_IMAGE_IN : MAX_FILE)) { toast(`${f.name} is too big. The limit is 5 MB per file.`); continue }
+    if (f.size > (isImg ? MAX_IMAGE_IN : MAX_FILE)) { toast(`${f.name} is too big. The limit is 10 MB per file.`); continue }
     const msg = t => { uploadMsg = t; const n = document.getElementById("projupload"); if (n) n.textContent = t; else render() };
     try {
       msg(`Uploading ${f.name}\u2026`);
@@ -1548,7 +1548,7 @@ async function uploadFilesTo(key, list, save, where = "the task") {
   const msg = s => { taskUpMsg = s; const n = document.getElementById("tup-" + key); if (n) n.textContent = s; else render() };
   for (const f of list) {
     const isImg = /^image\/(jpeg|png|webp|heic|heif|bmp)$/.test(f.type);
-    if (f.size > (isImg ? MAX_IMAGE_IN : MAX_FILE)) { toast(`${f.name} is too big. The limit is 5 MB per file.`); continue }
+    if (f.size > (isImg ? MAX_IMAGE_IN : MAX_FILE)) { toast(`${f.name} is too big. The limit is 10 MB per file.`); continue }
     try {
       msg(`Uploading ${f.name}…`);
       const file = await uploadFile(await prepareFile(f), pct => msg(`Uploading ${f.name}… ${pct}%`));
@@ -1577,14 +1577,14 @@ function fileRow(files, key, canRemove, onRemove, onAdd) {
   }
   if (onAdd) row.append(taskUpKey === key
     ? el("span", { class: "label", id: "tup-" + key, style: "text-transform:none;letter-spacing:0" }, taskUpMsg)
-    : el("button", { class: "linkchip addlink", title: "PDFs, documents, photos, anything up to 5 MB", onclick: () => pickFiles(onAdd) }, files.length ? "+ File" : "+ Add a file or PDF"));
+    : el("button", { class: "linkchip addlink", title: "PDFs, documents, photos, anything up to 10 MB", onclick: () => pickFiles(onAdd) }, files.length ? "+ File" : "+ Add a file or PDF"));
   return row;
 }
 function taskFilesBlock(p, t, key) {
   const files = taskFilesOf(t), planner = canPlan(p), team = inTeam(p);
   return el("div", { style: "display:grid;gap:6px" },
     fileRow(files, key, f => f.by === me || planner, f => upd(p.id, { [`${t.path}.files.${f.id}`]: DEL() }).then(() => dropFileParts(f)), team ? list => addTaskFiles(p, t, key, list) : null),
-    files.length ? null : el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "PDFs, briefs, designs, photos. Up to 5 MB each. You can also drop files on this task."));
+    files.length ? null : el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "PDFs, briefs, designs, photos. Up to 10 MB each. You can also drop files on this task."));
 }
 
 // Deleting a task also takes it off the "waiting for" list of every task that needed it, and removes its files.
@@ -2036,8 +2036,8 @@ async function sendChat() {
 
 /* ----- chat attachments (stored in the database in pieces, since free Firebase has no file storage) ----- */
 
-const MAX_FILE = 5 * 1024 * 1024;     // 5 MB per file
-const MAX_IMAGE_IN = 30 * 1024 * 1024;// photos bigger than 5 MB are shrunk first
+const MAX_FILE = 10 * 1024 * 1024;    // 10 MB per file (about 12 database pieces)
+const MAX_IMAGE_IN = 30 * 1024 * 1024;// big photos (up to 30 MB) are shrunk first
 const PART = 900 * 1024;              // one database document holds under 1 MB
 let pending = [];                     // files waiting to be sent: {f, key, url}
 
@@ -2060,7 +2060,7 @@ chatboxEl.addEventListener("drop", e => { e.preventDefault(); chatboxEl.classLis
 function addFiles(fs) {
   for (const f of fs) {
     const isImg = /^image\/(jpeg|png|webp|heic|heif|bmp)$/.test(f.type);
-    if (f.size > (isImg ? MAX_IMAGE_IN : MAX_FILE)) { toast(`${f.name} is too big. The limit is 5 MB per file.`); continue }
+    if (f.size > (isImg ? MAX_IMAGE_IN : MAX_FILE)) { toast(`${f.name} is too big. The limit is 10 MB per file.`); continue }
     pending.push({ f, key: uid(), url: f.type.startsWith("image/") ? URL.createObjectURL(f) : null });
   }
   renderAttach(); $("#chat-input").focus();
@@ -2904,7 +2904,7 @@ function guidePage() {
       ["Tick the first step", "of a task and it starts by itself (In progress). When every step is ticked, you get a Mark done button."],
       ["Leave a note when you finish:", "a link, where the files are, what's left. The person who gave you the task, and whoever is next, get an alert."],
       ["Waiting for…", "on a task means it needs another task done first. You get an alert the moment you can start."],
-      ["Drop files", "straight onto an open task to attach them (PDFs, designs, photos, up to 5 MB)."],
+      ["Drop files", "straight onto an open task to attach them (PDFs, designs, photos, up to 10 MB)."],
       ["Me › My tasks", "shows everything that's yours in Now, Next and Waiting on others. Private to-dos and notes there are only for you."],
       ["Tap someone's photo", "above a project's tasks to see only their tasks."],
       ["Take the skills quiz", "(Me › Skills and team, about 6 minutes). It finds your main role, other roles you fit and your hidden skill, so the right tasks come to you."],
@@ -3535,7 +3535,7 @@ const WHATS_NEW = [
   { id: "f-build-1", date: "2026-11-15", icon: "🛠️", title: "Build Pitch Room with us",
     text: "Some of us are now creators: they can change Pitch Room itself. Anyone can ask for a new feature or a fix in Settings › Build Pitch Room, and see who's building it.", go: "settings-build" },
   { id: "f-taskfiles-1", date: "2026-11-15", icon: "📎", title: "Files on tasks",
-    text: "Open any task and attach PDFs, briefs, designs or photos (up to 5 MB each), or just drop them on the task. Your own tasks in Me can have files too.", go: "mine" },
+    text: "Open any task and attach PDFs, briefs, designs or photos (up to 10 MB each), or just drop them on the task. Your own tasks in Me can have files too.", go: "mine" },
   { id: "f-look-2", date: "2026-11-10", icon: "🗺️", title: "A new look",
     text: "Plain grey with deep teal buttons, and a faint contour map in the background that lights up as a slow prism scan passes. You can switch the animation off in Me › Settings › Look.", go: "settings" },
   { id: "f-partners-1", date: "2026-11-09", icon: "🌍", title: "Partners",
@@ -4457,7 +4457,7 @@ function payFilesPicker(f, first) {
         el("button", { class: "linkchip addlink", type: "button", onclick: () => pickFiles(list => { f.files.push(...list.map(file => ({ file, kind: k }))); render() }) }, mine.length ? "+ Another" : "+ Add"))));
   }
   return el("div", { style: "display:grid;gap:6px" }, el("div", { class: "tlabel" }, first ? "Papers: the quotation we sent and the one he signed" : "Papers (optional)"), wrap,
-    el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "PDFs or photos, up to 5 MB each."));
+    el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "PDFs or photos, up to 10 MB each."));
 }
 // Upload a payment's papers one kind after another, each file remembering which kind it is.
 async function uploadPayPapers(p, eid, list) {
