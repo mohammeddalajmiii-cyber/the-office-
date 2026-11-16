@@ -25,7 +25,11 @@
        in proportion to their prices. A task's money is earned once the task is done, by the people on it
        (shared equally). Money not covered by a priced task goes by the % shares, or equally to the
        project's team when there are none. Tasks not linked to a payment are paid by the last one.
-       Nobody has to price every task: unpriced work is simply the shared part. */
+       Nobody has to price every task: unpriced work is simply the shared part.
+     - All to the team fund (money.split === "fund"): costs, partner and finder as usual, the rest goes to the fund.
+   Keep it in the fund, decide later (money.hold): the money that came in sits in the team fund, written down as this
+   project's, and nothing is split yet (not even costs). It isn't the fund's own money. When the team decides,
+   the hold comes off and the chosen way runs over every payment, as if it had been chosen from the start. */
 
 const MONEY_DEFAULTS = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 2, version: 2 };
 const toP = x => Math.round((Number(x) || 0) * 100);
@@ -65,11 +69,12 @@ function computeMoney(p, todayStr, rules, opts) {
   let paLeft = paMode === "fixed" ? toP(paVal) : 0;
 
   const proposal = m.stage === "proposal", ended = m.stage === "ended";
-  const byTasks = m.split === "tasks" && type !== "monthly", team = ((opts || {}).team || []).filter(Boolean);
+  const holding = !!m.hold, byFund = m.split === "fund" && !holding;
+  const byTasks = m.split === "tasks" && type !== "monthly" && !holding, team = ((opts || {}).team || []).filter(Boolean);
   const res = { type, currency: cur, rate: dealRate, receivedEGP: 0, partner: pa ? { email: pa.email, name: pa.name || pa.email, mode: paMode, value: paVal, earned: 0, paid: 0 } : null, proposal, ended, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0, fundCover: 0,
     people: {}, unassigned: 0, pending: false, held: 0, preview: null, schedule: [], late: [], monthsUnpaid: 0, ads: { in: 0, spent: 0, held: 0 },
     flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 }, planned: false, planOff: 0,
-    byTasks, tasks: {}, taskHeld: 0, priced: 0, pricedOver: false };
+    byTasks, byFund, holding, holdAmt: 0, tasks: {}, taskHeld: 0, priced: 0, pricedOver: false };
   const person = u => res.people[u] || (res.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
 
   // costs queue: paid back in order
@@ -98,6 +103,7 @@ function computeMoney(p, todayStr, rules, opts) {
     if (find && m.finderTeam) t.fund += find;
     else if (find) for (const [u, v] of Object.entries(splitByShares(find, Object.fromEntries(finders.map(u => [u, 1]))))) pp(u).earned += v;
     if (sink) { sink(rest); return }   // task prices: the caller shares it out
+    if (byFund) { t.fund += rest; t.flow.fund += rest; t.flow.shares -= rest; return }   // all to the team fund
     let given = 0; for (const [u, v] of Object.entries(parts)) { pp(u).earned += v; given += v }
     if (rest - given > 0) t.unassigned += rest - given;   // no shares set yet
   };
@@ -173,9 +179,16 @@ function computeMoney(p, todayStr, rules, opts) {
 
   for (const x of payments) { res.received += toP(x.amount); res.receivedEGP += egp(x) }
 
-  if (byTasks) {
+  if (holding) {
+    // kept in the fund for this project: nothing is split until the team decides
+    if (type !== "monthly") res.expected = toP(m.price);
+    res.holdAmt = res.receivedEGP;
+  } else if (byTasks) {
     res.expected = toP(m.price);
     taskSplit();
+  } else if (byFund) {
+    res.expected = type === "monthly" ? 0 : toP(m.price);
+    for (const x of payments) splitProfit(reimburse(egp(x)), null, true);
   } else if (type === "one") {
     res.expected = toP(m.price);
     const avail = reimburse(res.receivedEGP);
@@ -202,7 +215,7 @@ function computeMoney(p, todayStr, rules, opts) {
     }
   }
   // The deal is over and some costs were never earned back: the team fund pays them, so the person isn't out of pocket.
-  const over = ended || (type === "one" && res.expected > 0 && res.received >= res.expected);
+  const over = !holding && (ended || (type === "one" && res.expected > 0 && res.received >= res.expected));
   if (over) for (const q of queue) if (q.left > 0) { res.fundCover += q.left; res.fund -= q.left; res.flow.fund -= q.left; res.flow.costs += q.left; if (q.by) person(q.by).back += q.left; else res.unassigned += q.left; q.left = 0 }
   res.costsUnpaid = queue.reduce((s, q) => s + q.left, 0);
 

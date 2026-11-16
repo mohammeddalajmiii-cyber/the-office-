@@ -400,6 +400,7 @@ function renderProjectPage(p) {
     el("div", { class: "row", style: "align-items:flex-start;flex-wrap:nowrap" }, el("h2", { style: "flex:1;min-width:0" }, p.title),
       planner || joined ? el("button", { class: "btn small", "aria-expanded": String(settingsOpen), onclick: () => { showSettings = settingsOpen ? null : p.id; render() } }, settingsOpen ? "Close" : "Settings") : null),
     isPaused(p) ? el("div", { class: "paused-line" }, el("span", {}, `\u23f8 Paused by ${p.paused.by === me ? "you" : name(p.paused.by)} ${ago(p.paused.at)}. Its tasks are on hold.`), el("span", { class: "spacer" }), planner ? el("button", { class: "btn primary small", onclick: () => resumeProject(p) }, "Resume") : null) : null,
+    whoseLine(p),
     clientOf(p) ? clientLine(clientOf(p)) : null,
     p.pitch ? el("p", { class: "pitch" }, p.pitch) : null,
     !done && goal && goal.text ? el("div", { class: "goal-line" + (goal.reached ? " reached" : "") }, el("span", { class: "tlabel" }, goal.reached ? "This week's goal \u2713 reached" : "This week's goal"), el("span", {}, goal.text)) : null,
@@ -1050,12 +1051,22 @@ async function deleteProjectFile(p, f) {
   if (f.by === me || isAdmin) for (let n = 0; n < f.parts; n++) deleteDoc(doc(db, "fileparts", `${f.id}_${n}`)).catch(() => {});
 }
 
+// "Idea by Omar · Planned by Omar and Ahmed" on every project
+function whoseLine(p, small) {
+  const pls = plannerIds(p).filter(u => people[u] || u === me);
+  if (!p.author && !pls.length) return null;
+  const names = us => us.map(u => u === me ? "you" : firstName(u)).join(us.length > 2 ? ", " : " and ");
+  return el("div", { class: "whose" + (small ? " small" : "") },
+    p.author ? el("span", {}, av(p.author), "Idea by ", el("b", {}, p.author === me ? "you" : name(p.author))) : null,
+    pls.length ? el("span", {}, el("span", { class: "stack" }, pls.slice(0, 4).map(av)), "Planned by ", el("b", {}, names(pls))) : null);
+}
 function projCard(p, n) {
   const tasks = tasksOf(p), team = teamOf(p), left = tasks.filter(t => isAssignee(t, me) && !t.done).length;
   const open = () => { location.hash = "project-" + p.id };
   return el("article", { class: "idea projcard" },
     el("button", { class: "cardlink", onclick: open, "aria-label": "Open " + p.title },
       el("div", { class: "row", style: "gap:8px" }, n ? el("span", { class: "rank" }, "#" + n) : null, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), p.priority === "urgent" || p.priority === "high" ? prioChip(p) : null),
+      whoseLine(p, true),
       tasks.length ? line(progressOf(tasks), "tasks") : el("span", { class: "label" }, canPlan(p) ? "No plan yet. Tap to make one" : "No plan yet")),
     linksOf(p).length || filesOf(p).length ? el("div", { class: "links" }, linksOf(p).slice(0, 3).map(l => linkChip(p, l, false)),
       filesOf(p).length ? el("span", { class: "label" }, `${filesOf(p).length} file${filesOf(p).length > 1 ? "s" : ""}`) : null) : null,
@@ -1342,11 +1353,13 @@ function linkify(text) {
 // Which payment of the project's payment plan pays for this task (team only: partners and clients never see tasks).
 // Who can work on a task: the people on it and the planners, as long as they're on the project's team.
 const canWork = (p, t) => inTeam(p) && (canPlan(p) || isAssignee(t, me));
+// Task money as it would be by task prices, even while the money is still kept in the fund
+const taskMoneyOf = p => { const m = p.money || {}; return m.hold ? computeMoney({ ...p, money: { ...m, hold: null, split: "tasks" } }, todayStr(), rulesNow(), { team: projTeam(p) }) : moneyOf(p) };
 // A task's price, when the deal shares money by task prices
 function priceChip(p, t) {
   const m = p && p.money; if (!m || m.split !== "tasks" || m.type === "monthly") return null;
   const v = Number((m.prices || {})[t.id]) || 0; if (!(v > 0)) return null;
-  const r = moneyOf(p), info = r.tasks[t.id], mine = isAssignee(t, me), n = Math.max(1, assignees(t).length);
+  const r = taskMoneyOf(p), info = r.tasks[t.id], mine = isAssignee(t, me), n = Math.max(1, assignees(t).length);
   const tip = info ? (info.status === "earned" ? "Earned: " + fmtEGP(info.share) : `Worth about ${fmtEGP(info.est)} to ${n > 1 ? "the people on it, shared" : "whoever does it"} once it's done and paid`) : "";
   return el("span", { class: "pricechip" + (info && info.status === "earned" ? " earned" : ""), title: tip }, "\u{1F4B5} " + fmtCur(toP(v), m.currency) + (mine && info && info.est ? " · you ≈ " + fmtN(Math.floor((info.status === "earned" ? info.share : info.est) / n)) : ""));
 }
@@ -1507,7 +1520,7 @@ function pickFiles(onPick) {
   document.body.append(inp); inp.click();
 }
 // Uploads each file and hands it to save(file), which writes it onto the task. Progress shows in the element with id "tup-<key>".
-async function uploadFilesTo(key, list, save) {
+async function uploadFilesTo(key, list, save, where = "the task") {
   list = list.filter(Boolean);
   if (!list.length) return;
   if (taskUpKey) { toast("Wait for the other upload to finish"); return }
@@ -1528,7 +1541,7 @@ async function uploadFilesTo(key, list, save) {
     }
   }
   taskUpKey = null; taskUpMsg = ""; render();
-  if (added) toast(added > 1 ? `${added} files added to the task` : "File added to the task");
+  if (added) toast(added > 1 ? `${added} files added to ${where}` : `File added to ${where}`);
 }
 const dropFileParts = f => { if (f.by === me || isAdmin) for (let n = 0; n < f.parts; n++) deleteDoc(doc(db, "fileparts", `${f.id}_${n}`)).catch(() => {}) };
 const addTaskFiles = (p, t, key, list) => !inTeam(p) ? toast(NOT_ON_TEAM) : uploadFilesTo(key, list, file => upd(p.id, { [`${t.path}.files.${file.id}`]: file }));
@@ -2856,7 +2869,8 @@ function guidePage() {
       ["Not every task has a price.", "The part that isn't priced is shared by the team, by % or equally."],
       ["Order of the money:", `costs you paid are paid back first, then a partner's commission, then the team fund (${R.fundPct}%), then the finder's fee (${R.findPct}%), then the team.`],
       ["Me › Money", "shows what you're owed, what was handed to you, and every deal. Read and agree to the money rules there once."],
-      ["Paid for something yourself?", "Ask a planner to add it as a cost with your name: it's paid back before anything is split."]]),
+      ["Paid for something yourself?", "Ask a planner to add it as a cost with your name: it's paid back before anything is split."],
+      ["Kept in the fund:", "some projects keep their money in the team fund until the team decides how to split it. It's written as that project's money, so nothing gets lost; you'll see it under Me › Money › Fund & goals."]]),
     card("⚡", "Shortcuts", [
       ["Ctrl K or ⌘ K", "searches everything: tasks, projects, chat, notes."],
       ["✦ Assistant:", "tell it what you did (“I finished the logo, here's the link”) and it offers to tick the task and leave the note for you. Nothing happens until you tap Do it, and you can undo."],
@@ -2880,7 +2894,8 @@ function guidePage() {
       ["2. How the team's money is shared:", "By task prices (best for one-time work) or By % shares. Monthly deals use % shares, and you can change them for one month with Who worked?"],
       ["3. Payment plan:", "split the price into a deposit and the rest, and link the tasks each payment pays for. The plan tells you when it's time to ask the client for the next payment."],
       ["4. Task prices (Money tab):", "give tasks their part of the price. You don't need to price everything: Spread over the rest fills the tasks without a price for you, then fix any by hand. What isn't priced is shared by the team."],
-      ["5. Record payments and costs", "as they happen (+ Payment, + Cost). Mark paid when you hand someone their money, so their balance is right."],
+      ["Not sure yet?", "choose Keep it in the fund, decide later. Record payments as they come (say how you got them and pick The team fund under Who has it). When the team agrees, tap Decide the split: it shows what each way would give before you choose."],
+      ["5. Record payments and costs", "as they happen (+ Payment, + Cost). Write how you got the money and who has it, and attach the signed quotation with the deposit (or a receipt) under Papers. You can add files to a payment later from the History list. Mark paid when you hand someone their money, so their balance is right."],
       ["Every change is logged", "on the Money tab, and the team gets an alert when the deal changes."]]),
     card("\u{1F91D}", "Client and partners", [
       ["Client tab:", "turn on the client view to give the client a page with the stage, progress, next step and what they've paid. Make a monthly report there and save it as a PDF."],
@@ -3399,6 +3414,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-hold-1", date: "2026-11-16", icon: "\u{1F3E6}", title: "Keep a project's money in the fund, decide later",
+    text: "Not sure how to split a project's money yet? In Edit deal choose Keep it in the fund, decide later. Payments wait in the team fund, written as that project's, until the planners tap Decide the split (it shows what each way gives first). When you add a payment, say how you got it and attach the signed quotation or a receipt. Every project now shows whose idea it is and who's planning it.", go: "projects" },
   { id: "f-teams-prices-1", date: "2026-11-16", icon: "\u{1F465}", title: "Project teams and task prices",
     text: "Each project now has its own team. Ask to join and a planner accepts you, or accept a planner's invite. Only the team works on and earns from a project; anyone can still look and leave notes. Planners can give tasks a price: whoever does a task earns it once it's done and paid for. There's a new guide too: Settings › How Pitch Room works.", go: "settings-guide" },
   { id: "f-money-plan-1", date: "2026-11-15", icon: "\u{1F4B0}", title: "Deposits and payment plans",
@@ -3499,6 +3516,7 @@ const METHODS = ["Cash", "InstaPay", "Vodafone Cash", "Bank transfer", "Other"];
 let editDeal = null, moneyForm = null, delMoney = null, shareMonth = null;
 const moneyCache = new WeakMap();   // one sum per project version, so task chips don't redo it for every task
 const moneyOf = p => { const k = todayStr() + JSON.stringify(moneyRules || {}) + projTeam(p).join(","), c = moneyCache.get(p); if (c && c.k === k) return c.r; const r = computeMoney(p, todayStr(), rulesNow(), { team: projTeam(p) }); moneyCache.set(p, { k, r }); return r };
+const FUND_HOLDER = "__fund";
 const CURRENCIES = ["EGP", "USD", "EUR", "GBP", "SAR", "AED", "QAR", "KWD"];
 const fmtCur = (v, cur) => !cur || cur === "EGP" ? fmtEGP(v) : fmtN(v) + " " + cur;
 // Every money change is logged on the project, so everyone can see who changed what and when.
@@ -3511,6 +3529,7 @@ const canMoney = p => canPlan(p);
 
 function moneyStatus(p, r) {
   const m = p.money || {};
+  if (m.hold && m.stage !== "proposal") return r.late.length ? ["Payment late", "late"] : ["Kept in the fund", "due"];
   if (m.stage === "proposal") return ["Proposal sent", "label"];
   if (m.stage === "ended") return ["Ended", "label"];
   if (r.monthsUnpaid >= rulesNow().pauseAfterLate) return [`${r.monthsUnpaid} months unpaid`, "late"];
@@ -3575,7 +3594,8 @@ function renderMoney(box, p) {
   if (r.monthsUnpaid >= rulesNow().pauseAfterLate) warn.push(`The client hasn't paid for ${r.monthsUnpaid} months. Our rule: pause the work until they pay.`);
   else if (r.late.length) warn.push(`Late: ${r.late.map(s => s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label).join(", ")}. Remind the client.`);
   if (r.proposal) warn.push("This is a proposal. Nothing is due or late until the client agrees. Change the stage to Deal agreed in Edit deal when they say yes.");
-  if (r.costsUnpaid > 0 && !r.pending) warn.push(`${fmtEGP(r.costsUnpaid)} of costs still needs paying back. It comes out of the next payment.`);
+  if (r.costsUnpaid > 0 && r.holding) warn.push(`${fmtEGP(r.costsUnpaid)} of costs gets paid back first, once you decide the split.`);
+  else if (r.costsUnpaid > 0 && !r.pending) warn.push(`${fmtEGP(r.costsUnpaid)} of costs still needs paying back. It comes out of the next payment.`);
   if (r.fundCover > 0) warn.push(`This deal cost more than it earned. The team fund covered ${fmtEGP(r.fundCover)}, so nobody is out of pocket.`);
   if (r.unassigned > 0) warn.push(r.byTasks ? `${fmtEGP(r.unassigned)} isn't going to anyone yet: a done task has nobody on it, or the project has no team. Give the task to someone, or add people to the team.` : `${fmtEGP(r.unassigned)} isn't assigned to anyone yet. Set the shares in Edit deal.`);
   if (r.byTasks && r.taskHeld > 0) warn.push(`${fmtEGP(r.taskHeld)} is paid for but waiting: its tasks aren't done yet. It goes to the people on them when they tick them done.`);
@@ -3592,9 +3612,11 @@ function renderMoney(box, p) {
     if (moneyForm && moneyForm.pid === p.id) box.append(moneyEntryForm(p, r));
   }
 
+  if (r.holding) box.append(holdBlock(p, r));
+
   /* payment plan: the deposit, what's left, and which tasks each payment pays for */
   if (m.type === "one") box.append(planBlock(p, r));
-  if (r.byTasks) box.append(taskPricesBlock(p, r));
+  if (r.byTasks || (r.holding && m.split === "tasks" && m.type !== "monthly")) box.append(taskPricesBlock(p, r.holding ? taskMoneyOf(p) : r, r.holding));
 
   /* where the money goes, then who gets what */
   const split = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "Where the money goes"), el("span", { class: "spacer" }), el("span", { class: "label" }, "In EGP")));
@@ -3631,14 +3653,16 @@ function renderMoney(box, p) {
 
   /* history */
   const hist = [];
-  for (const [id, x] of Object.entries(p.payments || {})) if (x) hist.push({ id, coll: "payments", date: x.date, at: x.at, sign: "+", amount: x.amount, cur, rate: x.rate, text: `${x.stepLabel || { deposit: "Deposit", setup: "Setup fee", monthly: "Monthly fee " + monthLabel(x.month), installment: "Installment" }[x.kind] || "Payment"}${x.method ? " · " + x.method : ""}${x.heldBy ? " · with " + firstName(x.heldBy) : ""}`, note: x.note });
+  for (const [id, x] of Object.entries(p.payments || {})) if (x) hist.push({ id, files: payFilesOf(x), coll: "payments", date: x.date, at: x.at, sign: "+", amount: x.amount, cur, rate: x.rate, text: `${x.stepLabel || { deposit: "Deposit", setup: "Setup fee", monthly: "Monthly fee " + monthLabel(x.month), installment: "Installment" }[x.kind] || "Payment"}${x.method ? " · " + x.method : ""}${x.inFund ? " · in the team fund" : x.heldBy ? " · with " + firstName(x.heldBy) : ""}`, note: [x.source, x.note].filter(Boolean).join(" · ") });
   for (const [id, x] of Object.entries(p.costs || {})) if (x) hist.push({ id, coll: "costs", date: x.date, at: x.at, sign: "−", amount: x.amount, text: `Cost: ${x.what || "spent"}${x.paidBy ? " · paid by " + firstName(x.paidBy) : ""}`, note: x.note });
   for (const [id, x] of Object.entries(p.payouts || {})) if (x) hist.push({ id, coll: "payouts", date: x.date, at: x.at, sign: "→", amount: x.amount, text: x.toPartner ? `Paid to ${(r.partner && r.partner.name) || x.toPartner} (partner)${x.from ? " by " + firstName(x.from) : ""}` : `Paid to ${firstName(x.to)}${x.from ? " by " + firstName(x.from) : ""}`, note: x.note });
   for (const [id, x] of Object.entries(p.ads || {})) if (x) hist.push({ id, coll: "ads", date: x.date, at: x.at, sign: x.kind === "spent" ? "−" : "+", amount: x.amount, text: x.kind === "spent" ? "Ad money spent on ads" : "Ad money from client", note: x.note, ad: true });
   hist.sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.at || 0) - (a.at || 0));
   if (hist.length) box.append(el("details", { class: "removed", open: hist.length <= 6 }, el("summary", {}, `History (${hist.length})`),
     el("div", { class: "idea", style: "gap:0;margin-top:10px" }, hist.map(h => el("div", { class: "hrow" + (h.ad ? " ad" : "") },
-      el("span", { class: "hsign" }, h.sign), el("div", { class: "hmain" }, el("div", {}, h.text), el("div", { class: "label" }, fmtDate(h.date) + (h.note ? " · " + h.note : ""))),
+      el("span", { class: "hsign" }, h.sign), el("div", { class: "hmain" }, el("div", {}, h.text), el("div", { class: "label" }, fmtDate(h.date) + (h.note ? " · " + h.note : "")),
+        h.coll === "payments" && (h.files.length || can) ? fileRow(h.files, "pay-" + h.id, f => can && (f.by === me || isAdmin), f => upd(p.id, { [`payments.${h.id}.files.${f.id}`]: DEL() }).then(() => dropFileParts(f)),
+          can ? list => uploadFilesTo("pay-" + h.id, list, file => upd(p.id, { [`payments.${h.id}.files.${file.id}`]: file }), "the payment") : null) : null),
       el("span", { class: "hamt" }, fmtCur(toP(h.amount), h.cur), h.cur && h.cur !== "EGP" && h.rate ? el("small", { class: "label", style: "display:block" }, "@ " + h.rate) : null),
       can ? (delMoney === h.id ? el("button", { class: "linkdel sure", onclick: () => { delMoney = null; moneyUpd(p, { [h.coll + "." + h.id]: DEL() }, `Removed: ${h.text} ${fmtCur(toP(h.amount), h.cur)}`, "remove", "Removed") } }, "Remove?")
         : el("button", { class: "linkdel", "aria-label": "Remove", onclick: () => { delMoney = h.id; render() } }, "✕")) : null)))));
@@ -3799,6 +3823,37 @@ function planEditor(p, r) {
   updTotal();
   return box;
 }
+// Money kept in the team fund for this project, until the team decides how to split it.
+let holdDecide = null;
+function holdBlock(p, r) {
+  const m = p.money, can = canMoney(p), pays = Object.values(p.payments || {}).filter(x => x && x.amount != null).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const sec = el("section", { class: "idea holdcard" },
+    el("div", { class: "row" }, el("h3", {}, "Kept in the team fund"), el("span", { class: "spacer" }), el("span", { class: "mstat due" }, "Not split yet")),
+    el("div", { class: "bignum" }, fmtEGP(r.holdAmt)),
+    el("p", { style: "margin:0;font-size:14px" }, `This money is in the team fund, written down as ${p.title}'s. It isn't the fund's own money and nobody has been paid from it yet. ` + (m.hold && m.hold.by ? `${m.hold.by === me ? "You" : firstName(m.hold.by)} chose to decide the split later${m.hold.at ? ", " + fmtDay(m.hold.at) : ""}.` : "")));
+  if (pays.length) sec.append(el("div", { style: "display:grid;gap:2px" }, pays.map(x => el("div", { class: "hrow" }, el("span", { class: "hsign" }, "+"),
+    el("div", { class: "hmain" }, el("div", {}, x.source || x.stepLabel || "Payment"), el("div", { class: "label" }, [fmtDate(x.date), x.method, x.inFund ? "in the team fund" : x.heldBy ? "with " + firstName(x.heldBy) : null].filter(Boolean).join(" · ")),
+      payFilesOf(x).length ? fileRow(payFilesOf(x), "hold-" + (x.at || 0), () => false, null, null) : null),
+    el("span", { class: "hamt" }, fmtCur(toP(x.amount), m.currency))))));
+  if (!can) { sec.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "The project's planners decide how it's split.")); return sec }
+  if (holdDecide !== p.id) { sec.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary small", onclick: () => { holdDecide = p.id; render() } }, "Decide the split"))); return sec }
+  // what each way would give, from the money that came in so far
+  const R = rulesNow(), team = projTeam(p);
+  const tryWay = v => computeMoney({ ...p, money: { ...m, hold: null, split: v } }, todayStr(), R, { team });
+  const hasShares = Object.values(m.shares || {}).some(x => Number(x) > 0);
+  sec.append(el("div", { class: "tlabel" }, "How should we split it?"));
+  for (const [v, l, d] of SPLIT_WAYS.filter(w => w[0] !== "hold" && !(m.type === "monthly" && w[0] === "tasks"))) {
+    const x = tryWay(v), ppl = Object.entries(x.people).filter(([, y]) => y.earned > 0).sort((a, b) => b[1].earned - a[1].earned);
+    const now = [x.fund ? `fund ${fmtEGP(x.fund)}` : null, ...ppl.map(([u, y]) => `${firstName(u)} ${fmtEGP(y.earned)}`), x.taskHeld ? `${fmtEGP(x.taskHeld)} waits for tasks` : null, x.pending ? "split once the client has paid everything" : null].filter(Boolean).join(" · ");
+    const blocked = v === "shares" && !hasShares;
+    sec.append(el("div", { class: "way decide" }, el("span", { style: "flex:1;min-width:0;display:grid;gap:2px" }, el("b", {}, l), el("span", { class: "label" }, d), el("span", { class: "label" }, blocked ? "Set the shares in Edit deal first." : "From what came in so far: " + (now || "nothing yet"))),
+      blocked ? el("button", { class: "btn small", onclick: () => { holdDecide = null; editDeal = p.id; dealSplitDraft[p.id] = "shares"; render() } }, "Set shares")
+        : el("button", { class: "btn small primary", onclick: () => { holdDecide = null; moneyUpd(p, { "money.hold": DEL(), "money.split": v }, `Decided the split: ${l} (${fmtEGP(r.holdAmt)} was kept in the fund)`, "deal", "Decided. The money is split now") } }, "Use this")));
+  }
+  sec.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => { holdDecide = null; render() } }, "Not yet")));
+  return sec;
+}
+
 // Task prices: what each task is worth, grouped by the payment that pays for it.
 let priceEdit = null, priceDraft = null;
 function taskBuckets(p) {
@@ -3807,7 +3862,7 @@ function taskBuckets(p) {
   const ids = new Set(plan.flatMap(s => s.tasks || []));
   return plan.map((s, i) => ({ label: s.label || `Payment ${i + 1}`, amount: Number(s.amount) || 0, tasks: all.filter(t => (s.tasks || []).includes(t.id) || (i === plan.length - 1 && !ids.has(t.id))) }));
 }
-function taskPricesBlock(p, r) {
+function taskPricesBlock(p, r, held) {
   const m = p.money, can = canMoney(p), cur = r.currency, f = v => fmtCur(v, cur), all = tasksOf(p);
   const editing = can && priceEdit === p.id && priceDraft;
   const sec = el("section", { class: "idea tprices" }, el("div", { class: "row" }, el("h3", {}, "Task prices"), el("span", { class: "spacer" }),
@@ -3816,6 +3871,7 @@ function taskPricesBlock(p, r) {
   sec.append(el("p", { style: "margin:0;font-size:14px" }, r.priced
     ? `${f(r.priced)} of the ${f(price)} price is on tasks. A task pays whoever does it, once it's done and its payment is in. ${r.priced < price ? "The other " + f(price - r.priced) + " is shared by the team." : ""}`
     : "No task has a price yet, so the team shares everything" + (Object.keys(m.shares || {}).length ? " by the % shares." : " equally.") + (can ? " Give tasks a price so the people who do them earn them." : "")));
+  if (held) sec.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "The money is still kept in the fund, so this shows what each task would get if you decide to split by task prices."));
   if (r.taskRate) sec.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, `After costs, the team fund and the finder, a task keeps about ${Math.round(r.taskRate * 100)}% of its price. A 1,000 ${cur} task ≈ ${fmtEGP(Math.round(100000 * r.taskRate))} for the people on it.`));
   if (!all.length) { sec.append(el("p", { class: "label", style: "margin:0" }, "Add tasks on the Tasks tab first.")); return sec }
   const buckets = taskBuckets(p);
@@ -3839,7 +3895,7 @@ function taskPricesBlock(p, r) {
         if (!val.value && priceDraft[t.id]) val.value = priceDraft[t.id] }
       else val = el("span", { class: "mval" }, info ? f(info.price) : "—");
       bw.append(el("div", { class: "tprow" + (t.done ? " done" : "") }, el("span", { class: "ptick" }, t.done ? "✓" : "○"),
-        el("div", { class: "tpmain" }, el("div", {}, t.text), el("div", { class: "label" }, [who.length ? who.map(firstName).join(" & ") : "nobody on it yet", info ? (info.status === "earned" ? "got " + fmtEGP(info.share) : "≈ " + fmtEGP(info.est) + " to them") : null, st].filter(Boolean).join(" · "))),
+        el("div", { class: "tpmain" }, el("div", {}, t.text), el("div", { class: "label" }, [who.length ? who.map(firstName).join(" & ") : "nobody on it yet", info ? (held ? "would get ≈ " + fmtEGP(info.status === "earned" ? info.share : info.est) : info.status === "earned" ? "got " + fmtEGP(info.share) : "≈ " + fmtEGP(info.est) + " to them") : null, held ? (t.done ? "Done" : "") : st].filter(Boolean).join(" · "))),
         val));
     }
     updLeft();
@@ -3859,7 +3915,7 @@ function taskPricesBlock(p, r) {
 // On a task's details: what it's worth and when the money comes.
 function taskMoneyField(p, t) {
   const m = p.money; if (!m || m.split !== "tasks" || m.type === "monthly") return null;
-  const r = moneyOf(p), info = r.tasks[t.id], who = assignees(t), n = Math.max(1, who.length), cur = r.currency;
+  const r = taskMoneyOf(p), info = r.tasks[t.id], who = assignees(t), n = Math.max(1, who.length), cur = r.currency;
   const go = canMoney(p) ? el("button", { class: "linkbtn", onclick: () => { projTab = "money"; priceEdit = p.id; priceDraft = { ...(m.prices || {}) }; render(); scrollTo(0, 0) } }, info ? "Change the price" : "Give it a price") : null;
   if (!info) return el("span", { class: "row", style: "gap:8px" }, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "No price. It's part of what the team shares."), go);
   const each = v => n > 1 ? `${fmtEGP(Math.floor(v / n))} each (${n} people)` : fmtEGP(v);
@@ -3884,7 +3940,9 @@ function flowList(p, r) {
   if (fl.partner) wrap.append(row("−", `Partner: ${r.partner ? r.partner.name : "partner"}`, r.partner && r.partner.mode === "fixed" ? `fixed ${fmtEGP(toP(r.partner.value))} for bringing the client` : `${r.partner ? r.partner.value : ""}% for bringing the client`, fl.partner));
   if (fl.fund || !fl.shares) wrap.append(row("−", `Team fund (${r.fundPct}%)`, "saved for the office and our subscriptions", fl.fund));
   if (fl.finder) wrap.append(row("−", `Finder's fee (${r.findPct}%)`, "for bringing the client" + (finderTo ? ", " + finderTo : ""), fl.finder));
+  if (r.holding) { wrap.append(row("=", "Kept in the team fund for this project", "not split yet: the planners decide how", r.holdAmt, "fout")); return wrap }
   const restBy = share ? "the rest by shares: " + share : "the rest equally by the project's team";
+  if (r.byFund) { wrap.append(row("=", "To the team fund", "this project's money all goes to the fund", fl.fund, "fout")); return wrap }
   wrap.append(row("=", "Shared by the team", r.byTasks ? (r.priced ? `by task prices (${fmtCur(r.priced, r.currency)} of the price is priced), ${restBy}` : "by task prices: no task has a price yet, so " + restBy.replace("the rest ", "")) : share ? "by shares: " + share : "no shares set yet", fl.shares, "fout"));
   if (pv && r.received) wrap.append(el("p", { class: "label", style: "margin:8px 0 0" }, `So far: ${fmtEGP(r.receivedEGP)} came in.` + (r.flow.costs ? ` ${fmtEGP(r.flow.costs)} paid back costs.` : "") + (r.held ? ` ${fmtEGP(r.held)} is waiting to be split.` : "")));
   return wrap;
@@ -3914,7 +3972,7 @@ function moneyEntryForm(p, r) {
   const note = el("input", { id: "mf-note", class: "noteinput", maxlength: "120", placeholder: "Note (optional)" });
   const box = el("section", { class: "idea mform" });
   const close = () => { moneyForm = null; render() };
-  let kindSel, monthSel, method, held, whatIn, paidBy, adKind, to, from;
+  let kindSel, monthSel, method, held, source, whatIn, paidBy, adKind, to, from;
   if (f.kind === "pay") {
     box.append(el("h3", {}, "Payment received"));
     const kinds = m.type === "monthly" ? [["monthly", "Monthly fee"], ["setup", "Setup fee"]] : m.type === "installments" ? [["installment", "Installment"]] : r.planned ? r.schedule.map(s => [s.step, `${s.label} (${fmtCur(s.expected - s.received, cur)} left)`]) : [["deposit", "Deposit"], ["payment", "Payment"]];
@@ -3934,9 +3992,13 @@ function moneyEntryForm(p, r) {
       kindSel.addEventListener("change", () => { monthSel.parentElement.parentElement.hidden = kindSel.value !== "monthly"; amount.value = kindSel.value === "setup" ? m.setupFee || "" : m.monthlyFee || "" });
     }
     method = el("select", { class: "mini", id: "mf-method" }, METHODS.map(x => el("option", { value: x }, x)));
-    held = personSelect("mf-held", me, p);
+    held = personSelect("mf-held", m.hold ? FUND_HOLDER : me, p);
+    held.prepend(el("option", { value: FUND_HOLDER }, "The team fund")); held.value = m.hold ? FUND_HOLDER : me;
+    source = el("input", { id: "mf-source", class: "noteinput", maxlength: "160", placeholder: "How we got it, e.g. deposit from Mr. Li for the brand identity, sent to Mohammed's InstaPay" });
     box.append(fieldRow("Amount", amount, cur !== "EGP" ? el("span", { class: "label" }, cur) : null), rate ? fieldRow("Rate today", el("span", { class: "label" }, `1 ${cur} =`), rate, el("span", { class: "label" }, "EGP")) : null,
-      fieldRow(r.planned ? "For" : "Type", kindSel), monthSel ? fieldRow("For month", monthSel) : null, fieldRow("Date", date), fieldRow("How", method), fieldRow("Who has it", held), note);
+      fieldRow(r.planned ? "For" : "Type", kindSel), monthSel ? fieldRow("For month", monthSel) : null, fieldRow("Date", date), fieldRow("How", method), fieldRow("Who has it", held), source, note,
+      fieldRow("Papers", payFilesPicker(f, !r.received)),
+      m.hold ? el("p", { class: "label", style: "margin:0" }, "This project keeps its money in the team fund until you decide the split. It's written down as this project's money, not the fund's own.") : null);
     if (monthSel && kindSel.value !== "monthly") monthSel.parentElement.parentElement.hidden = true;
   } else if (f.kind === "cost") {
     box.append(el("h3", {}, "Cost"));
@@ -3963,7 +4025,7 @@ function moneyEntryForm(p, r) {
     const base = { amount: Math.round(a * 100) / 100, date: date.value || today, note: note.value.trim(), by: me, at: Date.now() };
     let coll, data, ok;
     let what;
-    if (f.kind === "pay") { coll = "payments"; data = { ...base, kind: kindSel.value, method: method.value, heldBy: held.value || null }; if (kindSel.value === "monthly") data.month = monthSel.value; ok = "Payment added";
+    if (f.kind === "pay") { coll = "payments"; data = { ...base, kind: kindSel.value, method: method.value, heldBy: held.value === FUND_HOLDER ? null : held.value || null, inFund: held.value === FUND_HOLDER, source: source.value.trim() }; if (kindSel.value === "monthly") data.month = monthSel.value; ok = "Payment added";
       if (r.planned) { const s = r.schedule.find(x => x.step === kindSel.value) || r.schedule[0]; Object.assign(data, { kind: s.n === 1 ? "deposit" : "payment", step: s.step, stepLabel: s.label }); ok = s.label + " added" }
       if (rate) { const rt = Number(rate.value); if (!(rt > 0)) { toast(`Enter today's rate: how many EGP for 1 ${cur}`); rate.focus(); return } data.rate = rt; data.currency = cur }
       what = `${data.stepLabel || "Payment"} ${fmtCur(toP(a), cur)}` + (rate ? ` @ ${data.rate}` : "") }
@@ -3971,13 +4033,28 @@ function moneyEntryForm(p, r) {
     else if (f.kind === "ads") { coll = "ads"; data = { ...base, kind: adKind.value }; ok = "Ad money added"; what = `Ad money ${adKind.value === "spent" ? "spent" : "received"} ${fmtCur(toP(a), cur)}` }
     else if (f.toPartner) { coll = "payouts"; data = { ...base, toPartner: f.toPartner, from: from.value || null }; ok = "Marked as paid to the partner"; what = `Paid ${fmtEGP(toP(a))} to the partner` }
     else { coll = "payouts"; data = { ...base, to: to.value, from: from.value || null }; ok = `Marked as paid to ${firstName(to.value)}`; what = `Paid ${fmtEGP(toP(a))} to ${firstName(to.value)}` }
+    const files = f.kind === "pay" ? (f.files || []) : [], eid = uid();
+    if (files.length) data.files = {};
     moneyForm = null;
-    moneyUpd(p, { [coll + "." + uid()]: data }, what, "entry", ok);
+    moneyUpd(p, { [coll + "." + eid]: data }, what + (files.length ? ` (with ${files.length} file${files.length > 1 ? "s" : ""})` : ""), "entry", ok)
+      .then(okd => { if (okd !== false && files.length) uploadFilesTo("pay-" + eid, files, file => upd(p.id, { [`payments.${eid}.files.${file.id}`]: file }), "the payment") });
   };
   box.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("button", { class: "btn primary", onclick: save }, "Save")));
   setTimeout(() => { if (!amount.value) amount.focus() }, 0);
   return box;
 }
+
+// The papers that go with a payment: the signed quotation with the deposit, a receipt, a transfer screenshot.
+function payFilesPicker(f, first) {
+  f.files = f.files || [];
+  const wrap = el("div", { style: "display:grid;gap:6px" });
+  const chips = el("div", { class: "links" }, f.files.map((x, i) => el("span", { class: "linkwrap" }, el("span", { class: "linkchip filechip" }, el("span", { class: "fext" }, extOf(x.name)), el("span", {}, x.name)),
+    el("button", { class: "linkdel", type: "button", "aria-label": "Remove " + x.name, onclick: () => { f.files.splice(i, 1); render() } }, "✕"))),
+    el("button", { class: "linkchip addlink", type: "button", onclick: () => pickFiles(list => { f.files.push(...list); render() }) }, f.files.length ? "+ Another file" : first ? "+ Signed quotation (PDF)" : "+ Receipt or PDF"));
+  wrap.append(chips, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, first ? "Attach the signed quotation with the deposit, and a receipt or transfer screenshot if you have one. Up to 5 MB each." : "A receipt, a transfer screenshot or a signed paper. Up to 5 MB each."));
+  return wrap;
+}
+const payFilesOf = x => Object.values((x && x.files) || {}).filter(f => f && f.id && f.parts).sort((a, b) => (a.at || 0) - (b.at || 0));
 
 // share editor: percentages that must add up to 100
 function sharesEditor(prefix, p, current, suggestBtn, optional) {
@@ -4001,6 +4078,11 @@ function sharesEditor(prefix, p, current, suggestBtn, optional) {
 }
 
 let dealTypeDraft = {}, dealCurDraft = {}, dealSplitDraft = {};
+const SPLIT_WAYS = [
+  ["tasks", "By task prices", "Whoever does a priced task earns it once it's done and paid for. The unpriced part is shared by the team."],
+  ["shares", "By % shares", "Each person on the project's team gets the % you type."],
+  ["fund", "All to the team fund", "After costs, the partner and the finder, everything goes to the team fund."],
+  ["hold", "Keep it in the fund, decide later", "The money waits in the team fund, written as this project's. Nobody is paid from it until you decide how to split it."]];
 function dealForm(p) {
   const m = p.money || {}, R = rulesNow();
   const type = dealTypeDraft[p.id] || m.type || "one";
@@ -4027,16 +4109,15 @@ function dealForm(p) {
   if (type === "monthly") box.append(fieldRow("Monthly fee", fee), fieldRow("Setup fee", setup), fieldRow("Starts", start), fieldRow("Ends", end, el("span", { class: "label" }, "leave empty if ongoing")), fieldRow("Due by day", dueDay),
     el("label", { class: "row", style: "gap:8px;font-size:14px" }, ads, "The client also pays their ad budget through us (tracked separately, never split)"));
 
-  // one-time and paid-over-months deals: share by task prices, or by % shares
-  const split = type === "monthly" ? "shares" : (dealSplitDraft[p.id] || m.split || (m.type ? "shares" : "tasks"));
-  if (type !== "monthly") box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "How the team's money is shared"),
-    el("div", { class: "seg seg-wide", role: "group", "aria-label": "How the team's money is shared" },
-      [["tasks", "By task prices"], ["shares", "By % shares"]].map(([v, l]) => el("button", { type: "button", "aria-pressed": String(split === v), onclick: () => { dealSplitDraft[p.id] = v; render() } }, l))),
-    el("p", { class: "label", style: "margin:0" }, split === "tasks"
-      ? "Give tasks a price on the Money tab. Whoever does a task earns its price (after costs, the fund and the finder), once it's done and paid for. You don't have to price every task: whatever isn't priced is shared by the % below, or equally by the team if you leave them empty."
-      : "Type each person's %. Only people on the project's team can get a share."));
-  box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, type === "monthly" ? "Who built it (setup fee shares)" : split === "tasks" ? "Shares for the unpriced part (optional)" : "Who gets what (shares)"));
-  const shares = sharesEditor("sh-" + p.id, p, m.shares, true, split === "tasks"); box.append(shares);
+  // how the team's money is shared: by task prices, by % shares, all to the fund, or kept in the fund until we decide
+  let split = dealSplitDraft[p.id] || (m.hold ? "hold" : m.split) || (m.type ? "shares" : "tasks");
+  if (type === "monthly" && split === "tasks") split = "shares";
+  box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "How the team's money is shared"),
+    el("div", { class: "waylist", role: "radiogroup", "aria-label": "How the team's money is shared" }, SPLIT_WAYS.filter(w => !(type === "monthly" && w[0] === "tasks")).map(([v, l, d]) =>
+      el("button", { type: "button", role: "radio", class: "way", "aria-checked": String(split === v), onclick: () => { dealSplitDraft[p.id] = v; render() } }, el("span", { class: "waydot" }), el("span", {}, el("b", {}, l), el("span", { class: "label" }, d))))));
+  const sharesOptional = split !== "shares";
+  box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, type === "monthly" ? "Who built it (setup fee shares)" : split === "tasks" ? "Shares for the unpriced part (optional)" : split === "shares" ? "Who gets what (shares)" : "Shares (optional, for later)"));
+  const shares = sharesEditor("sh-" + p.id, p, m.shares, true, sharesOptional); box.append(shares);
   let mshares = null;
   if (type === "monthly") { box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "Who runs it each month (monthly fee shares)")); mshares = sharesEditor("msh-" + p.id, p, m.monthlyShares || m.shares, false); box.append(mshares, el("p", { class: "label", style: "margin:0" }, "You can change this for a single month later with “Who worked?”.")) }
 
@@ -4063,8 +4144,8 @@ function dealForm(p) {
   const save = () => {
     // a proposal can be saved before the shares are agreed; a real deal needs them to add up to 100%
     const prop = stage.value === "proposal";
-    const s = shares.read(); if (s.total !== 100 && !((prop || split === "tasks") && s.total === 0)) { toast(prop ? "The shares need to add up to 100%, or leave them all empty for now" : "The shares need to add up to 100%"); return }
-    let ms = null; if (mshares) { ms = mshares.read(); if (ms.total !== 100 && !(prop && ms.total === 0)) { toast("The monthly shares need to add up to 100%"); return } }
+    const s = shares.read(); if (s.total !== 100 && !((prop || sharesOptional) && s.total === 0)) { toast(prop ? "The shares need to add up to 100%, or leave them all empty for now" : "The shares need to add up to 100%"); return }
+    let ms = null; if (mshares) { ms = mshares.read(); if (ms.total !== 100 && !((prop || sharesOptional) && ms.total === 0)) { toast("The monthly shares need to add up to 100%"); return } }
     const n = x => Math.round((Number(x.value) || 0) * 100) / 100;
     const finders = fMode.value === "people" ? [...fBoxes.querySelectorAll("input:checked")].map(i => i.value) : [];
     if (fMode.value === "people" && !finders.length) { toast("Tick who brought the client, or choose Nobody"); return }
@@ -4077,7 +4158,7 @@ function dealForm(p) {
     const data = { type, currency: cur, rate: rt, partner: pmx ? { email: pmx.id, name: pmx.name || pmx.id, gid: pmx.gid || "", mode: paMode.value, value: pv } : null, client: client.value.trim(), stage: stage.value, shares: s.shares, finder: null, finders, finderTeam: fMode.value === "team",
       fundCustom: fundIn ? fundV !== R.fundPct : !!m.fundCustom, fundPct: fundIn ? fundV : (m.fundPct != null ? m.fundPct : null),
       findCustom: findIn ? findV !== R.findPct : !!m.findCustom, findPct: findIn ? findV : (m.findPct != null ? m.findPct : null),
-      monthShares: m.monthShares || {}, plan: Array.isArray(m.plan) ? m.plan : [], split, prices: m.prices || {}, setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
+      monthShares: m.monthShares || {}, plan: Array.isArray(m.plan) ? m.plan : [], split: split === "hold" ? (m.split || (type === "monthly" ? "shares" : "tasks")) : split, hold: split === "hold" ? (m.hold || { by: me, at: Date.now() }) : null, prices: m.prices || {}, setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
     if (type === "one") { if (!(n(price) > 0)) { toast("Enter the price"); return } data.price = n(price) }
     if (type === "installments") { if (!(n(price) > 0)) { toast("Enter the total price"); return } Object.assign(data, { price: n(price), installments: Math.max(2, Math.round(Number(months.value) || 3)), startMonth: start.value || thisMonth(), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)) }) }
     if (type === "monthly") { if (!(n(fee) > 0)) { toast("Enter the monthly fee"); return } Object.assign(data, { monthlyFee: n(fee), setupFee: n(setup), startMonth: start.value || thisMonth(), endMonth: end.value || (stage.value === "ended" ? thisMonth() : ""), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)), adBudget: ads.checked, monthlyShares: ms.shares }) }
@@ -4089,7 +4170,7 @@ function dealForm(p) {
       const sd = sharesDiff(m.shares, data.shares); if (sd) ch.push("Shares: " + sd);
       if (data.monthlyShares) { const md = sharesDiff(m.monthlyShares || m.shares, data.monthlyShares); if (md) ch.push("Monthly shares: " + md) }
       for (const [k, l] of [["price", "Price"], ["monthlyFee", "Monthly fee"], ["setupFee", "Setup fee"]]) if (data[k] != null && Number(m[k] || 0) !== Number(data[k] || 0)) ch.push(`${l}: ${m[k] || 0} \u2192 ${data[k]} ${cur}`);
-      if ((m.split || "shares") !== split) ch.push(split === "tasks" ? "Now shared by task prices" : "Now shared by % shares");
+      if ((m.hold ? "hold" : m.split || "shares") !== split) ch.push("Money: " + SPLIT_WAYS.find(w => w[0] === split)[1]);
       if ((m.currency || "EGP") !== cur) ch.push(`Currency: ${m.currency || "EGP"} \u2192 ${cur}`);
       if ((m.stage || "agreed") !== data.stage) ch.push("Stage: " + (STAGES.find(x => x[0] === data.stage) || [, data.stage])[1]);
       if (JSON.stringify(m.partner || null) !== JSON.stringify(data.partner)) ch.push(data.partner ? `Partner: ${data.partner.name} ${data.partner.mode === "fixed" ? data.partner.value + " EGP" : data.partner.value + "%"}` : "Partner removed");
@@ -4139,7 +4220,7 @@ const dealProjects = () => ideas.filter(i => (i.status === "approved" || i.statu
 const fundSpendList = () => Object.entries((fundDoc || {}).spends || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v }));
 function allMoney() {
   const out = { projects: [], partners: {}, me: { earned: 0, back: 0, paid: 0, balance: 0 }, people: {}, fundIn: 0, month: { expected: 0, received: 0 }, late: [],
-    flow: { received: 0, back: 0, fund: 0, earned: 0, waiting: 0, cover: 0 } };
+    flow: { received: 0, back: 0, fund: 0, earned: 0, waiting: 0, cover: 0, kept: 0 }, kept: [] };
   const nowM = thisMonth();
   const pp = u => out.people[u] || (out.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
   for (const p of dealProjects()) {
@@ -4150,6 +4231,7 @@ function allMoney() {
       for (const s of r.late) out.late.push({ p, s });
     }
     if (r.partner) { const x = out.partners[r.partner.email] || (out.partners[r.partner.email] = { name: r.partner.name, earned: 0, paid: 0, deals: [] }); x.earned += r.partner.earned; x.paid += r.partner.paid; x.deals.push({ title: p.title, earned: r.partner.earned, paid: r.partner.paid }) }
+    if (r.holding && r.holdAmt) { out.kept.push({ p, amt: r.holdAmt }); out.flow.kept += r.holdAmt }
     const f = out.flow; f.received += r.receivedEGP; f.partner = (f.partner || 0) + (r.partner ? r.partner.earned : 0); f.fund += r.fund; f.waiting += r.held + r.unassigned; f.cover += r.fundCover;
     for (const v of Object.values(r.people)) { f.back += v.back; f.earned += v.earned }
   }
@@ -4231,7 +4313,7 @@ function renderMoneyPage() {
   const fl = all.flow;
   if (fl.received > 0) {
     const handed = Object.values(all.people).reduce((s, v) => s + v.paid, 0), stillOwed = Object.values(all.people).reduce((s, v) => s + Math.max(0, v.balance), 0);
-    const segs = [["back", "Costs paid back", fl.back], ["partner", "Partners' commission", fl.partner || 0], ["fund", "Team fund", Math.max(0, fl.fund)], ["people", "The team's shares", fl.earned], ["wait", "Waiting to be split", fl.waiting]].filter(x => x[2] > 0);
+    const segs = [["back", "Costs paid back", fl.back], ["partner", "Partners' commission", fl.partner || 0], ["fund", "Team fund", Math.max(0, fl.fund)], ["people", "The team's shares", fl.earned], ["wait", "Waiting to be split", fl.waiting], ["kept", "Kept in the fund for projects", fl.kept || 0]].filter(x => x[2] > 0);
     const tot = segs.reduce((s, x) => s + x[2], 0) || 1;
     box.append(el("section", { class: "idea flowcard" },
       el("div", { class: "row" }, el("h3", {}, "Where the money went"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(fl.received) + " from clients")),
@@ -4277,6 +4359,10 @@ function renderFundTab(box, all, F) {
       el("div", {}, el("b", {}, fmtEGP(F.spent)), el("span", {}, "spent" + (F.extra ? ` \u00b7 ${fmtEGP(F.extra)} added by hand` : ""))),
       el("div", { class: runway != null && runway < 2 ? "late" : "" }, el("b", {}, runway == null ? "–" : runway > 24 ? "24+" : String(runway)), el("span", {}, runway == null ? "no subscriptions" : "months of subscriptions covered")))));
   if (isAdmin && fundForm === "spend") box.append(fundEntryForm(F));
+  if (all.kept.length) box.append(el("section", { class: "idea", style: "margin-top:12px;gap:0" },
+    el("div", { class: "row", style: "margin-bottom:4px" }, el("h3", {}, "Kept for projects"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(all.flow.kept))),
+    el("p", { class: "label", style: "margin:0 0 6px;text-transform:none;letter-spacing:0" }, "Money the fund is holding for a project until its team decides the split. It's not in the fund's balance above and can't be spent on goals."),
+    all.kept.map(({ p, amt }) => el("button", { class: "mlink", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, fmtEGP(amt))))));
 
   /* the fund owes people who paid from their own pocket */
   if (F.owes.length) box.append(el("section", { class: "idea", style: "margin-top:12px;gap:0" }, el("div", { class: "row", style: "margin-bottom:6px" }, el("h3", {}, "The fund owes"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(F.owed))),
