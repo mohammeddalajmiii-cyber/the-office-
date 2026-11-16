@@ -3492,6 +3492,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-rules-v3", date: "2026-11-16", icon: "\u{1F4DC}", title: "New money rules: please read and agree",
+    text: "The money rules were rewritten to match how money works now: project teams, task prices, phases, keeping money in the fund, papers on payments and the fund's own money. The numbers are the same. Money › Rules.", go: "money-rules" },
   { id: "f-bugs-ideas-1", date: "2026-11-16", icon: "\u{1F41E}", title: "Bugs and ideas, straight to the creators",
     text: "Found something broken, or know what would make work easier? ⋯ › Bugs and ideas. Creators get an alert, and you hear back when it's fixed. Also new: if you pitched an idea and 2 others voted Keep, you can make it a project yourself.", go: "settings-feedback" },
   { id: "f-client-live-1", date: "2026-11-16", icon: "\u{1F441}", title: "See exactly what the client sees",
@@ -4636,9 +4638,15 @@ function ensureMoneyRules() {
       const data = { reviewMonths: 2, reviewAt: plus(r.setAt || Date.now(), 2), review2: true };
       moneyRules = { ...r, ...data }; setDoc(doc(db, "meta", "money"), data, { merge: true }).catch(() => {});
     }
+    // the rules were rewritten: a new version that everyone agrees to again (the numbers stay the same)
+    if ((r.textV || 0) < RULES_TEXT_V) {
+      const data = { textV: RULES_TEXT_V, version: (r.version || 1) + 1, updatedAt: Date.now(),
+        prev: { fundPct: r.fundPct, findPct: r.findPct, finderMonths: r.finderMonths, pauseAfterLate: r.pauseAfterLate, reviewMonths: r.reviewMonths, version: r.version || 1, note: RULES_TEXT_NOTE } };
+      moneyRules = { ...r, ...data }; setDoc(doc(db, "meta", "money"), data, { merge: true }).catch(() => {});
+    }
     return;
   }
-  const data = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 2, version: Math.max(2, (r.version || 1) + (moneyRules ? 1 : 0)),
+  const data = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 2, textV: RULES_TEXT_V, version: Math.max(2, (r.version || 1) + (moneyRules ? 1 : 0)),
     holder: r.holder || me, setAt: Date.now(), reviewAt: plus(Date.now(), 2), agreed40: true, review2: true, updatedAt: Date.now() };
   moneyRules = { ...r, ...data };
   setDoc(doc(db, "meta", "money"), data, { merge: true }).catch(() => {});
@@ -4687,26 +4695,48 @@ const nextDate = (d, cycle) => { const x = new Date(d + "T12:00"); if (cycle ===
 let fundForm = null, delFund = null, editRules = false, moneyTab = "overview", goalEdit = null, goalOpen = {}, subPay = null, subEdit = null;
 const fundWrite = (data, ok) => write(() => setDoc(doc(db, "meta", "fund"), data, { merge: true }), ok);
 
+// The money rules, in groups. Changing the wording here means bumping RULES_TEXT_V, so everyone agrees again.
+const RULES_TEXT_V = 3;
+const RULES_TEXT_NOTE = "Rewritten for how money works now: project teams, task prices, phases, keeping money in the fund, papers on payments, and the fund's own money kept apart from project money.";
 function moneyRulesText(R) {
   return [
-    `Costs come first: anyone who paid for something from their own pocket gets it back first, from the next money that comes in.`,
-    `${R.fundPct}% of each project's profit goes to the team fund, to pay our subscriptions and grow (like getting an office). We review this % every ${R.reviewMonths} months.`,
-    `Whoever brings a client gets a ${R.findPct}% finder's fee. If several of us brought it in, we share it equally. If the client came through the team in general, it goes to the team fund. On monthly deals it applies to the setup fee and the first ${R.finderMonths} months.`,
-    `The rest is split by the shares agreed when the deal is made. The site suggests shares from who has which tasks.`,
-    `One-time projects: the deposit pays back costs; the profit is split once the client has fully paid.`,
-    `Monthly deals and payments over several months: split every time a payment arrives.`,
-    `Monthly deals: the setup fee goes to who built it; each month's fee goes to who ran it that month.`,
-    `A proposal isn't a deal yet: nothing is due or late until the client agrees.`,
-    `If a monthly client is ${R.pauseAfterLate} months late, we pause the work until they pay.`,
-    `A client's ad budget is their money, not ours. It's tracked separately and never split.`,
-    `If a project loses money, nobody gets a share from it and the team fund covers what's owed back. The site does this by itself when the deal is over.`,
-    `If you pay for something for the team (like a subscription) from your own pocket, the fund owes it back to you.`,
-    `Everyone can see all the money. Only ${ADMIN_NAME} and each project's planners can add or change amounts. Anyone can add goals and research them.`,
+    ["Who gets paid", [
+      `Only the people on a project's team get money from it. You join by asking (a planner accepts) or by being invited (you accept). Leaving a team never takes away what you already earned.`,
+      `Each project's planners set up its deal, record the money and choose how it's shared.`]],
+    ["The order every payment follows", [
+      `1. Costs: whoever paid for something from their own pocket gets it back first, oldest first.`,
+      `2. The partner: if a partner abroad brought the client, their commission (a % or a fixed amount).`,
+      `3. The team fund: ${R.fundPct}% of what's left.`,
+      `4. The finder: ${R.findPct}% to whoever on the team brought the client (shared equally if several of us did; to the fund if it came through the team in general). On monthly deals it applies to the setup fee and the first ${R.finderMonths} months.`,
+      `5. The rest goes to the people on the project, the way the deal says it's shared.`]],
+    ["How the team's part is shared (each deal picks one)", [
+      `By task prices: a task can have a price, its part of the client's price. Whoever does it earns its share once the task is done and the payment that covers it has come in. People on the same task share it equally. Not every task needs a price: the unpriced part goes by the % shares, or equally to the project's team.`,
+      `By % shares: each person on the project's team gets the % agreed. One-time deals are split once the client has paid everything (in phases: once each phase is fully paid). Monthly deals and deals paid over months are split as each payment comes in; each month's fee goes to who ran it that month.`,
+      `All to the team fund: after costs, the partner and the finder, everything goes to the fund.`,
+      `Keep it in the fund, decide later: the money waits in the fund, written down as that project's money. Nobody is paid from it, and costs aren't paid back, until the planners decide how to split it. It is not the fund's own money and can't be spent on subscriptions or goals.`]],
+    ["Deals and payments", [
+      `A deal is one price, a fee every month, or one price paid over a few months. It can be in any currency: each payment saves that day's rate, and everything is shared in EGP.`,
+      `The price can be split into a deposit and the rest, or into phases the client agrees to one at a time, each with its own price and payments. Money fills the payments in order: deposit first, then phase by phase.`,
+      `Every payment says how it came (cash, InstaPay…), who has it now, and keeps its papers: our quotation, the signed one, and any receipt.`,
+      `A proposal isn't a deal yet, and a phase that's only offered isn't part of the price: nothing is due or late until the client agrees.`,
+      `If a monthly client is ${R.pauseAfterLate} months late, we pause the work until they pay.`,
+      `A client's ad budget is their money, not ours. It's tracked separately and never split.`]],
+    ["The team fund", [
+      `The fund pays our subscriptions and saves for our goals (like an office). We review its % every ${R.reviewMonths} months.`,
+      `The fund's own money is shown apart from money it keeps for projects. Subscriptions and goals use only its own money; if project money ever has to be used, the site shows it, and it's paid back as projects are split.`,
+      `If a project loses money, the fund covers the costs still owed back, so nobody is out of pocket. The site does this by itself when the deal is over.`,
+      `If you pay for something for the team from your own pocket, the fund owes it back to you.`]],
+    ["Open for trust", [
+      `Everyone on the team can see all the money: every project, every phase, every payment, and everyone's balance.`,
+      `Only ${ADMIN_NAME} and each project's planners can add or change amounts. Every change is logged with who made it and when.`,
+      `Handing money to someone is recorded (Mark paid), so balances are always right.`,
+      `${ADMIN_NAME} sets the fund's numbers and these rules. Any change makes a new version, and everyone is asked to agree again.`]],
   ];
 }
 // What changed since the last version of the rules, so nobody has to compare by hand.
 function rulesChanges(R) {
   const pv = R.prev; if (!pv) return [];
+  if (pv.note) return [pv.note];
   const names = { fundPct: ["Team fund", "%"], findPct: ["Finder's fee", "%"], finderMonths: ["Finder's fee on monthly deals", " months"], pauseAfterLate: ["Pause after", " months late"], reviewMonths: ["Review every", " months"] };
   return Object.entries(names).filter(([k]) => pv[k] != null && pv[k] !== R[k]).map(([k, [l, u]]) => `${l}: ${pv[k]}${u} → ${R[k]}${u}`);
 }
@@ -4965,7 +4995,8 @@ function renderRulesTab(box, all, F, R, ver, agreed) {
       el("div", {}, el("b", {}, R.fundPct + "%"), el("span", {}, "team fund")),
       el("div", {}, el("b", {}, R.findPct + "%"), el("span", {}, "finder's fee")),
       el("div", {}, el("b", {}, R.reviewMonths + " mo"), el("span", {}, "review cycle"))),
-    el("ol", { class: "rules" }, moneyRulesText(R).map(t => el("li", {}, t))));
+    ...moneyRulesText(R).map(([h, list]) => { const steps = list.every(t => /^\d+\. /.test(t));
+      return el("div", { class: "rulegroup" }, el("h4", {}, h), el(steps ? "ol" : "ul", { class: "rules" }, list.map(t => el("li", {}, steps ? t.replace(/^\d+\. /, "") : t)))) }));
   const signed = teamIds().map(u => ({ u, a: (people[u] || {}).moneyAgreed || {} })).map(x => ({ ...x, ok: x.a.version === ver }));
   rules.append(el("div", { class: "tlabel" }, `Agreed ${signed.filter(x => x.ok).length} of ${signed.length}`),
     el("div", { class: "row", style: "gap:6px" }, signed.map(({ u, ok, a }) => el("span", { class: "planner" + (ok ? " agreed" : ""), title: ok && a.at ? "Agreed " + fmtDay(a.at) : "Not yet" }, av(u), name(u), ok ? " ✓" : " …"))));
@@ -4993,7 +5024,7 @@ function renderRulesTab(box, all, F, R, ver, agreed) {
         editRules = false;
         // only a change to the numbers needs everyone to agree again; changing who holds the fund doesn't
         write(() => setDoc(doc(db, "meta", "money"), { ...v, holder: holder.value || me, updatedAt: Date.now(),
-          ...(changed ? { version: ver + 1, setAt: Date.now(), reviewAt: nextReview(v.reviewMonths), prev: { fundPct: R.fundPct, findPct: R.findPct, finderMonths: R.finderMonths, pauseAfterLate: R.pauseAfterLate, reviewMonths: R.reviewMonths, version: ver } } : {}) }, { merge: true }),
+          ...(changed ? { version: ver + 1, setAt: Date.now(), reviewAt: nextReview(v.reviewMonths), prev: { fundPct: R.fundPct, findPct: R.findPct, finderMonths: R.finderMonths, pauseAfterLate: R.pauseAfterLate, reviewMonths: R.reviewMonths, version: ver, note: null } } : {}) }, { merge: true }),
           changed ? "Rules updated. Everyone will be asked to agree again" : "Saved");
       };
       rules.append(el("div", { class: "mform", style: "display:grid;gap:8px" }, fieldRow("Team fund %", fp), fieldRow("Finder %", fd), fieldRow("Finder months (monthly deals)", fm), fieldRow("Pause after months late", pa), fieldRow("Review every (months)", rv), fieldRow("Who holds the fund", holder),
