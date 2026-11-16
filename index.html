@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261116222341">
+<meta name="build" content="20261116224105">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -582,6 +582,11 @@ input,select,textarea{background-color:var(--field)}
 .toast .btn{margin-left:10px;padding:3px 9px;font-size:12px;vertical-align:middle}
 .asst-head h3{font-size:17px}
 .asst-head .x{border:0;background:none;color:var(--muted);font-size:16px;padding:4px 6px}
+.asst-lang{max-width:118px;font-size:13px;padding:4px 6px}
+.asst-langpick{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}
+.langlist{display:grid;gap:8px;padding:4px 0 6px}
+.langopt{display:grid;gap:2px;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer;font:inherit}
+.langopt[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .asst-ico{color:var(--accent);font-size:18px}
 .asst-log{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:2px}
 .asst-hint{color:var(--muted);margin:0;font-size:14px}
@@ -1423,7 +1428,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261116222341";
+const BUILD_ID = "20261116224105";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -6854,7 +6859,7 @@ function upgradeRequestsCard() {
 
 /* ----- settings: a home page of grouped rows (like a phone's Settings app), each opening its own page ----- */
 let setQuery = "";
-const SET_PAGES = { feedback: "Bugs and ideas", guide: "How Pitch Room works", build: "Build Pitch Room", profile: "Profile", appearance: "Appearance", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
+const SET_PAGES = { feedback: "Bugs and ideas", guide: "How Pitch Room works", build: "Build Pitch Room", profile: "Profile", appearance: "Appearance", language: "Assistant language", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
 function setIcon(sym, color) { return el("span", { class: "seticon", style: `background:${color}` }, sym) }
 function renderSettings() {
   const box = $("#settings"); box.replaceChildren();
@@ -6879,6 +6884,7 @@ function renderSettings() {
     group("Preferences",
       row("\u{1F3A8}", "#7C5CD6", "Appearance", themeName + (getMeteors() ? "" : " · still"), goto("appearance"), "theme dark light pine animation look"),
       row("\u{1F514}", "#E2574C", "Alerts", pushOn && perm === "granted" ? "On" : "Off", goto("alerts"), "notifications push sound phone"),
+      row("\u{1F310}", "#2F80ED", "Assistant language", (ASST_LANGS.find(l => l[0] === asstLang()) || [])[1], goto("language"), "assistant ai english arabic franco language"),
       row("✦", "#0D5E63", "What's new", (prof.newsOff ? "Off" : "On"), goto("news"), "updates news post")),
     group("Team",
       isAdmin ? row("\u{1F465}", "#2F80ED", "People and access", `${teamN} team · ${partners} partners`, goto("access"), "add member partner client email invite remove") : null,
@@ -6931,6 +6937,8 @@ function settingsPage(box, sub, prof) {
       item("Background animation", "The slow moving map behind the page.", el("div", { class: "seg seg-sm", role: "group", "aria-label": "Background animation" },
         el("button", { "aria-pressed": String(meteors), onclick: () => setLook(theme, true) }, "On"), el("button", { "aria-pressed": String(!meteors), onclick: () => setLook(theme, false) }, "Off")))));
   }
+  if (sub === "language") box.append(card(item("The assistant answers in", "Saved to your account, so every device matches. It understands English, Arabic and Franco whichever you pick."),
+    el("div", { class: "langlist" }, ASST_LANGS.map(([v, l, d]) => el("button", { class: "langopt", "aria-pressed": String(asstLang() === v), onclick: () => setAsstLang(v) }, el("b", {}, l), el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, d))))));
   if (sub === "alerts") box.append(pushSettings());
   if (sub === "news") box.append(newsSettings());
   if (sub === "build") box.append(buildPage());
@@ -7155,20 +7163,48 @@ function boardContext(p) {
   return L.join("\n");
 }
 
+// Is this message Egyptian Arabic typed in English letters (Franco)? Clear Franco words count 2, words that could
+// also be English or a name count 1, and words with Arabic-sound numbers in them (3ayez, 7elw, 2ally) count 2.
+const FRANCO_STRONG = new Set(("msh mesh mish mosh ezay ezzay izay ezayak ezayek izayak keda kda kdh 3ashan 3shan 3lshan 3ayez 3ayza 3ayz 3yz 3yza 3ayzen " +
+  "delwa2ty dlw2ty dlwa2ty delwa2ti lessa lesa ba3den ba3d ba3dein bokra embare7 enaharda nharda nhrda ma3lesh m3lsh maalesh mafeesh mafesh mafish " +
+  "5alas 5las khalas yalla yallah yla aywa aiwa la2 la2a tayeb tyb tamam tmam tmm mashy mashi mshy awy 2awy awi kaman kman bardo bardu barda " +
+  "fen feen fein leh leeh 3amel 3amla 3amlin 3amalt 3amlt 3mlt e3mel e3ml a3mel ha3mel hn3ml ab3at eb3at hab3at ba3at 2ol 2oly 2olly 2olli 2ally 2alli 2oltlak " +
+  "ya3ni y3ni ya3nee wallahi walahi wallah 3la 3al 3ala 3aleh 3aleha 3andak 3andek 3andi 3ndy 3ndk bta3 beta3 bta3t beta3t bta3ty bta3y beta3y " +
+  "7aga 7agat 7elw 7lw 7ad 7aseb 5od 5ali 5aly sa7 sa7 m3ak ma3ak m3aya ma3aya ezay ehna e7na homa howa heya enti ento entu enta " +
+  "momken mumkin bgd begad begd fash5 gamed gamda 3ash nafs 7abibi 7abiby habibi sha8al shaghal sha8ala betshta8al bysht8l " +
+  "eih eah ehh 3arfa 3aref 3rf a3raf ta3raf t3raf t3ml ta3mel bey3mel ba3mel hayb2a hyb2a ba2a b2a ba2et wala walla").split(" "));
+const FRANCO_WEAK = new Set("da di dah dy eh ana fe fi w el ya bas".split(" "));
+const FRANCO_NOT = /^(?:\d+(?:st|nd|rd|th|d|k|s|x|g|gb|mb|kb|px|am|pm|h)|b2b|b2c|mp3|mp4|h264|h265|p2p|w3c|y2k|3d|2d|4k|8k|5g|4g|3g|2fa|g2|a2z|i18n|l10n|covid19)$/;
 function isFrancoArabic(text) {
   const s = String(text || "").toLowerCase();
-  if (!s || /[\u0600-\u06ff]/.test(s)) return false;
-  const tokens = s.match(/[a-z0-9']+/g) || [];
-  const markers = new Set([
-    "ana", "enta", "enty", "eh", "eih", "ezay", "3ayez", "3ayza", "3ayz",
-    "t3raf", "ta3raf", "tkhalely", "khalini", "3amel", "3amla", "3aml",
-    "leh", "3shan", "3ashan", "msh", "mesh", "mafeesh", "feesh", "keda",
-    "da", "di", "delwa2ty", "bokra", "emta", "meen", "3andak", "3andi",
-    "7aga", "7ad", "5alas", "2olli", "2oly", "bardo", "y3ni", "ya3ni",
-    "3la", "3aleh", "3aleha", "momken", "3arfa", "3aref", "3ayzen", "3amlt", "3mlt", "eb3at", "mota3aleq"
-  ]);
-  const hits = tokens.filter(t => markers.has(t) || /^(?:t3|3ay|msh|mesh|7a|5a|2o)/.test(t)).length;
-  return hits >= 1 && tokens.length >= 1;
+  if (!s || /[؀-ۿ]/.test(s)) return false;
+  let score = 0;
+  for (const t of s.match(/[a-z0-9']+/g) || []) {
+    if (FRANCO_STRONG.has(t)) score += 2;
+    else if (FRANCO_WEAK.has(t)) score += 1;
+    else if (t.length >= 3 && /[a-z]/.test(t) && /[235789]/.test(t) && !FRANCO_NOT.test(t) && /(?:^|[a-z])[235789](?:[a-z]|$)/.test(t)) score += 2;
+    if (score >= 2) return true;
+  }
+  return false;
+}
+
+// The language the assistant talks to you in. Saved to your account, so every device matches.
+const ASST_LANGS = [["auto", "Same as I write", "Matches each message: English, Arabic or Franco"], ["en", "English", "Always English"], ["ar", "عربي", "Always Egyptian Arabic, in Arabic letters"], ["franco", "Franco", "Always Egyptian Arabic in English letters and numbers (3, 7, 2…)"]];
+const asstLang = () => { const v = (people[me] || {}).asstLang; return ASST_LANGS.some(l => l[0] === v) ? v : "auto" };
+function setAsstLang(v) {
+  if (v === asstLang()) return;
+  people[me] = { ...(people[me] || {}), asstLang: v }; render();   // show it straight away
+  const name = (ASST_LANGS.find(l => l[0] === v) || [])[1];
+  write(() => setDoc(doc(db, "users", me), { asstLang: v }, { merge: true }), v === "auto" ? "The assistant will answer the way you write" : `The assistant will answer in ${name}`);
+}
+function languageLine(userText) {
+  const keep = " Keep ACTION:, PHASE: and IDEA: lines in their exact English format.\n\n", l = asstLang();
+  if (l === "en") return "LANGUAGE FOR THIS TURN: The user chose ENGLISH. Reply only in English, even if they write in Arabic or Franco (you still understand those)." + keep;
+  if (l === "ar") return "LANGUAGE FOR THIS TURN: The user chose ARABIC. Reply only in spoken Egyptian Arabic (3ammeya) in Arabic letters, as described in HOW EGYPTIANS TALK AND TYPE, even if they write in English or Franco. Names of people, projects and tasks can stay as they are on the board." + keep;
+  if (l === "franco") return "LANGUAGE FOR THIS TURN: The user chose FRANCO. Reply only in real Egyptian Franco, exactly as described in HOW EGYPTIANS TALK AND TYPE, even if they write in English or Arabic letters." + keep;
+  return (isFrancoArabic(userText) ? "LANGUAGE FOR THIS TURN: The user wrote in Egyptian Franco. Reply in real Egyptian Franco, as described in HOW EGYPTIANS TALK AND TYPE."
+    : /[\u0600-\u06ff]/.test(userText) ? "LANGUAGE FOR THIS TURN: The user wrote in Arabic letters. Reply in spoken Egyptian Arabic (3ammeya), as described in HOW EGYPTIANS TALK AND TYPE."
+    : "LANGUAGE FOR THIS TURN: Reply in the user's language and style.") + keep;
 }
 
 const ASSISTANT_RULES = `You are the fast assistant inside "Pitch Room", where a small team of friends in Egypt pitch ideas and turn them into real projects that build experience and make money.
@@ -7176,13 +7212,33 @@ Be direct, practical and short. Use people's first names. Base everything on the
 Plain text only: no markdown headings, no bold, no tables. Short lines and simple dashes are fine.
 
 LANGUAGE (IMPORTANT)
-You fully understand Egyptian Arabic written in Franco/Arabizi (with numbers like 2, 3, 5, 7, 8, 9), Egyptian Arabic script, and English. Reply in the same script and language as the person's latest message: Franco gets natural Egyptian Franco, Arabic script gets Egyptian Arabic, English gets English. ACTION:, PHASE: and IDEA: lines always stay in this exact English format.
+You fully understand Egyptian Arabic written in Franco/Arabizi (with numbers like 2, 3, 5, 7, 8, 9), Egyptian Arabic script, and English. Each person picks the language you answer in, and the "LANGUAGE FOR THIS TURN" line tells you which: always follow it. If they picked "same as I write", answer in the same script and language as their latest message: Franco gets natural Egyptian Franco, Arabic script gets Egyptian Arabic, English gets English. ACTION:, PHASE: and IDEA: lines always stay in this exact English format.
+
+HOW EGYPTIANS TALK AND TYPE (for Franco and Arabic answers)
+Sound like a friend from Cairo texting the team on WhatsApp, never like a translation or a textbook.
+Franco typing:
+- Arabic sounds as numbers: 2 = ء/ق (2ol, 2ally, sa2al, el2a), 3 = ع (3ayez, 3arabeya, ma3lesh), 7 = ح (7elw, 7aga, sa7), 5 = خ (5alas, 5od, 5er), 8 = غ (sha8al, 8ayar) or "gh". sh = ش, g = ج (Egyptian hard g: gamed, ge3t, ragel).
+- Lowercase, short lines, light punctuation. "w" for "and", "el" for "the" (el task, el client), "f" or "fe" for "in" (fel meeting, fe el drive).
+- Mix in the English work words Egyptians really use: el task, el deadline, el client, el meeting, el budget, el file, el link, el design, el post, e3mel upload, ab3atlak el link, n-update, check, done, ok, sorry.
+- Verbs the Egyptian way: b- for now (ba3mel, bey3mel, bteshta8al), ha- for future (ha3mel, hab3at, haykhalas), e- for orders (e3mel, eb3at, eftah, 5alas el task).
+Everyday words to use naturally: tamam, mashy, ok, aywa, la2, ah, tab, tayeb, 5alas, yalla, keda, kaman, bardo, lessa, delwa2ty, ba3den, bokra, enaharda, awy, 5ales, msh/mesh, mafeesh, fe (there is), 3ashan, leh, eh, ezay, fen, emta, meen, ya3ni, bas, ma3lesh, mesh moshkela, wala yhemak, sa7, akeed, fe3lan, begad, 7elw awy, gamed, fash5, 3ash ya [name], tamam keda, ezayak/ezayek, 3amel eh, eh el akhbar, el 7amdulelah, in shaa allah, rabena ysahel, bel tawfee2.
+Calling people: use their first name, sometimes "ya [name]", or "ya basha", "ya ghaly", "ya m3allem" when friendly. Don't overdo it, and never "7abibi" in work talk.
+Never use formal Arabic (fus7a) or other dialects. Say ezay not kayfa, eh not matha, leh not lima, fen not ayna, delwa2ty not al2an, kaman not aydan, kowayes not jayyed, 3ayez not urid, mesh not laysa, el task da not hatha el task. No Gulf or Levantine words (shlon, shu, hek, halla2, kteer, badde, wayed).
+Gender: say 3ayez/3amel/enta to a man and 3ayza/3amla/enti to a woman. Tell from how they write about themselves (ana 3ayza = woman) or the name; if you can't tell, use the man's form.
+Keep it real and short: a couple of lines, then the steps or tasks as simple dashes. Emojis only now and then (👌 🔥 💪 😂), never in every line.
+Example Franco replies:
+- "tamam ya Omar, 3alamt 3ala el task 5alas ✅ w sebtelhom note fiha link el drive. el gay 3andak 'el landing page', w di urgent 3ashan el client 3ayezha 2abl el 5ames."
+- "la2 m2darsh a3adel fel project da, enta msh fel team beta3o. law 3ayez, dous 'Ask to join' w el planner hayewafe2 3alek."
+- "msh mohem ya basha, ma3lesh 😅 el moshkela en el task di mestaneya el design. kalem Youssef y5alas el logo el awel, w ana hazawedlak step 'ab3at el logo l Omar'."
+Example Arabic replies (Egyptian, not fus7a):
+- "تمام يا عمر، علمت على التاسك خلاص ✅ وسبتلهم نوت فيها لينك الدرايف. اللي عليك بعد كده الـ landing page، ودي مستعجلة عشان الكلاينت عايزها قبل الخميس."
+- "معلش مقدرش أعدل في المشروع ده، إنت مش في التيم بتاعه. لو عايز، دوس Ask to join والـ planner هيوافق عليك."
 
 WHO MAY CHANGE WHAT (IMPORTANT)
 - Check the current user's Role and each project's "YOUR ACCESS" flag in the BOARD DATA.
 - The ADMIN may change any project, idea, task or setting.
 - Everyone else may only change projects and ideas marked ALLOWED_TO_MODIFY (they pitched it, plan it, are on its team, or have a task in it).
-- If someone who isn't the admin asks to change, add tasks to or delete anything in a project or idea marked DENIED_NOT_RELATED, write NO ACTION lines. Say clearly, in their language, that they aren't part of that project (in Franco for example: "Ma2darsh a3adel fel project da 3ashan enta msh men el team beta3o." In English: "I can't change this project because you're not part of it."), and suggest asking to join its team.
+- If someone who isn't the admin asks to change, add tasks to or delete anything in a project or idea marked DENIED_NOT_RELATED, write NO ACTION lines. Say clearly, in their language, that they aren't part of that project (see the examples under HOW EGYPTIANS TALK AND TYPE; in English: "I can't change this project because you're not on its team."), and suggest asking to join its team.
 
 DOING THINGS FOR THEM
 When they clearly say they finished, started or need something, and they're allowed to, end your reply with action lines, one per line, using the exact codes from the board (T4, P2, PRJ3):
@@ -7229,11 +7285,7 @@ async function runAssistant(userText, opts = {}) {
   asstMsgs.push(aiMsg);
   asstBusy = true; render();
   const history = asstMsgs.slice(-7, -2).map(m => (m.role === "me" ? "Team member: " : "Assistant: ") + m.text).join("\n");
-  const languageHint = isFrancoArabic(userText)
-    ? "LANGUAGE FOR THIS TURN: User wrote in Egyptian Franco/Arabizi. Understand it as Egyptian Arabic and reply in natural Egyptian Franco. Keep ACTION:/PHASE: syntax exact.\n\n"
-    : /[\u0600-\u06ff]/.test(userText)
-      ? "LANGUAGE FOR THIS TURN: User wrote in Arabic script. Reply in natural Egyptian Arabic. Keep ACTION:/PHASE: syntax exact.\n\n"
-      : "LANGUAGE FOR THIS TURN: Reply in the user's language/style. Keep ACTION:/PHASE: syntax exact.\n\n";
+  const languageHint = languageLine(userText);
   const board = boardContext(p);
   // "Send to AI" on a task: give that task a code the assistant can use in its actions
   const ref = opts.focus ? refFor(opts.focus.p, opts.focus.t) : "";
@@ -7495,15 +7547,20 @@ function renderAssistant() {
   const av_ = availableTemplates(p), pick = id => av_.find(t => t.id === id);
   const quick = (p ? ["sum", "plan", "checkin", "next"] : ["morning", "next", "teamweek"]).map(pick).filter(Boolean).slice(0, 3);
 
-  panel.append(el("div", { class: "row asst-head" }, el("span", { class: "asst-ico" }, "✦"), el("h3", {}, "Assistant"), el("span", { class: "spacer" }),
+  const langSel = el("select", { class: "mini asst-lang", "aria-label": "Language the assistant answers in", title: "Language the assistant answers in", onchange: e => setAsstLang(e.target.value) },
+    ASST_LANGS.map(([v, l]) => el("option", { value: v }, v === "auto" ? "🌐 Auto" : "🌐 " + l)));
+  langSel.value = asstLang();
+  panel.append(el("div", { class: "row asst-head" }, el("span", { class: "asst-ico" }, "✦"), el("h3", {}, "Assistant"), el("span", { class: "spacer" }), langSel,
     asstMsgs.length ? el("button", { class: "btn quiet small", onclick: () => { asstMsgs = []; render() } }, "Clear") : null,
     el("button", { class: "x", "aria-label": "Close assistant", onclick: () => { asstOpen = false; render() } }, "✕")));
   const log = el("div", { class: "asst-log", id: "asst-log" });
+  if (!asstMsgs.length && !asstTplOpen) log.append(el("div", { class: "asst-langpick" }, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "Talk to me in:"),
+    el("div", { class: "seg seg-sm", role: "group", "aria-label": "Language the assistant answers in" }, ASST_LANGS.map(([v, l]) => el("button", { "aria-pressed": String(asstLang() === v), onclick: () => setAsstLang(v) }, v === "auto" ? "Auto" : l)))));
   if (!asstMsgs.length || asstTplOpen) log.append(el("p", { class: "asst-hint" }, p ? `Pick a template or ask about “${p.title}”.` : "Pick a template or ask anything. Open a project for project templates."));
   if (asstTplOpen || !asstMsgs.length) log.append(templateList(p));
   if (!asstMsgs.length) log.append(el("p", { class: "asst-hint small" }, "Tell it what you did (\u201cI finished the assessment, the file is in Drive\u201d) and it ticks the task and leaves a note for the team. Ask it to explain anything. It always shows what it will do first: nothing changes until you tap Do it. Powered by Google Gemini, so don't put passwords here."));
   if (!asstTplOpen) for (const m of asstMsgs) {
-    const b = el("div", { class: "asst-msg " + (m.role === "me" ? "mine" : "ai") + (m.error ? " err" : "") + (m.streaming && m.text === "…" ? " typing" : ""), id: m.streaming ? "asst-stream" : null }, m.streaming && m.text === "…" ? (asstStatus || "Thinking…") : m.text,
+    const b = el("div", { class: "asst-msg " + (m.role === "me" ? "mine" : "ai") + (m.error ? " err" : "") + (m.streaming && m.text === "…" ? " typing" : ""), id: m.streaming ? "asst-stream" : null, dir: "auto" }, m.streaming && m.text === "…" ? (asstStatus || "Thinking…") : m.text,
       m.detail ? el("div", { class: "asst-detail" }, "Details: " + m.detail) : null,
       m.error && m.retry && m === asstMsgs[asstMsgs.length - 1] && !asstBusy ? el("div", { style: "margin-top:8px" }, el("button", { class: "btn small primary", onclick: () => { const r = m.retry; asstMsgs.splice(asstMsgs.indexOf(m) - 1, 2); runAssistant(r.text, r.opts) } }, "Try again")) : null);
     log.append(b);
@@ -7554,6 +7611,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-asst-lang-1", date: "2026-11-16", icon: "\u{1F310}", title: "Pick the assistant's language",
+    text: "Choose whether the assistant talks to you in English, عربي or Franco, or let it match how you write. Franco and Arabic now sound like real Egyptian chat, not a translation. Tap 🌐 at the top of the assistant, or Settings › Assistant language. It's saved to your account.", go: "settings-language" },
   { id: "f-asst-solve-1", date: "2026-11-16", icon: "⚡", title: "Faster assistant that speaks Franco, and Send to AI",
     text: "The assistant now writes its answer as it thinks, and understands Franco and Egyptian Arabic (it answers the way you write). It can add tasks, rename tasks and pitch ideas for you, only in projects you're part of. Stuck? Open a task and tap ⚡ Send to AI to solve, or tap the pop-up when a task is late, urgent or blocked.", go: "me" },
   { id: "f-phase-pause-1", date: "2026-11-16", icon: "⏸", title: "Pause a phase, continue when you're ready",
