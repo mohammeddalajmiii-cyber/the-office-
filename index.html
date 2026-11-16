@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261116061453">
+<meta name="build" content="20261116062226">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -715,6 +715,9 @@ input,select,textarea{background-color:var(--field)}
 .mpstrip{display:grid;gap:8px;margin:0 0 4px;padding:12px 14px;border:1px solid var(--line);border-radius:16px;background:var(--surface)}
 .mprow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:14px}.mprow.later{opacity:.7}.mpname{font-weight:600}.mptasks{display:flex;flex-wrap:wrap;gap:4px;flex-basis:100%}
 .mptasks .chip.ok{color:var(--keep)}.mpchip{font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;background:var(--accent-soft);color:var(--ink)}
+.papers{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.paperslot{display:grid;gap:4px;align-content:start;padding:10px;border:1px dashed var(--line);border-radius:12px}
+.paperslot.has{border-style:solid;border-color:var(--accent)}.paperslot b{font-size:14px}.paperslot .label{text-transform:none;letter-spacing:0;font-size:12px}
+.paperrow{display:grid;gap:4px;margin-top:4px}.papergroup{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.papergroup>.label{text-transform:none;letter-spacing:0;font-size:12px;min-width:110px}
 .tipline{font-size:13px;color:var(--muted);margin:0}.tipline b{color:var(--ink)}
 @media (max-width:480px){.mtile{padding:8px 9px}.mtile b{font-size:15.5px}.pstep-top{grid-template-columns:auto minmax(0,1fr) auto}.pstep-top .mstat{grid-column:2/-1;justify-self:start}}
 .hrow{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
@@ -1378,7 +1381,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261116061453";
+const BUILD_ID = "20261116062226";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -6445,7 +6448,7 @@ function guidePage() {
       ["Client working step by step?", "Split the deal into phases (Money tab › Payment plan). Each money phase has its own price, deposit and final payment. Money phases are separate from task phases: tick the task phases a money phase pays for (one, several or none). When a phase is done and paid, tap + Add the next phase. A phase that's only offered stays Not agreed yet until you tap The client agreed."],
       ["4. Task prices (Money tab, open Task prices):", "give tasks their part of the price. You don't need to price everything: Spread over the rest fills the tasks without a price for you, then fix any by hand. What isn't priced is shared by the team."],
       ["Not sure yet?", "choose Keep it in the fund, decide later. Record payments as they come (say how you got them and pick The team fund under Who has it). When the team agrees, tap Decide the split: it shows what each way would give before you choose."],
-      ["5. When money comes in, tap + Money in:", "type the amount, tap what it's for, how they paid and who has it, and attach the signed quotation or a receipt. Use + We spent money for costs. You can add files to a payment later from the History list. Mark paid when you hand someone their money, so their balance is right."],
+      ["5. When money comes in, tap + Money in:", "type the amount, tap what it's for, how they paid and who has it, and attach our quotation and the signed one, or a receipt (each has its own slot). Use + We spent money for costs. You can add files to a payment later from the History list. Mark paid when you hand someone their money, so their balance is right."],
       ["Every change is logged", "on the Money tab, and the team gets an alert when the deal changes."],
       ["Made a test deal, or it fell through?", "Edit deal › Delete the deal, at the bottom. The tasks stay."]]),
     card("\u{1F91D}", "Client and partners", [
@@ -7220,8 +7223,7 @@ function renderMoney(box, p) {
   if (hist.length) box.append(el("details", { class: "removed", open: hist.length <= 6 }, el("summary", {}, `History (${hist.length})`),
     el("div", { class: "idea", style: "gap:0;margin-top:10px" }, hist.map(h => el("div", { class: "hrow" + (h.ad ? " ad" : "") },
       el("span", { class: "hsign" }, h.sign), el("div", { class: "hmain" }, el("div", {}, h.text), el("div", { class: "label" }, fmtDate(h.date) + (h.note ? " · " + h.note : "")),
-        h.coll === "payments" && (h.files.length || can) ? fileRow(h.files, "pay-" + h.id, f => can && (f.by === me || isAdmin), f => upd(p.id, { [`payments.${h.id}.files.${f.id}`]: DEL() }).then(() => dropFileParts(f)),
-          can ? list => uploadFilesTo("pay-" + h.id, list, file => upd(p.id, { [`payments.${h.id}.files.${file.id}`]: file }), "the payment") : null) : null),
+        h.coll === "payments" ? payPapersRow(p, h.id, h.files, can) : null),
       el("span", { class: "hamt" }, fmtCur(toP(h.amount), h.cur), h.cur && h.cur !== "EGP" && h.rate ? el("small", { class: "label", style: "display:block" }, "@ " + h.rate) : null),
       can ? (delMoney === h.id ? el("button", { class: "linkdel sure", onclick: () => { delMoney = null; moneyUpd(p, { [h.coll + "." + h.id]: DEL() }, `Removed: ${h.text} ${fmtCur(toP(h.amount), h.cur)}`, "remove", "Removed") } }, "Remove?")
         : el("button", { class: "linkdel", "aria-label": "Remove", onclick: () => { delMoney = h.id; render() } }, "✕")) : null)))));
@@ -7350,7 +7352,7 @@ function moneyInForm(p, r) {
     const files = f.files || [], eid = uid();
     moneyForm = null;
     moneyUpd(p, { ["payments." + eid]: data }, `${label} ${fmtCur(toP(a), cur)}` + (rt ? ` @ ${rt}` : "") + (files.length ? ` (with ${files.length} file${files.length > 1 ? "s" : ""})` : ""), "entry", `${fmtCur(toP(a), cur)} added for ${label}`)
-      .then(ok => { if (ok !== false && files.length) uploadFilesTo("pay-" + eid, files, file => upd(p.id, { [`payments.${eid}.files.${file.id}`]: file }), "the payment") });
+      .then(ok => { if (ok !== false && files.length) uploadPayPapers(p, eid, files) });
   };
   box.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: () => { moneyForm = null; render() } }, "Cancel"),
     el("button", { class: "btn primary", onclick: save }, f.amount ? `Add ${fmtCur(toP(Number(f.amount) || 0), cur)}` : "Add")));
@@ -7676,7 +7678,7 @@ function holdBlock(p, r) {
     el("p", { style: "margin:0;font-size:14px" }, `This money is in the team fund, written down as ${p.title}'s. It isn't the fund's own money and nobody has been paid from it yet. ` + (m.hold && m.hold.by ? `${m.hold.by === me ? "You" : firstName(m.hold.by)} chose to decide the split later${m.hold.at ? ", " + fmtDay(m.hold.at) : ""}.` : "")));
   if (pays.length) sec.append(el("div", { style: "display:grid;gap:2px" }, pays.map(x => el("div", { class: "hrow" }, el("span", { class: "hsign" }, "+"),
     el("div", { class: "hmain" }, el("div", {}, x.source || x.stepLabel || "Payment"), el("div", { class: "label" }, [fmtDate(x.date), x.method, x.inFund ? "in the team fund" : x.heldBy ? "with " + firstName(x.heldBy) : null].filter(Boolean).join(" · ")),
-      payFilesOf(x).length ? fileRow(payFilesOf(x), "hold-" + (x.at || 0), () => false, null, null) : null),
+      payFilesOf(x).length ? payPapersRow(p, "hold" + (x.at || 0), payFilesOf(x), false) : null),
     el("span", { class: "hamt" }, fmtCur(toP(x.amount), m.currency))))));
   if (!can) { sec.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "The project's planners decide how it's split.")); return sec }
   if (holdDecide !== p.id) { sec.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary small", onclick: () => { holdDecide = p.id; render() } }, "Decide the split"))); return sec }
@@ -7880,7 +7882,7 @@ function moneyEntryForm(p, r) {
     if (files.length) data.files = {};
     moneyForm = null;
     moneyUpd(p, { [coll + "." + eid]: data }, what + (files.length ? ` (with ${files.length} file${files.length > 1 ? "s" : ""})` : ""), "entry", ok)
-      .then(okd => { if (okd !== false && files.length) uploadFilesTo("pay-" + eid, files, file => upd(p.id, { [`payments.${eid}.files.${file.id}`]: file }), "the payment") });
+      .then(okd => { if (okd !== false && files.length) uploadPayPapers(p, eid, files) });
   };
   box.append(el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("button", { class: "btn primary", onclick: save }, "Save")));
   setTimeout(() => { if (!amount.value) amount.focus() }, 0);
@@ -7888,14 +7890,39 @@ function moneyEntryForm(p, r) {
 }
 
 // The papers that go with a payment: the signed quotation with the deposit, a receipt, a transfer screenshot.
+const PAPER_KINDS = [["quote", "Our quotation", "The one we sent"], ["signed", "Signed quotation", "Signed by the client"], ["receipt", "Receipt / other", "Transfer screenshot, receipt…"]];
+const paperKind = f => PAPER_KINDS.some(k => k[0] === f.kind) ? f.kind : "receipt";
 function payFilesPicker(f, first) {
-  f.files = f.files || [];
-  const wrap = el("div", { style: "display:grid;gap:6px" });
-  const chips = el("div", { class: "links" }, f.files.map((x, i) => el("span", { class: "linkwrap" }, el("span", { class: "linkchip filechip" }, el("span", { class: "fext" }, extOf(x.name)), el("span", {}, x.name)),
-    el("button", { class: "linkdel", type: "button", "aria-label": "Remove " + x.name, onclick: () => { f.files.splice(i, 1); render() } }, "✕"))),
-    el("button", { class: "linkchip addlink", type: "button", onclick: () => pickFiles(list => { f.files.push(...list); render() }) }, f.files.length ? "+ Another file" : first ? "+ Signed quotation (PDF)" : "+ Receipt or PDF"));
-  wrap.append(chips, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, first ? "Attach the signed quotation with the deposit, and a receipt or transfer screenshot if you have one. Up to 5 MB each." : "A receipt, a transfer screenshot or a signed paper. Up to 5 MB each."));
-  return wrap;
+  f.files = (f.files || []).map(x => x && x.file ? x : { file: x, kind: "receipt" });
+  const wrap = el("div", { class: "papers" });
+  for (const [k, label, sub] of PAPER_KINDS) {
+    const mine = f.files.map((x, i) => ({ ...x, i })).filter(x => x.kind === k);
+    wrap.append(el("div", { class: "paperslot" + (mine.length ? " has" : "") }, el("b", {}, label), el("span", { class: "label" }, sub),
+      el("div", { class: "links" }, mine.map(x => el("span", { class: "linkwrap" }, el("span", { class: "linkchip filechip" }, el("span", { class: "fext" }, extOf(x.file.name)), el("span", {}, x.file.name)),
+        el("button", { class: "linkdel", type: "button", "aria-label": "Remove " + x.file.name, onclick: () => { f.files.splice(x.i, 1); render() } }, "✕"))),
+        el("button", { class: "linkchip addlink", type: "button", onclick: () => pickFiles(list => { f.files.push(...list.map(file => ({ file, kind: k }))); render() }) }, mine.length ? "+ Another" : "+ Add"))));
+  }
+  return el("div", { style: "display:grid;gap:6px" }, el("div", { class: "tlabel" }, first ? "Papers: the quotation we sent and the one he signed" : "Papers (optional)"), wrap,
+    el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "PDFs or photos, up to 5 MB each."));
+}
+// Upload a payment's papers one kind after another, each file remembering which kind it is.
+async function uploadPayPapers(p, eid, list) {
+  for (const [k] of PAPER_KINDS) {
+    const files = list.filter(x => (x.kind || "receipt") === k).map(x => x.file || x);
+    if (files.length) await uploadFilesTo("pay-" + eid, files, file => upd(p.id, { [`payments.${eid}.files.${file.id}`]: { ...file, kind: k } }), "the payment");
+  }
+}
+// A payment's papers, by kind. Planners can add more later.
+function payPapersRow(p, pid, files, can) {
+  const row = el("div", { class: "paperrow" });
+  for (const [k, label] of PAPER_KINDS) {
+    const mine = files.filter(f => paperKind(f) === k);
+    if (!mine.length && !can) continue;
+    row.append(el("div", { class: "papergroup" }, el("span", { class: "label" }, label),
+      fileRow(mine, "pay-" + pid + "-" + k, f => can && (f.by === me || isAdmin), f => upd(p.id, { [`payments.${pid}.files.${f.id}`]: DEL() }).then(() => dropFileParts(f)),
+        can ? list => uploadFilesTo("pay-" + pid + "-" + k, list, file => upd(p.id, { [`payments.${pid}.files.${file.id}`]: { ...file, kind: k } }), "the payment") : null)));
+  }
+  return row.childNodes.length ? row : null;
 }
 const payFilesOf = x => Object.values((x && x.files) || {}).filter(f => f && f.id && f.parts).sort((a, b) => (a.at || 0) - (b.at || 0));
 
