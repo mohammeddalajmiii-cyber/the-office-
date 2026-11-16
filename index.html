@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261116073823">
+<meta name="build" content="20261116074153">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -111,7 +111,7 @@ button{cursor:pointer}
 .nickname-real{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
 @media (max-width:520px){.nickrow{grid-template-columns:auto minmax(0,1fr) auto}.nickrow input{grid-column:1/3}}
 .brand-txt{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
-.brand-sub{white-space:nowrap;text-align:left;font:600 10.5px/1 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.brand-sub{white-space:nowrap;text-align:left;font:600 10.5px/1.35 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.brand-sub>span{display:block;opacity:.75}
 @media (max-width:420px){.brand-sub{font-size:8.5px;letter-spacing:.05em}}
 .gate-sub{margin:-6px 0 4px;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 /* logo: the Ardent Creative Studios torch (flame, brighter inner flame, handle) */
@@ -1296,7 +1296,7 @@ input,select,textarea{background-color:var(--field)}
 </div>
 <div class="wrap" id="app" hidden>
   <header class="topbar">
-    <button class="brand" id="brand" aria-label="Pitch Room home"><svg class="mark" viewBox="0 0 60 100" aria-hidden="true"><path class="t-f" d="M30 2C40 12 45 22 45 34A15 15 0 0 1 15 34C15 22 20 12 30 2Z"/><path class="t-i" d="M30 21C34.5 26.5 36.5 31 36.5 38A6.5 6.5 0 0 1 23.5 38C23.5 31 25.5 26.5 30 21Z"/><path class="t-h" d="M20 66A10 10 0 0 1 40 66L36.5 92A6.5 6.5 0 0 1 23.5 92Z"/></svg><span class="brand-txt"><span>Pitch <span class="brand-accent">Room</span></span><small class="brand-sub">Ardent Creative Studios back office</small></span></button>
+    <button class="brand" id="brand" aria-label="Pitch Room home"><svg class="mark" viewBox="0 0 60 100" aria-hidden="true"><path class="t-f" d="M30 2C40 12 45 22 45 34A15 15 0 0 1 15 34C15 22 20 12 30 2Z"/><path class="t-i" d="M30 21C34.5 26.5 36.5 31 36.5 38A6.5 6.5 0 0 1 23.5 38C23.5 31 25.5 26.5 30 21Z"/><path class="t-h" d="M20 66A10 10 0 0 1 40 66L36.5 92A6.5 6.5 0 0 1 23.5 92Z"/></svg><span class="brand-txt"><span>Pitch <span class="brand-accent">Room</span></span><small class="brand-sub">Ardent Creative Studios<span>Back office</span></small></span></button>
     <span class="spacer"></span>
     <span class="status" id="status"></span>
     <button class="bell" id="search-btn" aria-label="Search" title="Search (Ctrl K)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
@@ -1409,7 +1409,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261116073823";
+const BUILD_ID = "20261116074153";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
