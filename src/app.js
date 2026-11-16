@@ -1097,6 +1097,11 @@ function pauseProject(p) {
   }, "Project paused. Its tasks are on hold");
 }
 function resumeProject(p) { showSettings = null; write(() => upd(p.id, { paused: DEL() }), "Project resumed. It's back in Up next") }
+// A single phase can be paused too: its tasks go on hold (like a paused project) until a planner resumes it.
+const phasePaused = (p, phid) => { const ph = p && p.phases && p.phases[phid]; return !!(ph && ph.name && ph.paused) };
+const taskHeld = (p, t) => isPaused(p) || phasePaused(p, t.phase);
+function pausePhase(p, ph) { write(() => phaseWrite(p, { [`phases.${ph.id}.paused`]: { by: me, at: Date.now() } }), `${ph.name} paused. Its tasks are on hold`) }
+function resumePhase(p, ph) { write(() => phaseWrite(p, { [`phases.${ph.id}.paused`]: DEL() }), `${ph.name} resumed. Its tasks are back on`) }
 function pauseBuilding(p) {
   write(async () => {
     const data = { ["active." + p.id]: DEL() };
@@ -1244,12 +1249,17 @@ function phaseCard(p, ph, n, phases, list, mode = {}) {
     head.append(...[
       loose ? null : el("span", { class: "phase-n" }, `${n + 1}/${phases.length}`),
       el("h3", {}, ph.name),
+      ph.paused ? el("span", { class: "pill pill-paused" }, "⏸ Paused") : null,
       ph.due ? el("span", { class: "chip" }, "By " + fmtDate(ph.due)) : null,
       (() => { const mp = loose ? null : moneyPhaseFor(p, ph.id); return mp ? el("span", { class: "mpchip", title: "Finishing this phase's tasks finishes the money phase " + mp.name }, "\u{1F4B0} " + mp.name) : null })(),
       el("span", { class: "spacer" }),
       list.length ? el("span", { class: "label" }, `${pr.done}/${pr.total} done`) : null].filter(Boolean));
   }
-  const sec = el("section", { class: "idea phase" }, head);
+  const sec = el("section", { class: "idea phase" + (ph.paused && !loose ? " phase-paused" : "") }, head);
+  if (ph.paused && !loose) sec.append(el("div", { class: "paused-line" },
+    el("span", {}, `⏸ Paused by ${ph.paused.by === me ? "you" : name(ph.paused.by)} ${ago(ph.paused.at)}. Its tasks are on hold until a planner resumes it.`),
+    el("span", { class: "spacer" }),
+    planner ? el("button", { class: "btn primary small", onclick: () => resumePhase(p, ph) }, "Resume") : null));
   if (planner && mode.editing && !loose && renamingPhase !== p.id + ph.id) {
     const due = el("input", { type: "date", class: "mini", "aria-label": "Finish this phase by", value: ph.due || "", onchange: e => write(() => phaseWrite(p, { [`phases.${ph.id}.due`]: e.target.value || null })) });
     const mph = isPhased(p.money) && canMoney(p) ? (() => { const cur = moneyPhaseFor(p, ph.id);
@@ -1261,6 +1271,8 @@ function phaseCard(p, ph, n, phases, list, mode = {}) {
       n > 0 ? el("button", { class: "linkbtn", "aria-label": "Move phase up", onclick: () => movePhase(p, phases, n, -1) }, "↑ Up") : null,
       n < phases.length - 1 ? el("button", { class: "linkbtn", "aria-label": "Move phase down", onclick: () => movePhase(p, phases, n, 1) }, "↓ Down") : null,
       el("button", { class: "linkbtn", onclick: () => { renamingPhase = p.id + ph.id; render() } }, "Rename"),
+      ph.paused ? el("button", { class: "linkbtn", onclick: () => resumePhase(p, ph) }, "▶ Resume")
+        : el("button", { class: "linkbtn", title: "Put this phase's tasks on hold until a planner resumes it", onclick: () => pausePhase(p, ph) }, "⏸ Pause"),
       delPhase === p.id + ph.id
         ? el("button", { class: "linkbtn danger", onclick: () => deletePhase(p, ph, list) }, list.length ? `Delete phase and its ${list.length} task${list.length > 1 ? "s" : ""}` : "Tap again to delete")
         : el("button", { class: "linkbtn danger", onclick: () => { delPhase = p.id + ph.id; render() } }, "Delete"));
@@ -1883,7 +1895,7 @@ function doneMessage(p, t) {
     return `Done! ${who === "nobody yet" ? "The next task" : who === "you" ? "You" : cap(who)} can start “${x.text}” now` + (freed.length > 1 ? ` (and ${freed.length - 1} more)` : "") }
   if (!all.some(x => x.phase === t.phase && !x.done && x.id !== t.id)) {
     const phs = getPhases(p), i = phs.findIndex(x => x.id === t.phase);
-    if (i >= 0) return `${phs[i].name} is complete ✓ ` + (phs[i + 1] ? `Next up: ${phs[i + 1].name}` : "That was the last phase");
+    if (i >= 0) return `${phs[i].name} is complete ✓ ` + (phs[i + 1] ? `Next up: ${phs[i + 1].name}` + (phs[i + 1].paused ? " (paused for now)" : "") : "That was the last phase");
   }
   return "Nice! Add a note about what you did";
 }
@@ -2440,7 +2452,8 @@ function myTasks() {
   const out = personal.map(t => ({ t, phase: "", personal: true, p: { id: "__personal", title: "Just for me", priority: t.priority || "medium" } }));
   for (const p of ideas.filter(i => i.status === "approved" || i.status === "completed")) {
     const phases = getPhases(p);
-    for (const t of tasksOf(p)) if (isAssignee(t, me)) out.push({ p, t, closed: p.status === "completed" || isPaused(p), held: isPaused(p), phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" });
+    for (const t of tasksOf(p)) if (isAssignee(t, me)) { const held = p.status === "approved" && taskHeld(p, t);
+      out.push({ p, t, closed: p.status === "completed" || held, held, phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" }) }
   }
   return out;
 }
@@ -2473,7 +2486,11 @@ function renderMine(box) {
   }
   box.append(list);
   const held = all.filter(x => x.held && !x.t.done);
-  if (held.length) box.append(el("p", { class: "label", style: "margin:8px 2px 0" }, `⏸ ${held.length} of your ${held.length === 1 ? "task is" : "tasks are"} on hold because ${[...new Set(held.map(x => x.p.title))].join(", ")} ${new Set(held.map(x => x.p.id)).size === 1 ? "is" : "are"} paused.`));
+  if (held.length) {
+    // say what's paused: the whole project, or a phase of it
+    const why = [...new Set(held.map(x => isPaused(x.p) ? x.p.title : `${x.phase || "a phase"} (${x.p.title})`))];
+    box.append(el("p", { class: "label", style: "margin:8px 2px 0" }, `⏸ ${held.length} of your ${held.length === 1 ? "task is" : "tasks are"} on hold because ${why.join(", ")} ${why.length === 1 ? "is" : "are"} paused.`));
+  }
   if (done.length) {
     box.append(el("button", { class: "linkbtn", style: "margin:12px 4px", onclick: () => { mineShow = mineShow === "done" ? "todo" : "done"; render() } }, mineShow === "done" ? "Hide finished" : `Show finished (${done.length})`));
     if (mineShow === "done") {
@@ -2609,7 +2626,7 @@ function buildAlerts() {
       const h = (t.helpers || {})[me];
       if (h && h.by !== me) add("help:" + t.id, h.at, h.by, `${name(h.by)} added you to a task: ${t.text} (${p.title})`, go);
       for (const [nid, n] of Object.entries(t.notes || {})) if (n && n.by !== me) add("note:" + nid, n.at, n.by, `${name(n.by)} left a note on your task: ${t.text}`, go);
-      if (!t.done && t.due && t.due <= tomorrow && !isPaused(p)) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text} (${p.title})` : t.due === today ? `Due today: ${t.text} (${p.title})` : `Due tomorrow: ${t.text} (${p.title})`, go);
+      if (!t.done && t.due && t.due <= tomorrow && !taskHeld(p, t)) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text} (${p.title})` : t.due === today ? `Due today: ${t.text} (${p.title})` : `Due tomorrow: ${t.text} (${p.title})`, go);
     }
   }
   for (const t of personal) if (!t.done && t.due && t.due <= tomorrow) add("due:" + t.id + ":" + today, dayStart(), null, t.due < today ? `Overdue: ${t.text}` : t.due === today ? `Due today: ${t.text}` : `Due tomorrow: ${t.text}`, "me");
@@ -2918,6 +2935,7 @@ function guidePage() {
       ["Suggest who does what", "gives open tasks to people by their skills and how busy they are. You check it before it saves."],
       ["Meetings › Make tasks from these notes", "turns the lines of your meeting notes into tasks, guessing who from the names."],
       ["Waiting for:", "link tasks that need another one first, so people know what they can start now."],
+      ["Pause a phase:", "Edit phases › ⏸ Pause puts that phase's tasks on hold (no reminders, out of people's to-do lists). Tap Resume on the phase whenever you're ready to continue."],
       ["Set a weekly goal", "on the Week tab: one clear thing everyone pushes for."]]),
     card("\u{1F4B0}", "Setting up the money", [
       ["1. Set up the money:", "on a project's Money tab, answer three questions: what the client agreed to pay, how they'll pay it, and how we share it. Everything else (currency, who brought the client, a partner, the team fund %) is in Edit deal › More options."],
@@ -3229,7 +3247,7 @@ function boardContext(p) {
     L.push("Team on this project: " + (teamOf(p).map(u => realName(u)).join(", ") || "nobody yet"));
     const phases = getPhases(p), tasks = tasksOf(p);
     if (!phases.length) L.push("It has no plan yet.");
-    phases.forEach(ph => { L.push(`PHASE: ${ph.name}${ph.due ? " (finish by " + ph.due + ")" : ""}`); tasks.filter(t => t.phase === ph.id).slice(0, 40).forEach(t => { const w = waitInfo(p, t); L.push(tline(t, null, p.id) + (w.open.length ? ` | waiting for: ${w.open.map(d => short(d.text, 40)).join(", ")}` : "")) }) });
+    phases.forEach(ph => { L.push(`PHASE: ${ph.name}${ph.due ? " (finish by " + ph.due + ")" : ""}${ph.paused ? " (paused: its tasks are on hold)" : ""}`); tasks.filter(t => t.phase === ph.id).slice(0, 40).forEach(t => { const w = waitInfo(p, t); L.push(tline(t, null, p.id) + (w.open.length ? ` | waiting for: ${w.open.map(d => short(d.text, 40)).join(", ")}` : "")) }) });
     const ci = (p.checkins || {})[weekKey()] || {};
     if (Object.keys(ci).length) { L.push("This week's check-ins:"); for (const [u, c] of Object.entries(ci)) L.push(`- ${realName(u)}: did "${short(c.did)}", next "${short(c.next)}"${c.blockers ? `, blocked by "${short(c.blockers)}"` : ""}`) }
     const meets = Object.values(p.meetings || {}).filter(Boolean).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
@@ -3492,6 +3510,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-phase-pause-1", date: "2026-11-16", icon: "⏸", title: "Pause a phase, continue when you're ready",
+    text: "Planners can now pause one phase of a project instead of the whole project: Tasks › Edit phases › ⏸ Pause. Its tasks go on hold (no reminders, and they leave My tasks) until a planner taps Resume.", go: "projects" },
   { id: "f-rules-v3", date: "2026-11-16", icon: "\u{1F4DC}", title: "New money rules: please read and agree",
     text: "The money rules were rewritten to match how money works now: project teams, task prices, phases, keeping money in the fund, papers on payments and the fund's own money. The numbers are the same. Money › Rules.", go: "money-rules" },
   { id: "f-bugs-ideas-1", date: "2026-11-16", icon: "\u{1F41E}", title: "Bugs and ideas, straight to the creators",
@@ -5092,7 +5112,7 @@ function weeklyText() {
   const done = {}, late = [], dueWeek = [];
   for (const p of ideas.filter(i => i.status === "approved" || i.status === "completed")) for (const t of tasksOf(p)) {
     if (t.done && (t.doneAt || 0) >= start && (t.doneAt || 0) < end && t.doneBy) done[t.doneBy] = (done[t.doneBy] || 0) + 1;
-    if (!t.done && p.status === "approved" && !isPaused(p) && t.due) { if (t.due < today) late.push({ t, p }); else if (t.due <= weekEnd) dueWeek.push({ t, p }) }
+    if (!t.done && p.status === "approved" && !taskHeld(p, t) && t.due) { if (t.due < today) late.push({ t, p }); else if (t.due <= weekEnd) dueWeek.push({ t, p }) }
   }
   let inEGP = 0; for (const p of dealProjects()) { const m = p.money || {}, rate = (m.currency || "EGP") === "EGP" ? 1 : Number(m.rate) || 1;
     for (const x of Object.values(p.payments || {})) if (x && x.date && new Date(x.date + "T12:00").getTime() >= start && new Date(x.date + "T12:00").getTime() < end) inEGP += Math.round(toP(x.amount) * ((m.currency || "EGP") === "EGP" ? 1 : Number(x.rate) || rate)) }
