@@ -43,51 +43,7 @@ const PLAN_TEMPLATES = [
   { name: "Music", phases: ["Idea", "Writing", "Recording", "Mixing", "Release"] },
 ];
 
-const QUIZ = [
-  { q: "Your class gets a group project. What do you grab first?", a: [
-    ["Making the slides look good", "design"], ["Splitting the work and setting deadlines", "organize"],
-    ["Digging up the facts and sources", "research"], ["Presenting it in front of the class", "people"]] },
-  { q: "Free Saturday, nothing planned. You're most likely…", a: [
-    ["Messing with an app, a game mod or some code", "build"], ["Editing a video or making music", "media"],
-    ["Drawing, designing or redoing your setup", "design"], ["Out with friends or on calls", "people"]] },
-  { q: "A friend's phone or laptop is acting weird. You…", a: [
-    ["Try settings and fixes until it works", "build"], ["Search the exact error and read forums", "research"],
-    ["Call someone who'd know", "people"], ["Explain it step by step so they can fix it themselves", "write"]] },
-  { q: "Which compliment would make your day?", a: [
-    ["“That looks so clean”", "design"], ["“You explained that perfectly”", "write"],
-    ["“How did you even make that work?”", "build"], ["“We'd be lost without you keeping us on track”", "organize"]] },
-  { q: "The group chat is planning a trip. You're the one who…", a: [
-    ["Makes the schedule and the who-brings-what list", "organize"], ["Finds the best places and prices", "research"],
-    ["Convinces everyone, parents included", "people"], ["Makes the trip edit afterwards", "media"]] },
-  { q: "Pick a YouTube rabbit hole:", a: [
-    ["How apps and games are made", "build"], ["Design, art or aesthetic setups", "design"],
-    ["Editing, filmmaking or music production", "media"], ["Documentaries and explainers", "research"]] },
-  { q: "You need 100 people to try your project. You…", a: [
-    ["Make a sick trailer or TikTok", "media"], ["Write the post that makes people click", "write"],
-    ["Message people and hype it up in person", "people"], ["Plan where to post, when, and who does what", "organize"]] },
-  { q: "Which subject would you take just for fun?", a: [
-    ["Computer science or maths", "build"], ["Art", "design"],
-    ["English or another language", "write"], ["Science or history", "research"]] },
-  { q: "The project gets stuck. You usually…", a: [
-    ["Try a different approach and keep testing", "build"], ["Look up how other people solved it", "research"],
-    ["Get the team together and talk it out", "people"], ["Break it into smaller steps and hand them out", "organize"]] },
-  { q: "Your camera roll is mostly…", a: [
-    ["Shots and clips I edit", "media"], ["Screenshots of designs and inspo", "design"],
-    ["Notes, lists and reminders", "organize"], ["Memes and chats with friends", "people"]] },
-  { q: "There's writing to do for the project. What sounds most fun?", a: [
-    ["Telling the story or writing the script", "write"], ["Making the visuals that go with it", "design"],
-    ["Recording and editing it", "media"], ["Checking the facts are right", "research"]] },
-  { q: "Which tool would you master first?", a: [
-    ["VS Code or a game engine", "build"], ["Figma, Canva or Photoshop", "design"],
-    ["CapCut, Premiere or FL Studio", "media"], ["Notion, Google Calendar or Trello", "organize"]] },
-  { q: "Your team presents to an audience. Your role:", a: [
-    ["Speaking on stage", "people"], ["Writing what we'll say", "write"],
-    ["Making the slides", "design"], ["Running the live demo", "build"]] },
-  { q: "What's the best feeling?", a: [
-    ["Something I built actually works", "build"], ["People react to something I made", "media"],
-    ["I found the answer nobody else could", "research"], ["A messy plan finally comes together", "organize"]] },
-];
-const QUIZ_MAX = Object.fromEntries(SKILL_IDS.map(s => [s, QUIZ.filter(x => x.a.some(([, k]) => k === s)).length]));
+// The skills quiz lives in quiz.js: questions, roles and how answers become scores.
 
 /* ---------- helpers ---------- */
 
@@ -145,7 +101,7 @@ let activeMap = {};   // projects being built right now: id -> {by, at}. Only th
 const isActive = p => !!p && p.status === "approved" && !p.paused && (!!activeMap[p.id] || p.id === focusId);
 const activeProjects = () => ideas.filter(isActive).sort((a, b) => prioRank(a) - prioRank(b) || ((activeMap[a.id] || {}).at || 0) - ((activeMap[b.id] || {}).at || 0));
 const suggestions = {};          // projectId -> [{task, owner, why}]
-let quiz = null;                 // {i, answers:[], grow:[]} while taking the quiz
+let quiz = null;                 // {i, ans:{like,scene,test,done,talent,grow}} while taking the quiz
 
 let myProfile = null, privErr = false, privUnsubs = [], privRetry = null, live = false;
 let authN = 0;
@@ -1748,78 +1704,119 @@ function suggestPanel(p) {
 
 /* ----- skills ----- */
 
+/* ----- skills & roles: the quiz (questions and scoring are in quiz.js) ----- */
+const mainRoleOf = u => { const q = (people[u] || {}).quiz2; return q && q.main ? ROLE[q.main] : null };
+const rolesOf = u => { const q = (people[u] || {}).quiz2; return q && q.roles ? q.roles.map(r => ROLE[r]).filter(Boolean) : [] };
 function renderSkills() {
   const box = $("#skills"); box.replaceChildren();
   const mine = people[me] || {};
   if (quiz || !mine.skills) box.append(quizCard());
   else box.append(myResults(mine));
 
-  box.append(el("div", { class: "row", style: "margin:26px 0 10px" }, el("h2", {}, "The team's skills")));
+  // who does what: every role and the people it fits
+  const ids = teamIds(), took = ids.filter(u => (people[u] || {}).quiz2);
+  box.append(el("div", { class: "row", style: "margin:26px 0 10px" }, el("h2", {}, "Who does what"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${took.length} of ${ids.length} took the quiz`)));
+  if (took.length) box.append(el("section", { class: "idea rolegrid" }, ROLES.map(r => {
+    const main = took.filter(u => people[u].quiz2.main === r.id), also = took.filter(u => people[u].quiz2.main !== r.id && (people[u].quiz2.roles || []).includes(r.id));
+    return el("div", { class: "rolecell" + (main.length || also.length ? "" : " empty") }, el("b", {}, r.name),
+      el("div", { class: "rolepeople" }, main.map(u => el("span", { class: "planner" }, av(u), u === me ? "You" : name(u).split(" ")[0])),
+        also.map(u => el("span", { class: "planner soft" }, av(u), (u === me ? "You" : name(u).split(" ")[0]) + " (also)")),
+        !main.length && !also.length ? el("span", { class: "label" }, "nobody yet") : null));
+  })));
   const grid = el("div", { class: "members" });
-  for (const u of teamIds()) {
-    const prof = people[u] || {};
-    const tops = topSkills(u);
+  for (const u of ids) {
+    const prof = people[u] || {}, q = prof.quiz2, rs = rolesOf(u);
     grid.append(el("article", { class: "idea" + (u === me ? " member me" : "") },
       el("div", { class: "by", style: "color:var(--ink);font-weight:600;font-size:15px" }, av(u), name(u)),
-      prof.skills ? el("div", { class: "row", style: "gap:6px" }, tops.map(s => el("span", { class: "chip" }, SKILLS[s].name))) : el("p", {}, "Hasn't taken the quiz yet."),
+      q ? el("div", { class: "row", style: "gap:6px" }, rs.map((r, i) => el("span", { class: "chip" + (i === 0 ? " rolechip" : "") }, r.name))) : el("p", { style: "margin:0" }, prof.skills ? "Took the old quiz. The new one finds their roles." : "Hasn't taken the quiz yet."),
+      q && q.hidden ? el("p", { style: "margin:0;font-size:13.5px" }, "✨ Hidden skill: ", el("b", {}, cap1(SKILL_WORD[q.hidden]))) : null,
+      q && q.talent ? el("p", { style: "margin:0;font-size:13.5px;color:var(--muted)" }, "In their words: “" + q.talent + "”") : null,
       prof.skills ? bars(prof.skills, 3) : null,
-      prof.grow && prof.grow.length ? el("p", { style: "font-size:13px" }, "Wants to get better at: " + prof.grow.map(s => SKILLS[s].name).join(", ")) : null));
+      prof.grow && prof.grow.length ? el("p", { style: "font-size:13px;margin:0" }, "Wants to get better at: " + prof.grow.map(s => SKILLS[s].name).join(", ")) : null));
   }
   box.append(grid);
 }
 
 function quizCard() {
-  if (!quiz) quiz = { i: 0, answers: [], grow: [] };
-  const card = el("section", { class: "idea", style: "gap:14px" });
-  if (quiz.i < QUIZ.length) {
-    const item = QUIZ[quiz.i];
-    card.append(
-      el("div", { class: "qprog" }, el("span", {}, "Skills quiz"), el("span", {}, `${quiz.i + 1} / ${QUIZ.length}`)),
-      el("div", { class: "track" }, el("div", { class: "fill", style: `width:${pctOf(quiz.i, QUIZ.length)}%` })),
-      el("h2", {}, item.q),
-      el("p", {}, "Pick the one that sounds most like you. There are no wrong answers."),
-      el("div", { class: "opts" }, item.a.map(([text, skill], n) => el("button", { class: "opt", "aria-pressed": String(quiz.answers[quiz.i] === n), onclick: () => { quiz.answers[quiz.i] = n; quiz.i++; render() } }, text))),
-      el("div", { class: "row" },
-        quiz.i > 0 ? el("button", { class: "btn quiet", onclick: () => { quiz.i--; render() } }, "← Back") : null,
-        el("span", { class: "spacer" }),
-        (people[me] || {}).skills ? el("button", { class: "btn quiet", onclick: () => { quiz = null; render() } }, "Cancel") : null));
+  const steps = quizSteps();
+  if (!quiz) quiz = { i: 0, ans: { like: [], scene: [], test: [], done: [], talent: "", grow: ((people[me] || {}).grow || []).slice() } };
+  const st = steps[Math.min(quiz.i, steps.length - 1)], A = quiz.ans, [partName, partSub] = QUIZ_PARTS[st.part];
+  const card = el("section", { class: "idea quiz", style: "gap:14px" });
+  const go = d => { quiz.i = Math.max(0, Math.min(steps.length - 1, quiz.i + d)); render(); scrollTo(0, 0) };
+  card.append(
+    el("div", { class: "qparts" }, [1, 2, 3, 4, 5].map(n => el("span", { class: n < st.part ? "done" : n === st.part ? "now" : "" }, QUIZ_PARTS[n][0]))),
+    el("div", { class: "track" }, el("div", { class: "fill", style: `width:${pctOf(quiz.i, steps.length)}%` })),
+    el("div", { class: "qprog" }, el("span", {}, `Part ${st.part} of 5 · ${partName}`), el("span", {}, `${quiz.i + 1} / ${steps.length}`)));
+  if (quiz.i === 0) card.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "About 6 minutes. It looks at what you enjoy, what you'd do, what you can show and what you've done, then finds your roles and the skill you might not know you have."));
+  if (st.kind === "like" || st.kind === "scene" || st.kind === "test") {
+    const list = A[st.kind];
+    card.append(el("h2", {}, st.q), el("p", { style: "margin:0" }, partSub),
+      el("div", { class: "opts" }, st.a.map((o, n) => el("button", { class: "opt", "aria-pressed": String(list[st.i] === n), onclick: () => { list[st.i] = n; go(1) } }, Array.isArray(o) ? o[0] : o))));
+  } else if (st.kind === "done") {
+    card.append(el("h2", {}, "Which of these have you really done?"), el("p", { style: "margin:0" }, partSub),
+      el("div", { class: "opts" }, QZ_DONE.map(([, text], n) => el("button", { class: "opt check", "aria-pressed": String(A.done.includes(n)), onclick: () => { A.done = A.done.includes(n) ? A.done.filter(x => x !== n) : [...A.done, n]; render() } }, el("span", { class: "tick" }, A.done.includes(n) ? "✓" : ""), text))),
+      el("div", { class: "row" }, el("span", { class: "label" }, A.done.length ? `${A.done.length} ticked` : "None of these? That's fine too."), el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: () => go(1) }, "Next")));
   } else {
-    card.append(
-      el("div", { class: "qprog" }, el("span", {}, "Last question"), el("span", {}, "Optional")),
-      el("h2", {}, "What do you want to get better at?"),
-      el("p", {}, "Pick up to 2. The helper will sometimes give you tasks in these so you can level up."),
-      el("div", { class: "opts" }, SKILL_IDS.map(s => el("button", { class: "opt", "aria-pressed": String(quiz.grow.includes(s)), onclick: () => {
-        if (quiz.grow.includes(s)) quiz.grow = quiz.grow.filter(x => x !== s);
-        else if (quiz.grow.length < 2) quiz.grow.push(s);
-        render();
-      } }, el("strong", {}, SKILLS[s].name), " — ", SKILLS[s].about))),
-      el("div", { class: "row" },
-        el("button", { class: "btn quiet", onclick: () => { quiz.i--; render() } }, "← Back"),
-        el("span", { class: "spacer" }),
-        el("button", { class: "btn primary", onclick: saveQuiz }, "See my results")));
+    const ta = el("textarea", { id: "quiz-talent", class: "noteinput", rows: "3", maxlength: "300", placeholder: "e.g. I can make anyone laugh on a call, I always find the cheapest flights, I can fix any phone, I remember every detail people tell me…", oninput: e => { A.talent = e.target.value } });
+    if (!ta.value) ta.value = A.talent || "";
+    card.append(el("h2", {}, "What's something you're good at that nobody ever asks you about?"),
+      el("p", { style: "margin:0" }, "Everyone has one. It can be small or random: it often turns into a role. The team will see it on your profile."), ta,
+      el("h3", { style: "margin-top:6px" }, "What do you want to get better at?"),
+      el("p", { style: "margin:0" }, "Pick up to 2. The helper will sometimes give you tasks in these so you can level up."),
+      el("div", { class: "opts two" }, SKILL_IDS.map(s => el("button", { class: "opt", "aria-pressed": String(A.grow.includes(s)), onclick: () => {
+        if (A.grow.includes(s)) A.grow = A.grow.filter(x => x !== s); else if (A.grow.length < 2) A.grow.push(s); render();
+      } }, el("strong", {}, SKILLS[s].name), " · ", SKILLS[s].about))),
+      el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: saveQuiz }, "See my roles")));
   }
+  card.append(el("div", { class: "row" },
+    quiz.i > 0 ? el("button", { class: "btn quiet", onclick: () => go(-1) }, "← Back") : null, el("span", { class: "spacer" }),
+    (people[me] || {}).skills ? el("button", { class: "btn quiet", onclick: () => { quiz = null; render() } }, "Cancel") : null));
   return card;
 }
 
 function saveQuiz() {
-  const count = Object.fromEntries(SKILL_IDS.map(s => [s, 0]));
-  quiz.answers.forEach((n, qi) => { if (n != null) count[QUIZ[qi].a[n][1]]++ });
-  const skills = Object.fromEntries(SKILL_IDS.map(s => [s, Math.round(count[s] / QUIZ_MAX[s] * 100) / 100]));
-  const grow = quiz.grow.slice();
+  const missing = quizSteps().findIndex(st => (st.kind === "like" || st.kind === "scene" || st.kind === "test") && quiz.ans[st.kind][st.i] == null);
+  if (missing >= 0) { quiz.i = missing; toast("One question was skipped. Answer it and you're done"); render(); return }
+  const A = quiz.ans, res = scoreQuiz(A, SKILL_IDS), grow = A.grow.slice(), talent = (A.talent || "").trim().slice(0, 300);
+  const quiz2 = { v: res.v, roles: res.roles, main: res.main, hidden: res.hidden, parts: res.parts, fit: res.fit.slice(0, 5), talent, at: Date.now() };
   quiz = null;
-  people[me] = { ...(people[me] || {}), skills, grow };
-  write(() => setDoc(doc(db, "users", me), { skills, grow, quizAt: Date.now() }, { merge: true }), "Results saved");
+  people[me] = { ...(people[me] || {}), skills: res.skills, grow, quiz2 };
+  write(() => setDoc(doc(db, "users", me), { skills: res.skills, grow, quizAt: Date.now(), quiz2 }, { merge: true }), "Your roles are ready");
+  scrollTo(0, 0);
 }
 
 function myResults(prof) {
-  const tops = topSkills(me);
-  return el("section", { class: "focus" },
-    el("div", { class: "label" }, "Your strengths"),
-    el("div", { class: "role" }, tops.map(s => SKILLS[s].name).join(" + ")),
-    el("p", { style: "margin:0;opacity:.85;max-width:60ch" }, tops.map(s => SKILLS[s].about).join(". ") + "."),
-    bars(prof.skills),
+  const q = prof.quiz2;
+  if (!q) {
+    const tops = topSkills(me);
+    return el("section", { class: "focus" },
+      el("div", { class: "label" }, "Your strengths (old quiz)"), el("div", { class: "role" }, tops.map(s => SKILLS[s].name).join(" + ")), bars(prof.skills),
+      el("div", { class: "notice teamnote", style: "margin:0" }, el("span", { style: "flex:1 1 220px" }, "The skills quiz got a big upgrade: real situations, quick tests and what you've done. It finds your roles and your hidden skill. About 6 minutes."),
+        el("button", { class: "btn primary small", onclick: () => { quiz = null; quiz = { i: 0, ans: { like: [], scene: [], test: [], done: [], talent: "", grow: (prof.grow || []).slice() } }; render() } }, "Take the new quiz")));
+  }
+  const res = { parts: q.parts }, main = ROLE[q.main], others = (q.roles || []).slice(1).map(r => ROLE[r]).filter(Boolean);
+  const nextUp = (q.fit || []).filter(x => !(q.roles || []).includes(x.id) && x.score >= .4).slice(0, 2).map(x => ROLE[x.id]).filter(Boolean);
+  const sec = el("section", { class: "focus quizres" },
+    el("div", { class: "label" }, "Your main role"),
+    el("div", { class: "role" }, main ? main.name : "—"),
+    main ? el("p", { style: "margin:0;opacity:.9;max-width:60ch" }, main.about) : null,
+    main ? el("p", { style: "margin:0;opacity:.8;font-size:14px" }, roleWhy(res, main.id)) : null,
+    others.length ? el("div", { style: "display:grid;gap:4px" }, el("div", { class: "label" }, "You also fit"), el("div", { class: "row", style: "gap:6px" }, others.map(r => el("span", { class: "chip", title: r.about }, r.name)))) : null,
+    nextUp.length ? el("p", { style: "margin:0;font-size:13.5px;opacity:.8" }, "Close behind: " + nextUp.map(r => r.name).join(", ") + ". A few tasks there and they could be yours too.") : null);
+  if (q.hidden) {
+    const P = q.parts, s = q.hidden, bits = [];
+    if (P.test[s] >= 1) bits.push("got both tests right"); else if (P.test[s] >= .5) bits.push("got a test right");
+    if (P.done[s] >= .5) bits.push("you've already done it for real");
+    sec.append(el("div", { class: "hiddenskill" }, el("b", {}, "✨ Your hidden skill: " + cap1(SKILL_WORD[s])),
+      el("span", {}, `You didn't pick it much when talking about yourself, but you ${bits.join(" and ")}. You're better at ${SKILL_WORD[s]} than you think. Ask a planner for a task in it.`)));
+  }
+  if (q.talent) sec.append(el("p", { style: "margin:0;font-size:14px" }, el("b", {}, "In your words: "), "“" + q.talent + "”"));
+  sec.append(bars(prof.skills),
     prof.grow && prof.grow.length ? el("p", { style: "margin:0;opacity:.85" }, "You want to get better at: " + prof.grow.map(s => SKILLS[s].name).join(", ")) : null,
-    el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn", onclick: () => { quiz = { i: 0, answers: [], grow: (prof.grow || []).slice() }; render() } }, "Retake the quiz")));
+    el("details", { class: "howscored" }, el("summary", {}, "How this was worked out"),
+      el("p", { style: "margin:6px 0 0;font-size:13.5px;opacity:.85" }, "Each skill mixes four things: what you enjoy (20%), what you'd do in real situations (20%), the quick tests (35%) and what you've really done (25%). Roles are mixes of skills, like Brand designer = mostly design plus some content and words. A hidden skill is one where your tests and real experience are clearly ahead of how you see yourself.")),
+    el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn", onclick: () => { quiz = { i: 0, ans: { like: [], scene: [], test: [], done: [], talent: q.talent || "", grow: (prof.grow || []).slice() } }; render(); scrollTo(0, 0) } }, "Retake the quiz")));
+  return sec;
 }
 
 function bars(skills, limit) {
@@ -2882,6 +2879,7 @@ function guidePage() {
       ["Drop files", "straight onto an open task to attach them (PDFs, designs, photos, up to 5 MB)."],
       ["Me › My tasks", "shows everything that's yours in Now, Next and Waiting on others. Private to-dos and notes there are only for you."],
       ["Tap someone's photo", "above a project's tasks to see only their tasks."],
+      ["Take the skills quiz", "(Me › Skills and team, about 6 minutes). It finds your main role, other roles you fit and your hidden skill, so the right tasks come to you."],
       ["Done tasks fold away", "at the bottom of their phase under ✓ done. Tap it to review them; untick one to bring it back."]]),
     card("\u{1F4B5}", "Your money", [
       ["Task prices:", "when a project shares money by task prices, a task shows 💵 and what you get (≈). You earn it once the task is ticked done and the client has paid for it."],
@@ -3160,7 +3158,7 @@ function boardContext(p) {
   const tline = (t, proj, pid) => `- [${code(t, pid)}] ${short(t.text)}${proj ? " [" + proj + "]" : ""} | ${assignees(t).map(u => realName(u) || "someone").join(", ") || "unassigned"} | ${t.done ? "done" : t.status === "doing" ? "in progress" : "not started"}${t.due ? " | due " + t.due : ""}${t.priority && t.priority !== "medium" ? " | " + t.priority : ""}`;
   L.push(`Today is ${ymd(today)} (${today.toLocaleDateString("en", { weekday: "long" })}).`);
   L.push(`You are talking to ${realName(me) || "a team member"}${isAdmin ? " (the team's admin)" : ""}.`);
-  L.push("Team: " + teamIds().map(u => { const s = topSkills(u).map(k => SKILLS[k].name).join(" + "); return realName(u) + (s ? ` (strengths: ${s})` : "") }).join("; "));
+  L.push("Team: " + teamIds().map(u => { const s = topSkills(u).map(k => SKILLS[k].name).join(" + "), rs = rolesOf(u).map(r => r.name).join(", "), hid = ((people[u] || {}).quiz2 || {}).hidden; return realName(u) + (rs ? ` (roles: ${rs})` : "") + (s ? ` (strengths: ${s})` : "") + (hid ? ` (hidden skill: ${SKILL_WORD[hid]})` : "") }).join("; "));
   const mine = myTasks().filter(x => !x.closed);
   L.push(`\nMy tasks (${mine.filter(x => !x.t.done).length} open):`);
   mine.slice(0, 60).forEach(x => { if (x.personal) { const k = "P" + (++n); asstRefs[k] = { personal: x.t.id }; L.push(`- [${k}] ${short(x.t.text)} [private]${x.t.done ? " | done" : ""}${x.t.due ? " | due " + x.t.due : ""}`) } else L.push(tline(x.t, x.p.title, x.p.id) + ((x.t.notes && Object.keys(x.t.notes).length) ? ` | ${Object.keys(x.t.notes).length} notes` : "")) });
@@ -3436,6 +3434,10 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-quiz2-1", date: "2026-11-16", icon: "\u2B50", title: "A new skills quiz that finds your roles",
+    text: "Real situations, quick tests and what you've actually done, not just what you like. It gives you a main role (like Brand designer or Client closer), other roles you fit, and your hidden skill: something you're better at than you think. About 6 minutes. Skills and team shows who does what.", go: "skills" },
+  { id: "f-fund-hands-1", date: "2026-11-16", icon: "\u{1F3E6}", title: "The fund shows its own money and project money apart",
+    text: "Fund & goals now shows what's in the fund's hands, its own money and what it keeps for projects. Paying a subscription warns you if the fund's own money isn't enough and it would use project money.", go: "money-fund" },
   { id: "f-easy-money-1", date: "2026-11-16", icon: "\u{1F4B8}", title: "Money made simple",
     text: "Setting up a project's money is now three questions. When the client pays, tap + Money in: type the amount, tap what it's for, how they paid and who has it, attach the signed quotation, done. The details (task prices, who gets what) fold away until you open them.", go: "projects" },
   { id: "f-phases-1", date: "2026-11-16", icon: "\u{1FA9C}", title: "Deals in phases",
@@ -4739,6 +4741,10 @@ function renderFundTab(box, all, F) {
       el("div", {}, el("b", {}, fmtEGP(F.spent)), el("span", {}, "spent" + (F.extra ? ` \u00b7 ${fmtEGP(F.extra)} added by hand` : ""))),
       el("div", { class: runway != null && runway < 2 ? "late" : "" }, el("b", {}, runway == null ? "–" : runway > 24 ? "24+" : String(runway)), el("span", {}, runway == null ? "no subscriptions" : "months of subscriptions covered")))));
   if (isAdmin && fundForm === "spend") box.append(fundEntryForm(F));
+  // money in hand = the fund's own money + money it keeps for projects. Spending should only use the fund's own.
+  if (all.kept.length || F.balance < 0) box.append(el("div", { class: "notice" + (F.balance < 0 ? "" : " teamnote soft"), style: "margin:12px 0 0" },
+    el("div", {}, `In the fund's hands: ${fmtEGP(Math.max(0, F.balance) + all.flow.kept + Math.min(0, F.balance))}. The fund's own money: ${fmtEGP(F.balance)}. Kept for projects: ${fmtEGP(all.flow.kept)}.`),
+    F.balance < 0 ? el("div", {}, `The fund spent ${fmtEGP(-F.balance)} more than its own money, so that came out of money kept for projects. It's paid back automatically as projects are split and their share reaches the fund.`) : null));
   { const src = all.projects.filter(({ r }) => r.fund > 0);
     if (src.length) box.append(el("details", { class: "removed", style: "margin-top:12px" }, el("summary", {}, `Where the fund's money came from (${src.length} project${src.length > 1 ? "s" : ""})`),
       el("section", { class: "idea", style: "gap:0;margin-top:8px" }, src.flatMap(({ p, r }) => [
@@ -4860,7 +4866,9 @@ function goalForm(g) {
 
 function subPayChooser(s, today) {
   const who = personSelect("sp-who-" + s.id, "", { members: {} }, "The fund paid it");
+  const own = fundState(allMoney()).balance, short = toP(s.amount) - Math.max(0, own);
   return el("div", { class: "subpay" }, el("span", {}, `Who paid ${fmtEGP(toP(s.amount))} for ${s.name}?`), who,
+    short > 0 ? el("span", { class: "label", style: "flex-basis:100%;text-transform:none;letter-spacing:0;color:var(--warn)" }, `If the fund pays: it only has ${fmtEGP(Math.max(0, own))} of its own, so ${fmtEGP(short)} would come from money kept for projects.`) : null,
     el("button", { class: "btn small quiet", onclick: () => { subPay = null; render() } }, "Cancel"),
     el("button", { class: "btn small primary", onclick: () => { const by = who.value || null; subPay = null;
       fundWrite({ spends: { [uid()]: { amount: s.amount, date: today, what: s.name + " subscription", sub: s.id, paidBy: by, by: me, at: Date.now() } }, subs: { [s.id]: { nextDue: nextDate(s.nextDue || today, s.cycle), lastPaid: today } } },
