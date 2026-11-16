@@ -2859,10 +2859,11 @@ function buildPage() {
 let guideTab = null;
 function guidePage() {
   const planner = ideas.some(i => isProj(i) && canPlan(i)), creator = amCreator();
-  const tab = guideTab || (creator && !isAdmin ? "creators" : planner ? "planners" : "everyone");
+  // the creators' part is only for creators (and the admin)
+  const tab = guideTab && (guideTab !== "creators" || creator) ? guideTab : (creator && !isAdmin ? "creators" : planner ? "planners" : "everyone");
   const wrap = el("div", { class: "guide" });
   wrap.append(el("p", { class: "lede", style: "margin:0" }, "The small things that make work on Pitch Room faster. Read your part once; come back when you need it."),
-    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Guide for" }, [["everyone", "Everyone"], ["planners", "Planners"], ["creators", "Creators"]].map(([k, l]) =>
+    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Guide for" }, [["everyone", "Everyone"], ["planners", "Planners"], ...(creator ? [["creators", "Creators"]] : [])].map(([k, l]) =>
       el("button", { "aria-pressed": String(tab === k), onclick: () => { guideTab = k; render() } }, l))));
   const card = (icon, title, items) => el("section", { class: "idea" }, el("h3", {}, icon + "  " + title), el("ul", {}, items.map(x => el("li", {}, ...(Array.isArray(x) ? [el("b", {}, x[0]), " " + x[1]] : [x])))));
   const R = rulesNow();
@@ -2920,7 +2921,7 @@ function guidePage() {
     card("\u{1F91D}", "Client and partners", [
       ["Client tab:", "turn on the client view to give the client a page with the stage, progress, next step and what they've paid. Make a monthly report there and save it as a PDF."],
       ["Partner tasks:", "give partners on this project their own small tasks; they tick them in their portal."]]));
-  if (tab === "creators") wrap.append(
+  if (tab === "creators" && creator) wrap.append(
     card("\u{1F6E0}️", "What creators do", [
       `Creators change Pitch Room itself: new features, fixes and design. The team asks in Settings › Build Pitch Room; tap I'll build it so nobody does it twice, then It's live when it's out.`,
       ["Get the code:", `accept the GitHub invite, then open Claude Code on the ${REPO.split("/")[1]} repository and describe the change in plain words.`],
