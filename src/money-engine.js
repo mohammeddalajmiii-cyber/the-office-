@@ -51,7 +51,9 @@ function splitByShares(amount, shares) {
 }
 
 function computeMoney(p, todayStr, rules, opts) {
-  const m = p.money || {}, R = { ...MONEY_DEFAULTS, ...(rules || {}) };
+  const m0 = p.money || {}, R = { ...MONEY_DEFAULTS, ...(rules || {}) };
+  // a deal in phases (one-time only): the price is the agreed phases added up, the plan is their payments in order
+  const phased = isPhased(m0), m = phased ? { ...m0, price: phasesPrice(m0) } : m0;
   const fundPct = m.fundCustom && m.fundPct != null ? Number(m.fundPct) : R.fundPct;
   // who brought the client: one or several people share the finder's fee; "the team" puts it in the fund
   const finders = m.finderTeam ? [] : (Array.isArray(m.finders) ? m.finders : (m.finder ? [m.finder] : [])).filter(Boolean);
@@ -121,11 +123,11 @@ function computeMoney(p, todayStr, rules, opts) {
     const prices = m.prices || {}, tmap = {};
     for (const field of ["tasks", "steps"]) for (const [id, t] of Object.entries(p[field] || {})) if (t && t.text)
       tmap[id] = { id, text: t.text, done: !!t.done, who: [...new Set([t.owner, ...Object.entries(t.helpers || {}).filter(([, v]) => v).map(([u]) => u)].filter(Boolean))] };
-    const plan = planOf(m), total = toP(m.price);
+    const plan = planOf(m, p), total = toP(m.price);
     const buckets = plan.length ? plan.map(st => ({ label: st.label || "", amt: toP(st.amount), tasks: (st.tasks || []).filter(id => tmap[id]) })) : [{ label: "", amt: total, tasks: [] }];
     if (plan.length) { const off = total - buckets.reduce((a, b) => a + b.amt, 0); buckets[buckets.length - 1].amt = Math.max(0, buckets[buckets.length - 1].amt + off) }
-    const linked = new Set(buckets.flatMap(b => b.tasks)), lastB = buckets[buckets.length - 1];
-    for (const id of Object.keys(tmap)) if (!linked.has(id)) lastB.tasks.push(id);
+    const linked = new Set(buckets.flatMap(b => b.tasks)), lastB = buckets[buckets.length - 1], later = laterTasks(m, p);
+    for (const id of Object.keys(tmap)) if (!linked.has(id) && !later.has(id)) lastB.tasks.push(id);
     for (const b of buckets) { b.pot = 0; b.got = 0; b.priced = b.tasks.reduce((a, id) => a + Math.max(0, toP(prices[id])), 0) }
     res.priced = buckets.reduce((a, b) => a + b.priced, 0);
     res.pricedOver = buckets.some(b => b.priced > b.amt);
@@ -189,6 +191,27 @@ function computeMoney(p, todayStr, rules, opts) {
   } else if (byFund) {
     res.expected = type === "monthly" ? 0 : toP(m.price);
     for (const x of payments) splitProfit(reimburse(egp(x)), null, true);
+  } else if (type === "one" && phased) {
+    // in phases, by % shares: each phase's money is split once that phase is fully paid
+    res.expected = toP(m.price);
+    const parts = m.phases.filter(ph => ph && ph.agreed).map(ph => ({ id: ph.id, amt: toP(ph.price), got: 0, pot: 0 }));
+    if (!parts.length) parts.push({ id: "", amt: 0, got: 0, pot: 0 });
+    for (const x of payments) {
+      const amt = toP(x.amount), inEGP = egp(x); if (amt <= 0) continue;
+      let left = amt, used = 0; const takes = [];
+      parts.forEach((b, i) => { if (left <= 0) return; const take = i === parts.length - 1 ? left : Math.min(left, Math.max(0, b.amt - b.got)); if (take > 0) { b.got += take; left -= take; takes.push([b, take]) } });
+      takes.forEach(([b, take], i) => { const part = i === takes.length - 1 ? inEGP - used : Math.round(inEGP * take / amt); used += part; splitProfit(reimburse(part), null, true, null, rest => { b.pot += rest }) });
+    }
+    for (const b of parts) {
+      if (b.amt > 0 && b.got >= b.amt) { let given = 0; for (const [u, v] of Object.entries(splitByShares(b.pot, m.shares))) { person(u).earned += v; given += v } res.unassigned += b.pot - given }
+      else { res.held += b.pot; if (b.pot || b.amt) res.pending = true }
+    }
+    if (res.pending) {
+      const pv = { fund: 0, finderAmt: 0, unassigned: 0, people: {}, flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 } };
+      const whole = Math.round(res.expected * dealRate); pv.whole = whole; pv.flow.costs = Math.min(whole, res.costsTotal);
+      splitProfit(Math.max(0, whole - res.costsTotal), m.shares, true, pv);
+      res.preview = pv;
+    }
   } else if (type === "one") {
     res.expected = toP(m.price);
     const avail = reimburse(res.receivedEGP);
@@ -246,9 +269,9 @@ function computeMoney(p, todayStr, rules, opts) {
       res.schedule.push({ label: `Payment ${i + 1} of ${n}`, month: mm, expected: amt, received: got, status: got >= amt ? "paid" : pastDue(mm) ? "late" : mm === nowM ? "due" : "upcoming" });
     }
     res.expected = total;
-  } else if (type === "one" && res.expected > 0 && planOf(m).length) {
+  } else if (type === "one" && res.expected > 0 && planOf(m, p).length) {
     // the payment plan: money fills the steps in order (deposit first)
-    const plan = planOf(m), amts = plan.map(st => toP(st.amount));
+    const plan = planOf(m, p), amts = plan.map(st => toP(st.amount));
     res.planOff = res.expected - amts.reduce((s, x) => s + x, 0);
     amts[amts.length - 1] = Math.max(0, amts[amts.length - 1] + res.planOff);   // the last step takes any difference, so the plan always matches the price
     let pool = res.received, open = false;
@@ -256,7 +279,7 @@ function computeMoney(p, todayStr, rules, opts) {
       const amt = amts[i], got = Math.min(pool, amt); pool -= got;
       const status = got >= amt ? "paid" : st.date && st.date < todayStr ? "late" : !open ? "due" : "upcoming";
       if (status !== "paid") open = true;
-      res.schedule.push({ label: st.label || `Payment ${i + 1}`, month: st.date ? monthOf(st.date) : "", date: st.date || "", expected: amt, received: got, status, step: st.id, tasks: Array.isArray(st.tasks) ? st.tasks : [], covers: st.covers || "", n: i + 1 });
+      res.schedule.push({ label: st.label || `Payment ${i + 1}`, short: st.short || st.label || `Payment ${i + 1}`, part: st.part || "", month: st.date ? monthOf(st.date) : "", date: st.date || "", expected: amt, received: got, status, step: st.id, tasks: Array.isArray(st.tasks) ? st.tasks : [], covers: st.covers || "", n: i + 1, pn: st.pn || i + 1, plast: st.plast != null ? st.plast : i === plan.length - 1 });
     });
     res.planned = true;
   } else if (type === "one" && res.expected > 0) {
@@ -280,7 +303,31 @@ function computeMoney(p, todayStr, rules, opts) {
 }
 
 // The payment plan of a one-time deal: steps like Deposit and Final payment, each with the tasks it pays for.
-function planOf(m) { return (m && m.type !== "monthly" && m.type !== "installments" && Array.isArray(m.plan) ? m.plan : []).filter(st => st && toP(st.amount) >= 0) }
+// A deal in phases (money.phases) makes its plan from the agreed phases, in order. Each phase pays for the tasks
+// in the project phase it's linked to (its last payment does), unless a task was linked to a payment by hand.
+const isPhased = m => !!m && m.type !== "monthly" && m.type !== "installments" && Array.isArray(m.phases) && m.phases.some(Boolean);
+const phasesPrice = m => Math.round((m.phases || []).filter(ph => ph && ph.agreed).reduce((a, ph) => a + (Number(ph.price) || 0), 0) * 100) / 100;
+function phaseSteps(ph) { return Array.isArray(ph.steps) && ph.steps.length ? ph.steps : [{ id: ph.id + "-all", label: "Full payment", amount: Number(ph.price) || 0, tasks: [] }] }
+// Tasks in a plan phase whose money phase isn't agreed yet: they wait for that phase, not the current one.
+function laterTasks(m, p) {
+  const out = new Set(); if (!isPhased(m) || !p) return out;
+  const later = new Set(m.phases.filter(ph => ph && !ph.agreed && ph.phase).map(ph => ph.phase));
+  for (const f of ["tasks", "steps"]) for (const [id, t] of Object.entries(p[f] || {})) if (t && t.text && later.has(t.phase || "build")) out.add(id);
+  return out;
+}
+function planOf(m, p) {
+  if (!m || m.type === "monthly" || m.type === "installments") return [];
+  if (!isPhased(m)) return (Array.isArray(m.plan) ? m.plan : []).filter(st => st && toP(st.amount) >= 0);
+  const agreed = m.phases.filter(ph => ph && ph.agreed), out = [];
+  const byHand = new Set(agreed.flatMap(ph => phaseSteps(ph).flatMap(st => st.tasks || [])));
+  for (const ph of agreed) {
+    const steps = phaseSteps(ph);
+    const auto = p && ph.phase ? [...Object.entries(p.tasks || {}), ...Object.entries(p.steps || {})].filter(([id, t]) => t && t.text && (t.phase || "build") === ph.phase && !byHand.has(id)).map(([id]) => id) : [];
+    steps.forEach((st, i) => out.push({ ...st, label: `${ph.name || "Phase"} · ${st.label || "Payment " + (i + 1)}`, short: st.label || "Payment " + (i + 1), part: ph.id, pn: i + 1, plast: i === steps.length - 1,
+      tasks: [...(st.tasks || []), ...(i === steps.length - 1 ? auto : [])] }));
+  }
+  return out.filter(st => toP(st.amount) >= 0);
+}
 
 // Shares suggested from who has which tasks (bigger checklists count a bit more).
 function suggestShares(tasks, people) {
