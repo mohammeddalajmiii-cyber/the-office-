@@ -118,7 +118,7 @@ function route() {
 function show() {
   if (partnerMode) { renderPortal(); return }
   if (clientMode) { renderClient(); return }
-  const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" || r.view === "money" ? "me" : r.view;
+  const r = route(); const tabView = r.view === "project" ? "projects" : r.view === "skills" ? "me" : r.view;
   for (const b of document.querySelectorAll("#app .tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
   if (r.tab) moneyTab = r.tab;
@@ -365,6 +365,9 @@ function renderAll() {
   if (r.view === "me") renderMe();
   if (r.view === "partners") renderPartnersTeam(r.gid);
   { const pu = pGroups.reduce((a, g) => a + partnerUnread(g.id), 0); const pc = $("#c-partners"); pc.hidden = !pu; pc.textContent = pu > 9 ? "9+" : pu }
+  { const v = rulesNow().version || 1, need = dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v ? 1 : 0;
+    const late = dealProjects().filter(p => canPlan(p) && p.status === "approved").reduce((a, p) => a + moneyOf(p).late.length, 0);
+    const mc = $("#c-money"); mc.hidden = !(late + need); mc.textContent = late + need > 9 ? "9+" : late + need; mc.title = [late ? `${late} late payment${late > 1 ? "s" : ""}` : "", need ? "Money rules to agree" : ""].filter(Boolean).join(" · ") }
   const open = myTasks().filter(x => !x.t.done && !x.closed && (x.personal || !isBlocked(x.p, x.t))).length; const mc = $("#c-mine"); mc.hidden = !open; mc.textContent = open;
   renderAlerts();
   pushTick();
@@ -2868,9 +2871,9 @@ function guidePage() {
       ["Task prices:", "when a project shares money by task prices, a task shows 💵 and what you get (≈). You earn it once the task is ticked done and the client has paid for it."],
       ["Not every task has a price.", "The part that isn't priced is shared by the team, by % or equally."],
       ["Order of the money:", `costs you paid are paid back first, then a partner's commission, then the team fund (${R.fundPct}%), then the finder's fee (${R.findPct}%), then the team.`],
-      ["Me › Money", "shows what you're owed, what was handed to you, and every deal. Read and agree to the money rules there once."],
+      ["The Money tab", "shows what you're owed, what was handed to you, and every deal. Read and agree to the money rules there once."],
       ["Paid for something yourself?", "Ask a planner to add it as a cost with your name: it's paid back before anything is split."],
-      ["Kept in the fund:", "some projects keep their money in the team fund until the team decides how to split it. It's written as that project's money, so nothing gets lost; you'll see it under Me › Money › Fund & goals."]]),
+      ["Kept in the fund:", "some projects keep their money in the team fund until the team decides how to split it. It's written as that project's money, so nothing gets lost; you'll see it under Money › Fund & goals."]]),
     card("⚡", "Shortcuts", [
       ["Ctrl K or ⌘ K", "searches everything: tasks, projects, chat, notes."],
       ["✦ Assistant:", "tell it what you did (“I finished the logo, here's the link”) and it offers to tick the task and leave the note for you. Nothing happens until you tap Do it, and you can undo."],
@@ -4287,7 +4290,7 @@ function renderMoneyPage() {
   const box = $("#money"); box.replaceChildren();
   const all = allMoney(), F = fundState(all), R = rulesNow(), ver = R.version || 1;
   const agreed = ((people[me] || {}).moneyAgreed || {}).version === ver;
-  box.append(el("button", { class: "back", onclick: () => { location.hash = "me" } }, "← Me"), el("h2", { class: "sec-h", style: "margin-top:0" }, "Money"));
+  box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Money"));
 
   if (!agreed) {
     const ch = rulesChanges(R);
