@@ -1,4 +1,4 @@
-/* ---------- Partners: people abroad who find clients for Ardent Studios ----------
+/* ---------- Partners: people abroad who find clients for Ardent Creative Studios ----------
    Partners sign in on the same link, but they never load the team's data.
    They only get their own group: its leads (numbers to call), its updates and its info.
    The team gets a Partners tab to make groups, add people, hand out numbers and read updates.
@@ -63,7 +63,7 @@ function feedItem(it, { canDelete } = {}) {
     return el("article", { class: "post" + (p.team ? " team" : "") },
       postAv(p.photo),
       el("div", { class: "post-body" },
-        el("div", { class: "post-meta" }, el("b", {}, p.by === me ? "You" : (p.name || "Someone")), p.team ? el("span", { class: "chip" }, "Ardent team") : null, el("span", {}, ago(p.at))),
+        el("div", { class: "post-meta" }, el("b", {}, p.by === me ? "You" : (p.name || "Someone")), p.team ? el("span", { class: "chip" }, "Ardent Creative Studios") : null, el("span", {}, ago(p.at))),
         el("div", { class: "post-text" }, p.text)),
       canDelete && canDelete(p) ? el("button", { class: "x", "aria-label": "Delete message", onclick: () => write(() => deleteDoc(doc(db, "pposts", p.id)), "Message deleted") }, "✕") : null);
   }
@@ -241,7 +241,7 @@ function partnerAlerts(add) {
   for (const l of pLeads) for (const h of historyOf(l)) if (h.by !== me && (HOT.includes(h.s) || h.s === "won"))
     add("plead:" + l.id + ":" + h.id, h.at, null, `${h.name || "A partner"} (${groupName(l.gid)}): ${leadTitle(l)} is ${LEAD_NAME[h.s].toLowerCase()}`, "pg-" + l.gid);
 }
-function teamName() { return realName(me) || (myProfile && myProfile.name) || "Ardent team" }
+function teamName() { return realName(me) || (myProfile && myProfile.name) || "Ardent Creative Studios" }
 
 function rulesCard(open) {
   const ta = el("textarea", { class: "rulesbox", readonly: true, "aria-label": "Rules to paste" }, PARTNER_RULES);
@@ -262,7 +262,7 @@ function renderPartnersTeam(gid) {
   const box = $("#partners"); box.replaceChildren();
   if (gid) return renderPartnerGroupTeam(box, gid);
   box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Partners"),
-    el("p", { class: "lede", style: "margin-top:-4px" }, "People abroad who find clients for Ardent Studios. Each country gets a group. They sign in on this same link, but they only see their own group's numbers, updates and info. Never your ideas, projects, chat, money or team."));
+    el("p", { class: "lede", style: "margin-top:-4px" }, "People abroad who find clients for Ardent Creative Studios. Each country gets a group. They sign in on this same link, but they only see their own group's numbers, updates and info. Never your ideas, projects, chat, money or team."));
   if (pErr === "rules") { box.append(rulesCard(true)); return }
   if (pErr === "network") box.append(el("p", { class: "status warn" }, "Can't reach the partner area. Check your connection."));
   const nm = el("input", { class: "noteinput", id: "pg-new", maxlength: "40", placeholder: "Country or group, e.g. Qatar" });
@@ -312,7 +312,7 @@ function renderPartnerGroupTeam(box, gid) {
 
   if (pgTab === "updates") {
     pSetSeen(gid);
-    box.append(el("div", { class: "chat-who", style: "margin-top:12px" }, el("span", { class: "teamdot big" }, "#"), el("span", { class: "who-n" }, el("b", {}, g.name + " group"), el("span", { class: "label" }, `The Ardent team and the ${people.length} ${people.length === 1 ? "partner" : "partners"} in ${g.name}`))),
+    box.append(el("div", { class: "chat-who", style: "margin-top:12px" }, el("span", { class: "teamdot big" }, "#"), el("span", { class: "who-n" }, el("b", {}, g.name + " group"), el("span", { class: "label" }, `The Ardent Creative Studios team and the ${people.length} ${people.length === 1 ? "partner" : "partners"} in ${g.name}`))),
       chatView(groupChatItems(gid, () => true), { onDelete: m => write(() => deleteDoc(doc(db, "pposts", m.id)), "Message deleted"), empty: "No messages yet. Say hi to the partners in " + g.name + "." }),
       chatComposer("pgmsg-" + gid, `Message everyone in ${g.name}`, t => write(() => setDoc(doc(db, "pposts", uid()), { gid, by: me, name: teamName(), photo: photoOf(me) === AV ? "" : photoOf(me), team: true, text: t, at: Date.now() }))),
       ...(people.filter(m => m.uid).length ? [el("div", { class: "row", style: "gap:6px;margin-top:10px" }, el("span", { class: "label" }, "Message privately:"),
@@ -492,7 +492,7 @@ function startPartner(u, pm) {
 }
 function partnerEnded(u) {
   partnerStop(); signOut(auth);
-  $("#gate-msg").textContent = `${u.email} doesn't have partner access anymore. Message the Ardent Studios team if you think that's a mistake.`;
+  $("#gate-msg").textContent = `${u.email} doesn't have partner access anymore. Message the Ardent Creative Studios team if you think that's a mistake.`;
 }
 function partnerGroupSubs(gid) {
   pGroupUnsubs.forEach(f => f()); pGroupUnsubs = []; pGid = gid; pGroup = null; pLeads = []; pPosts = [];
@@ -504,7 +504,7 @@ function partnerGroupSubs(gid) {
     onSnapshot(query(collection(db, "pposts"), where("gid", "==", gid)), s => {
       const before = new Set(pPosts.map(p => p.id)), first = !pPosts.length;
       pPosts = s.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (!first) for (const p of pPosts) if (!before.has(p.id) && p.team && location.hash !== "#updates") toast(`${p.name || "Ardent team"}: ${(p.text || "").slice(0, 60)}`);
+      if (!first) for (const p of pPosts) if (!before.has(p.id) && p.team && location.hash !== "#updates") toast(`${p.name || "Ardent Creative Studios"}: ${(p.text || "").slice(0, 60)}`);
       render();
     }, fail));
 }
@@ -536,7 +536,7 @@ function renderPortalNow() {
   const box = $("#pv"); box.replaceChildren();
   const first = partnerName().split(" ")[0];
   if (v === "projects") { renderPartnerProjects(box); return }
-  if (!pGroup) { box.append(el("div", { class: "empty" }, pGroupGone ? "Your group was closed. Message the Ardent Studios team." : "Loading your group…")); return }
+  if (!pGroup) { box.append(el("div", { class: "empty" }, pGroupGone ? "Your group was closed. Message the Ardent Creative Studios team." : "Loading your group…")); return }
 
   if (v === "leads") {
     box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, `Hi ${first}`),
@@ -602,19 +602,19 @@ function renderPartnerChat(box, dmWith) {
   box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Chat"),
     el("div", { class: "pchips chat-people" },
       el("button", { class: "pchip", "aria-pressed": String(!dmWith), onclick: () => { location.hash = "updates" } }, el("span", { class: "teamdot" }, "#"), pGroup.name, gUnread && dmWith ? el("span", { class: "count" }, gUnread) : null),
-      threads.length ? el("span", { class: "chipsep" }, "Ardent team") : null,
+      threads.length ? el("span", { class: "chipsep" }, "Ardent Creative Studios") : null,
       threads.map(x => { const u = other(x), n = x.lastBy && x.lastBy !== me && (x.lastAt || 0) > ((x.seen || {})[me] || 0) && dmWith !== u;
         return el("button", { class: "pchip", "aria-pressed": String(dmWith === u), onclick: () => { location.hash = "pdm-" + u } }, postAv((x.photos || {})[u]), ((x.names || {})[u] || "Team").split(" ")[0], n ? el("span", { class: "count" }, "1") : null) })));
   if (!dmWith) {
-    box.append(el("div", { class: "chat-who" }, el("span", { class: "teamdot big" }, "#"), el("span", { class: "who-n" }, el("b", {}, pGroup.name + " group"), el("span", { class: "label" }, "You, the other partners here and the Ardent Studios team"))),
+    box.append(el("div", { class: "chat-who" }, el("span", { class: "teamdot big" }, "#"), el("span", { class: "who-n" }, el("b", {}, pGroup.name + " group"), el("span", { class: "label" }, "You, the other partners here and the Ardent Creative Studios team"))),
       chatView(groupChatItems(pGid, p => p.by === me), { onDelete: m => write(() => deleteDoc(doc(db, "pposts", m.id)), "Message deleted"), empty: "No messages yet. Tell the team how it's going: calls today, good leads, questions." }),
       chatComposer("p-msg", "Message the team and your group", txt => write(() => setDoc(doc(db, "pposts", uid()), { gid: pGid, by: me, name: partnerName(), photo: (myProfile && myProfile.photo) || "", team: false, text: txt, at: Date.now() }))),
       ...(threads.length ? [] : [el("p", { class: "label", style: "margin:10px 2px 0;text-transform:none;letter-spacing:0" }, "When someone from the team messages you privately, it shows up here too.")]));
     return;
   }
   if (!t) { box.append(el("div", { class: "empty" }, pDmOff ? "Private messages aren't switched on yet. Ask the team to update the database rules." : "Loading…")); return }
-  const nm = (t.names || {})[dmWith] || "Ardent team";
-  box.append(el("div", { class: "chat-who" }, postAv((t.photos || {})[dmWith]), el("span", { class: "who-n" }, el("b", {}, nm), el("span", { class: "rolebadge" }, "Ardent team")), el("span", { class: "who-lock" }, "\u{1F512} only you two see this")));
+  const nm = (t.names || {})[dmWith] || "Ardent Creative Studios";
+  box.append(el("div", { class: "chat-who" }, postAv((t.photos || {})[dmWith]), el("span", { class: "who-n" }, el("b", {}, nm), el("span", { class: "rolebadge" }, "Ardent Creative Studios")), el("span", { class: "who-lock" }, "\u{1F512} only you two see this")));
   const msgs = (pDmMsgs[t.id] || []).map(m => ({ id: m.id, by: m.by, name: m.by === me ? "You" : (t.names || {})[m.by] || nm, photo: (t.photos || {})[m.by], role: (t.roles || {})[m.by] || "team", text: m.text || "", at: m.at || 0, file: m.file }));
   box.append(chatView(msgs, { empty: "No messages yet." }),
     chatComposer("pdm-" + dmWith, "Message " + nm.split(" ")[0], txt => {

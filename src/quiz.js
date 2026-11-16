@@ -80,7 +80,7 @@ const QZ_DONE = [
   ["research", "Found a much better deal or supplier by digging"], ["research", "Ran ads or tracked numbers like views, clicks or sales"],
 ];
 
-// Roles at Ardent Studios, as mixes of skills. A person can fit several.
+// Roles at Ardent Creative Studios, as mixes of skills. A person can fit several.
 const ROLES = [
   { id: "web", name: "Web builder", about: "Builds and fixes client websites so they're fast and work on every phone.", w: { build: .65, design: .15, research: .2 } },
   { id: "brand", name: "Brand designer", about: "Logos, brand identities, company profiles and the look of everything we make.", w: { design: .7, media: .1, write: .1, research: .1 } },

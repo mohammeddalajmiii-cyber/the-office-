@@ -85,7 +85,8 @@ function show() {
 let showTaskAt = null;
 for (const b of document.querySelectorAll("#app .tab")) b.onclick = () => { location.hash = b.dataset.view };
 for (const b of document.querySelectorAll("#partner .tab")) b.onclick = () => { location.hash = b.dataset.pview };
-addEventListener("hashchange", () => { show(); scrollTo(0, 0) });
+let curHash = location.hash;
+addEventListener("hashchange", () => { prevHash = curHash; curHash = location.hash; show(); scrollTo(0, 0) });
 
 /* ---------- auth & data ---------- */
 
@@ -861,6 +862,7 @@ function renderIdeas(all, removed) {
         el("span", { class: "spacer" }),
         ideaDeleteBtn(i),
         el("button", { class: "btn", disabled: !(enough && d > k), title: `Available when at least ${need} of ${team} have voted and more said drop`, onclick: () => write(() => upd(i.id, { status: "removed" }), "Idea removed") }, "Remove"),
+        ownerMove(i, k, d, enough),
         el("button", { class: "btn primary", disabled: !(enough && k > d), title: `Available when at least ${need} of ${team} have voted and more said keep`, onclick: () => write(() => upd(i.id, { status: "approved", approvedAt: Date.now() }), "Moved to Projects") }, "Confirm → Projects"))));
   }
   const rb = $("#removed"); rb.replaceChildren();
@@ -870,6 +872,14 @@ function renderIdeas(all, removed) {
         ideaDeleteBtn(i),
         el("button", { class: "btn", onclick: () => write(() => upd(i.id, { status: "voting" }), "Back in the vote") }, "Bring back to vote")))))));
   }
+}
+
+// The person who pitched an idea can make it a project once at least 2 other people voted Keep (and Keep is ahead).
+function ownerMove(i, k, d, enough) {
+  if (i.author !== me || (enough && k > d)) return null;
+  const others = voters(i, "keep").filter(u => u !== i.author).length, ok = others >= 2 && k > d;
+  return ok ? el("button", { class: "btn primary", title: `${others} people voted Keep`, onclick: () => write(() => upd(i.id, { status: "approved", approvedAt: Date.now(), movedBy: me }), "It's a project now. Plan it in Projects") }, `Make it a project (${others} want it)`)
+    : el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, `${others}/2 Keep votes from others: then you can make it a project yourself`);
 }
 
 // The person who pitched an idea, and the admin, can delete it (asks once to be sure).
@@ -2350,7 +2360,7 @@ function chatView(items, { onDelete, empty } = {}) {
     lastDay = day;
     if (m.system) { log.append(el("div", { class: "sysline" }, m.text)); lastBy = ""; continue }
     const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60e3;
-    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, m.name || "Someone", m.role === "team" ? el("span", { class: "rolebadge" }, "Ardent team") : m.role === "client" ? el("span", { class: "rolebadge client" }, "Client") : el("span", { class: "rolebadge partner" }, "Partner")));
+    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, m.name || "Someone", m.role === "team" ? el("span", { class: "rolebadge" }, "Ardent Creative Studios") : m.role === "client" ? el("span", { class: "rolebadge client" }, "Client") : el("span", { class: "rolebadge partner" }, "Partner")));
     const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     log.append(el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") },
       mine ? null : (grouped ? el("span", { class: "av-space" }) : postAv(m.photo)),
@@ -2598,6 +2608,11 @@ function buildAlerts() {
   }
   if (isAdmin && moneyRules && moneyRules.reviewAt && moneyRules.reviewAt <= today) add("review:" + moneyRules.reviewAt, dayStart(), null, `Time to review the team fund: it's ${rulesNow().fundPct}% since ${fmtDate(ymd(new Date(moneyRules.setAt || Date.now())))}. Keep it or change it on the Money page.`, "money-rules");
   if (isAdmin && fundDoc) for (const [sid, sb] of Object.entries(fundDoc.subs || {})) if (sb && !sb.paused && sb.nextDue && sb.nextDue <= tomorrow) add("sub:" + sid + ":" + sb.nextDue, dayStart(), null, `${sb.name} subscription is due ${sb.nextDue < today ? "(overdue)" : sb.nextDue === today ? "today" : "tomorrow"}`, "money-fund");
+  for (const x of upgradeList()) {
+    if (amCreator() && x.by !== me && x.at) add("up:" + x.id, x.at, x.by, `${name(x.by)} ${x.kind === "fix" ? "reported a bug" : "has an idea"}: ${(x.text || "").slice(0, 80)}`, "settings-feedback");
+    if (x.by === me && x.status === "doing" && x.doer && x.doer !== me) add("updo:" + x.id, x.startedAt || x.at, x.doer, `${name(x.doer)} is working on your request: ${(x.text || "").slice(0, 60)}`, "settings-feedback");
+    if (x.by === me && x.status === "done" && x.doneBy !== me) add("updone:" + x.id, x.doneAt || x.at, x.doneBy || null, `Your request is live: ${(x.text || "").slice(0, 60)}`, "settings-feedback");
+  }
   for (const n of unseenNews()) add("news:" + n.id, n.at || new Date(n.date + "T09:00").getTime(), n.by || null, (n.by ? `${firstName(n.by)} posted: ` : "New in Pitch Room: ") + n.title, "me");
   { const v = rulesNow().version || 1; if (dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v) add("rules:" + v, (moneyRules || {}).updatedAt || dayStart(), null, rulesChanges(rulesNow()).length ? "The money rules changed: " + rulesChanges(rulesNow()).join(", ") + ". Please read and agree" : "Please read and agree to the team's money rules", "money-rules") }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by !== me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, a.by, `We started building ${p.title}`, "build-" + pid) }
@@ -2780,8 +2795,8 @@ function saveTeam(emails, ok) {
 }
 
 /* ----- Build Pitch Room: who can change the site, what the team wants changed, and how creators ship it ----- */
-let upgradesDoc = null, upKind = "feature", delUpgrade = null;
-const UP_KINDS = { feature: "New feature", fix: "Something's broken", design: "Look and feel" };
+let upgradesDoc = null, upKind = "fix", delUpgrade = null, prevHash = "";
+const UP_KINDS = { fix: "Something's broken", easier: "Make work easier", feature: "New feature", design: "Look and feel" };
 const UP_STATUS = { asked: "Asked", doing: "Being built", done: "Done" };
 const upgradeList = () => Object.entries((upgradesDoc && upgradesDoc.items) || {}).filter(([, x]) => x && x.text).map(([id, x]) => ({ id, ...x }))
   .sort((a, b) => (a.status === "done") - (b.status === "done") || (b.status === "doing") - (a.status === "doing") || (b.at || 0) - (a.at || 0));
@@ -2804,36 +2819,8 @@ function buildPage() {
     isAdmin ? el("div", { class: "row" }, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "Make someone a creator in People and access."), el("span", { class: "spacer" }),
       el("button", { class: "btn small", onclick: () => { accessRole = "creator"; location.hash = "settings-access" } }, "Add a creator")) : null));
 
-  // what the team wants changed
-  const items = upgradeList();
-  const ta = el("textarea", { id: "up-text", class: "noteinput", rows: "2", maxlength: "600", placeholder: "What should Pitch Room do better? e.g. Let us add files to meeting notes" });
-  const add = () => {
-    const text = ta.value.trim(); if (!text) { ta.focus(); return }
-    ta.value = "";
-    saveUpgrade(uid(), { text, kind: upKind, status: "asked", by: me, at: Date.now() }, "Sent to the creators");
-  };
-  const box = card(el("div", { class: "row" }, el("h3", {}, "Upgrade requests"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${items.filter(x => x.status !== "done").length} open`)),
-    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Kind of request" }, Object.entries(UP_KINDS).map(([k, l]) => el("button", { "aria-pressed": String(upKind === k), onclick: () => { upKind = k; render() } }, l))),
-    ta, el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: add }, "Ask for it")));
-  if (!items.length) box.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "No requests yet."));
-  for (const x of items) {
-    const st = x.status || "asked";
-    const acts = [];
-    if (creator && st === "asked") acts.push(el("button", { class: "btn small", onclick: () => saveUpgrade(x.id, { status: "doing", doer: me, startedAt: Date.now() }, "It's yours. Tell the team when it's live") }, "I'll build it"));
-    if (creator && st === "doing") acts.push(el("button", { class: "btn small primary", onclick: () => saveUpgrade(x.id, { status: "done", doneBy: me, doneAt: Date.now() }, "Marked done") }, "It's live"));
-    if (creator && st !== "asked") acts.push(el("button", { class: "linkbtn", onclick: () => saveUpgrade(x.id, { status: "asked", doer: DEL(), doneBy: DEL(), doneAt: DEL() }, "Back to asked") }, st === "done" ? "Reopen" : "Let it go"));
-    if (x.by === me || isAdmin) acts.push(delUpgrade === x.id
-      ? el("button", { class: "linkdel sure", onclick: () => { delUpgrade = null; write(() => setDoc(doc(db, "meta", "upgrades"), { items: { [x.id]: DEL() } }, { merge: true }), "Request removed") } }, "Remove?")
-      : el("button", { class: "linkdel", "aria-label": "Remove request", onclick: () => { delUpgrade = x.id; render() } }, "✕"));
-    box.append(el("div", { class: "teamrow", style: "align-items:flex-start;flex-wrap:wrap" + (st === "done" ? ";opacity:.65" : "") },
-      el("div", { style: "flex:1 1 240px;min-width:0;display:grid;gap:3px" },
-        el("span", { style: "font-size:14.5px;white-space:pre-wrap;overflow-wrap:anywhere" + (st === "done" ? ";text-decoration:line-through" : "") }, x.text),
-        el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, [UP_KINDS[x.kind] || "Request", (x.by === me ? "you" : name(x.by)) + " · " + ago(x.at),
-          st === "doing" ? "being built by " + (x.doer === me ? "you" : name(x.doer)) : st === "done" ? "live" + (x.doneBy ? ", built by " + (x.doneBy === me ? "you" : name(x.doneBy)) : "") : null].filter(Boolean).join(" · "))),
-      el("span", { class: st === "done" ? "done-badge" : "chip" }, UP_STATUS[st] || st),
-      acts.length ? el("span", { class: "row", style: "gap:6px" }, ...acts) : null));
-  }
-  wrap.append(box);
+  wrap.append(upgradeRequestsCard());
+
 
   // how a creator changes the site
   if (creator) {
@@ -2894,7 +2881,9 @@ function guidePage() {
       ["✦ Assistant:", "tell it what you did (“I finished the logo, here's the link”) and it offers to tick the task and leave the note for you. Nothing happens until you tap Do it, and you can undo."],
       ["Weekly check-in", "(Week tab) takes a minute: what you did, what's next, what's blocking you. Blockers alert the team."],
       ["Alerts on your phone:", "Settings › Alerts. Install the site as an app from Settings › Install the app."],
-      ["Something looks old?", "Settings › Help and fixes › Reload."]]));
+      ["Something looks old?", "Settings › Help and fixes › Reload."],
+      ["Found a bug, or an idea to make work easier?", "⋯ › Bugs and ideas. Write what happened and the creators get an alert; you hear back when it's fixed."],
+      ["Your idea got 2 Keep votes?", "If you pitched it, you can make it a project yourself from the Ideas tab, once Keep is ahead."]]));
   if (tab === "planners") wrap.append(
     card("\u{1F9ED}", "Your job as a planner", [
       "You're always on the project's team. You shape the plan, the tasks and the money, and you decide who joins.",
@@ -2939,9 +2928,50 @@ function guidePage() {
   return wrap;
 }
 
+// Where someone was before opening Bugs and ideas, so a bug report says which page it's about
+function upWhere() {
+  const h = (prevHash || "").replace(/^#/, ""); if (!h || h.startsWith("settings")) return "";
+  const pr = h.match(/^(?:project|plan|build|task)-([^-]+)/), pj = pr ? ideas.find(i => i.id === pr[1]) : null;
+  return pj ? `Project: ${pj.title}` + (projTab && projTab !== "tasks" ? ` › ${{ money: "Money", share: "Client", week: "Week", meet: "Meetings" }[projTab] || projTab}` : "") : ({ me: "Me", ideas: "Ideas", projects: "Projects", chat: "Chat", money: "Money", partners: "Partners", skills: "Skills" }[h.split("-")[0]] || h);
+}
+// The team's bugs and ideas for Pitch Room itself. Everyone can add; creators pick them up.
+function upgradeRequestsCard() {
+  const card = (...kids) => el("section", { class: "idea", style: "gap:10px" }, ...kids.filter(Boolean));
+  const creator = amCreator();
+  const items = upgradeList();
+  const ta = el("textarea", { id: "up-text", class: "noteinput", rows: "2", maxlength: "600", placeholder: upKind === "fix" ? "What went wrong? What did you tap, and what happened? e.g. The Save button on Money in does nothing on my phone" : upKind === "easier" ? "What takes too long or too many taps? e.g. Let me tick a task straight from the alert" : "What should Pitch Room do? e.g. Let us add files to meeting notes" });
+  const add = () => {
+    const text = ta.value.trim(); if (!text) { ta.focus(); return }
+    ta.value = "";
+    saveUpgrade(uid(), { text, kind: upKind, status: "asked", by: me, at: Date.now(), where: upWhere() }, "Sent. The creators get an alert");
+  };
+  const box = card(el("div", { class: "row" }, el("h3", {}, "Bugs and ideas"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${items.filter(x => x.status !== "done").length} open`)),
+    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Kind of request" }, Object.entries(UP_KINDS).map(([k, l]) => el("button", { "aria-pressed": String(upKind === k), onclick: () => { upKind = k; render() } }, l))),
+    ta, el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: add }, "Send to the creators")));
+  if (!items.length) box.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "No requests yet."));
+  for (const x of items) {
+    const st = x.status || "asked";
+    const acts = [];
+    if (creator && st === "asked") acts.push(el("button", { class: "btn small", onclick: () => saveUpgrade(x.id, { status: "doing", doer: me, startedAt: Date.now() }, "It's yours. Tell the team when it's live") }, "I'll build it"));
+    if (creator && st === "doing") acts.push(el("button", { class: "btn small primary", onclick: () => saveUpgrade(x.id, { status: "done", doneBy: me, doneAt: Date.now() }, "Marked done") }, "It's live"));
+    if (creator && st !== "asked") acts.push(el("button", { class: "linkbtn", onclick: () => saveUpgrade(x.id, { status: "asked", doer: DEL(), doneBy: DEL(), doneAt: DEL() }, "Back to asked") }, st === "done" ? "Reopen" : "Let it go"));
+    if (x.by === me || isAdmin) acts.push(delUpgrade === x.id
+      ? el("button", { class: "linkdel sure", onclick: () => { delUpgrade = null; write(() => setDoc(doc(db, "meta", "upgrades"), { items: { [x.id]: DEL() } }, { merge: true }), "Request removed") } }, "Remove?")
+      : el("button", { class: "linkdel", "aria-label": "Remove request", onclick: () => { delUpgrade = x.id; render() } }, "✕"));
+    box.append(el("div", { class: "teamrow", style: "align-items:flex-start;flex-wrap:wrap" + (st === "done" ? ";opacity:.65" : "") },
+      el("div", { style: "flex:1 1 240px;min-width:0;display:grid;gap:3px" },
+        el("span", { style: "font-size:14.5px;white-space:pre-wrap;overflow-wrap:anywhere" + (st === "done" ? ";text-decoration:line-through" : "") }, x.text),
+        el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, [UP_KINDS[x.kind] || "Request", (x.by === me ? "you" : name(x.by)) + " · " + ago(x.at), x.where ? "on " + x.where : null,
+          st === "doing" ? "being built by " + (x.doer === me ? "you" : name(x.doer)) : st === "done" ? "live" + (x.doneBy ? ", built by " + (x.doneBy === me ? "you" : name(x.doneBy)) : "") : null].filter(Boolean).join(" · "))),
+      el("span", { class: st === "done" ? "done-badge" : "chip" }, UP_STATUS[st] || st),
+      acts.length ? el("span", { class: "row", style: "gap:6px" }, ...acts) : null));
+  }
+  return box;
+}
+
 /* ----- settings: a home page of grouped rows (like a phone's Settings app), each opening its own page ----- */
 let setQuery = "";
-const SET_PAGES = { guide: "How Pitch Room works", build: "Build Pitch Room", profile: "Profile", appearance: "Appearance", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
+const SET_PAGES = { feedback: "Bugs and ideas", guide: "How Pitch Room works", build: "Build Pitch Room", profile: "Profile", appearance: "Appearance", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
 function setIcon(sym, color) { return el("span", { class: "seticon", style: `background:${color}` }, sym) }
 function renderSettings() {
   const box = $("#settings"); box.replaceChildren();
@@ -2978,12 +3008,13 @@ function renderSettings() {
       row("\u{1F4BE}", "#56CCF2", "Backup", prof.lastBackup ? "Last: " + fmtDay(prof.lastBackup) : "Never", goto("backup"), "download export"),
       row("\u{1F4E1}", "#9B51E0", "Alert server", pushServerState === "ok" ? "Working" : pushBase() ? "Check" : "Not set up", goto("alerts"), "push cloudflare worker")) : null,
     group("Help",
+      row("\u{1F41E}", "#D9534F", "Bugs and ideas", (() => { const n = upgradeList().filter(x => x.status !== "done").length; return n ? `${n} open` : "Tell the creators" })(), goto("feedback"), "bug broken problem idea suggestion feature request improve"),
       row("\u{1F4D6}", "#0D5E63", "How Pitch Room works", "Tips for everyone", goto("guide"), "guide help tips how to planner creator team join money task price"),
       row("\u{1F4F2}", "#219653", "Install the app", isHomeScreenApp() ? "Installed" : "", goto("install"), "home screen dock desktop"),
       row("\u{1F6DF}", "#EB5757", "Help and fixes", "", goto("help"), "reload refresh problem support version"),
       row("\u{1F517}", "#2D9CDB", "Share the site link", "Copy", () => copyText(SITE_LINK, "Link copied"), "url")),
     group(null, row(null, null, "Sign out", null, doSignOut, "log out account", true)),
-    el("p", { class: "label setfoot" }, "Pitch Room · Ardent Studios" + (typeof BUILD_ID !== "undefined" ? " · " + BUILD_ID.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2}).*/, "$3/$2/$1 $4:$5") : "")));
+    el("p", { class: "label setfoot" }, "Pitch Room · Ardent Creative Studios" + (typeof BUILD_ID !== "undefined" ? " · " + BUILD_ID.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2}).*/, "$3/$2/$1 $4:$5") : "")));
   filterSet();
   function filterSet() {
     const v = setQuery.trim().toLowerCase();
@@ -3041,6 +3072,7 @@ function settingsPage(box, sub, prof) {
   if (sub === "backup" && isAdmin) box.append(card(item("Download a backup", "Everything on the board in one file: projects, tasks, money, chat, partners and clients. Keep it in Google Drive. Do it once a month." + (prof.lastBackup ? " Last one: " + fmtDay(prof.lastBackup) + "." : ""),
     el("button", { class: "btn small primary", onclick: downloadBackup }, "Download"))));
   if (sub === "guide") box.append(guidePage());
+  if (sub === "feedback") box.append(el("p", { class: "lede", style: "margin:0 0 12px" }, `Something broken, or an idea that would make work easier? Write it here. The creators (${[...new Set([...ADMINS, ...Object.keys(creatorsMap())])].map(e => { const u = uidOfEmail(e); return u ? (u === me ? "you" : firstName(u)) : e.split("@")[0] }).join(", ")}) get an alert and pick it up.`), upgradeRequestsCard());
   if (sub === "install") { const g = installGuide(); g.open = true; box.append(card(g)) }
   if (sub === "help") {
     const adminId = Object.entries(people).find(([, x]) => ADMINS.includes((x.email || "").toLowerCase()));
@@ -3070,6 +3102,7 @@ function renderMore() {
     item("\u{1F50D}", "Search", () => { moreOpen = false; searchOpen = true; render() }),
     item("⭐", "Skills and team", go("skills")),
     item("\u{1F4F2}", "Install the app", go("settings-install")),
+    item("\u{1F41E}", "Bugs and ideas", go("settings-feedback")),
     item("\u{1F4D6}", "How Pitch Room works", go("settings-guide")),
     item("\u{1F6DF}", "Help and fixes", go("settings-help")),
     el("div", { class: "morediv" }),
@@ -3224,7 +3257,8 @@ Rules: only use codes that are on the board. Only act on what this person said a
 EXPLAINING
 If they ask what something means (a word, a business or tech idea, or how a part of Pitch Room works), explain it simply in a few lines with a small example from their own work when you can.
 How Pitch Room works:
-- Ideas: anyone pitches; an idea moves to Projects or gets removed only after at least half the team voted.
+- Ideas: anyone pitches; an idea moves to Projects or gets removed only after at least half the team voted. The person who pitched an idea can also make it a project once at least 2 others voted Keep and Keep is ahead.
+- Bugs and ideas (⋯ menu): anyone reports a bug or suggests what would make work easier; creators get an alert.
 - Projects: Building now, Up next (vote for what's next), Paused, Completed. Planners (the person who pitched it, the admin and added planners) change the plan and the money.
 - Project teams: each project has its own team. Planners are always on it. Others tap "Ask to join the team" and wait for a planner to accept, or a planner invites them and they accept. Someone not on the team can look and leave notes on tasks, but can't take, tick or change tasks, check in or add files. Only the team can be given tasks and get money from the project. Leaving or being taken off frees your open tasks.
 - Tasks: status (not started, in progress, done), priority, due date, steps (ticking the first step starts the task), notes for the team, and "waiting for" (a task can't start until another is done; finishing one tells the next person). My tasks groups them into Now, Next and Waiting on others.
@@ -3435,6 +3469,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-bugs-ideas-1", date: "2026-11-16", icon: "\u{1F41E}", title: "Bugs and ideas, straight to the creators",
+    text: "Found something broken, or know what would make work easier? ⋯ › Bugs and ideas. Creators get an alert, and you hear back when it's fixed. Also new: if you pitched an idea and 2 others voted Keep, you can make it a project yourself.", go: "settings-feedback" },
   { id: "f-client-live-1", date: "2026-11-16", icon: "\u{1F441}", title: "See exactly what the client sees",
     text: "A project's Client tab › What they see shows the client's page live, next to simple on/off switches for each part. The project name, progress, stages and payments update by themselves from the project.", go: "projects" },
   { id: "f-quiz2-1", date: "2026-11-16", icon: "\u2B50", title: "A new skills quiz that finds your roles",
@@ -4846,7 +4882,7 @@ function goalRow(g, { have, t, k, list }) {
   }
   return row;
 }
-const goalPrompt = g => `Research this goal for our team: "${g.name}". We are Ardent Studios, a small team in Egypt that sells websites and Google Ads to clients worldwide.${g.details ? " What we know so far: " + g.details : ""}
+const goalPrompt = g => `Research this goal for our team: "${g.name}". We are Ardent Creative Studios, a small team in Egypt that sells websites and Google Ads to clients worldwide.${g.details ? " What we know so far: " + g.details : ""}
 Give us: 1) what it involves and the realistic options (cheap, middle, best), 2) a cost range in EGP for each option, one-time and monthly, 3) the steps to get it, 4) what to watch out for. Keep it short and practical. End with one line: "Suggested target: <number> EGP".`;
 function goalForm(g) {
   const nm = el("input", { id: "gf-name", class: "noteinput", maxlength: "60", placeholder: "e.g. Office in Cairo" });
@@ -5088,7 +5124,7 @@ function welcomeCard() {
     ["Install the app", "Home Screen, Dock or desktop", isHomeScreenApp() || !!prof.installed, () => { location.hash = "settings-install" }],
     ["Agree to the money rules", "How we share what we earn", ((prof.moneyAgreed || {}).version === ver), () => { moneyTab = "rules"; location.hash = "money" }],
     ["Say hi in the team chat", "", chat.some(m => m.by === me && !m.system), () => { location.hash = "chat" }],
-    ["Join a project", "Open one and tap Join the team", ideas.some(p => (p.members || {})[me]), () => { location.hash = "projects" }],
+    ["Join a project", "Open one and tap Ask to join the team", ideas.some(p => (p.members || {})[me]), () => { location.hash = "projects" }],
   ];
   const n = steps.filter(x => x[2]).length; if (n === steps.length) return null;
   return el("section", { class: "idea welcome" }, el("div", { class: "row" }, el("h3", {}, "Getting started"), el("span", { class: "label" }, `${n} of ${steps.length}`), el("span", { class: "spacer" }),

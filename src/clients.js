@@ -61,7 +61,7 @@ function cFeed(posts, { canDelete } = {}) {
   const list = [...posts].sort((a, b) => (b.at || 0) - (a.at || 0));
   return el("div", { class: "pfeed" }, list.length ? list.slice(0, 100).map(p => el("article", { class: "post" + (p.team ? " team" : "") },
     postAv(p.photo), el("div", { class: "post-body" },
-      el("div", { class: "post-meta" }, el("b", {}, p.by === me ? "You" : (p.name || "Someone")), p.team ? el("span", { class: "chip" }, "Ardent team") : el("span", { class: "chip" }, "Client"), el("span", {}, ago(p.at))),
+      el("div", { class: "post-meta" }, el("b", {}, p.by === me ? "You" : (p.name || "Someone")), p.team ? el("span", { class: "chip" }, "Ardent Creative Studios") : el("span", { class: "chip" }, "Client"), el("span", {}, ago(p.at))),
       el("div", { class: "post-text" }, p.text)),
     canDelete ? el("button", { class: "x", "aria-label": "Delete update", onclick: () => write(() => deleteDoc(doc(db, "cposts", p.id)), "Deleted") }, "✕") : null))
     : el("div", { class: "empty" }, "No updates yet."));
@@ -223,7 +223,7 @@ function startClient(u, list) {
   $("#boot").hidden = true; $("#gate").hidden = true; $("#app").hidden = true; $("#client").hidden = false;
   cUnsubs.push(onSnapshot(query(collection(db, "cprojects"), where("clients", "array-contains", clientEmail)), s => {
     myCP = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (!myCP.length) { clientStop(); signOut(auth); $("#gate-msg").textContent = `${u.email} doesn't have a project to follow anymore. Message Ardent Studios if that's a mistake.`; return }
+    if (!myCP.length) { clientStop(); signOut(auth); $("#gate-msg").textContent = `${u.email} doesn't have a project to follow anymore. Message Ardent Creative Studios if that's a mistake.`; return }
     for (const cp of myCP) if (!myCPosts[cp.id]) { myCPosts[cp.id] = []; cUnsubs.push(onSnapshot(query(collection(db, "cposts"), where("pid", "==", cp.id)), s2 => { myCPosts[cp.id] = s2.docs.map(d => ({ id: d.id, ...d.data() })); render() }, () => {})) }
     if (!myCP.find(c => c.id === cSel)) cSel = myCP[0].id;
     render();
@@ -232,13 +232,13 @@ function startClient(u, list) {
 }
 // The client's page. The team's Client tab shows the same thing as a preview (no typing, no sign out).
 function clientPage(cp, { first, preview, posts } = {}) {
-  const out = [el("h1", { class: "c-hello" }, first ? `Hi ${first}` : "Hi"), el("p", { class: "lede", style: "margin-top:4px" }, "Here's where your project with Ardent Studios stands. This page updates on its own."), statusCard(cp, { big: true })];
+  const out = [el("h1", { class: "c-hello" }, first ? `Hi ${first}` : "Hi"), el("p", { class: "lede", style: "margin-top:4px" }, "Here's where your project with Ardent Creative Studios stands. This page updates on its own."), statusCard(cp, { big: true })];
   for (const c of [workCard(cp), payCard(cp), linksList(cp)]) if (c) out.push(el("div", { style: "margin-top:12px" }, c));
   out.push(el("h2", { class: "sec-h" }, "Messages"),
-    el("div", { class: "chat-who" }, el("span", { class: "teamdot big" }, "A"), el("span", { class: "who-n" }, el("b", {}, "Ardent Studios team"), el("span", { class: "label" }, "Questions, feedback, files you need: we reply here"))),
+    el("div", { class: "chat-who" }, el("span", { class: "teamdot big" }, "A"), el("span", { class: "who-n" }, el("b", {}, "Ardent Creative Studios team"), el("span", { class: "label" }, "Questions, feedback, files you need: we reply here"))),
     // in the team's preview, show the chat the way the client sees it: the team's messages come from the other side
     chatView(cChatItems((posts || []).map(x => preview ? { ...x, by: x.team ? "__ardent" : "__client" } : x), () => false), { empty: "No messages yet. Say hello, or ask us anything about your project." }));
-  if (preview) out.push(el("div", { class: "cvfake" }, "Message the Ardent Studios team"));
+  if (preview) out.push(el("div", { class: "cvfake" }, "Message the Ardent Creative Studios team"));
   return out;
 }
 function renderClient() {
@@ -248,7 +248,7 @@ function renderClient() {
   if (myCP.length > 1) box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Your projects", style: "margin:12px 0" }, myCP.map(c => el("button", { "aria-pressed": String(c.id === cSel), onclick: () => { cSel = c.id; render() } }, c.title))));
   if (!cp) { box.append(el("h1", { class: "c-hello" }, first ? `Hi ${first}` : "Hi"), el("div", { class: "empty" }, "Loading your project…")); return }
   box.append(...clientPage(cp, { first, posts: myCPosts[cp.id] || [] }),
-    chatComposer("c-msg", "Message the Ardent Studios team", t => write(() => setDoc(doc(db, "cposts", uid()), { pid: cp.id, by: me, name: myProfile.name, photo: myProfile.photo || "", team: false, text: t, at: Date.now() }))),
+    chatComposer("c-msg", "Message the Ardent Creative Studios team", t => write(() => setDoc(doc(db, "cposts", uid()), { pid: cp.id, by: me, name: myProfile.name, photo: myProfile.photo || "", team: false, text: t, at: Date.now() }))),
     el("div", { class: "row", style: "margin-top:22px" }, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "Signed in as " + (myProfile.email || "")), el("span", { class: "spacer" }),
       el("button", { class: "btn quiet small", onclick: () => doSignOut() }, "Sign out")));
   for (const [id, v] of Object.entries(vals)) { const n = document.getElementById(id); if (n && v) n.value = v }
@@ -268,7 +268,7 @@ function partnerProjectSubs(email) {
 function partnerProjectsStop() { pProjUnsubs.forEach(f => f()); pProjUnsubs = []; pProjects = []; myPTasks = [] }
 function renderPartnerProjects(box) {
   box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Your projects"),
-    el("p", { class: "lede", style: "margin-top:-4px" }, "Projects you're working on with Ardent Studios, and the tasks the team gave you. Tick them off as you finish."));
+    el("p", { class: "lede", style: "margin-top:-4px" }, "Projects you're working on with Ardent Creative Studios, and the tasks the team gave you. Tick them off as you finish."));
   if (!pProjects.length) { box.append(el("div", { class: "empty" }, "You're not on a project yet. When the team adds you to one, it shows up here.")); return }
   for (const cp of pProjects) {
     const list = myPTasks.filter(t => t.pid === cp.id).sort((a, b) => (a.done - b.done) || (a.at || 0) - (b.at || 0));
@@ -278,7 +278,7 @@ function renderPartnerProjects(box) {
         list.length ? el("ul", { class: "steps" }, list.map(t => el("li", { class: t.done ? "done" : "" },
           el("input", { type: "checkbox", id: "mt-" + t.id, checked: !!t.done, onchange: ev => write(() => updateDoc(doc(db, "ptasks", t.id), { done: ev.target.checked, doneAt: ev.target.checked ? Date.now() : null }), ev.target.checked ? "Nice, done" : null) }),
           el("label", { for: "mt-" + t.id }, t.text, t.due ? el("span", { class: "label", style: "margin-left:8px" }, "due " + fmtDay(new Date(t.due + "T12:00").getTime())) : null)))) : el("p", {}, "No tasks for you yet."),
-        team ? el("div", { class: "note" }, el("span", { class: "note-body" }, team.text), el("span", { class: "note-meta" }, (team.name || "Ardent team") + " · " + ago(team.at))) : null)));
+        team ? el("div", { class: "note" }, el("span", { class: "note-body" }, team.text), el("span", { class: "note-meta" }, (team.name || "Ardent Creative Studios") + " · " + ago(team.at))) : null)));
   }
 }
 
@@ -419,7 +419,7 @@ function syncClientPay() {
   }, 2500);
 }
 
-/* ---------- a monthly report for the client, branded Ardent Studios, ready to save as PDF ---------- */
+/* ---------- a monthly report for the client, branded Ardent Creative Studios, ready to save as PDF ---------- */
 function clientReport(p, cp) {
   const now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), 1).getTime(), month = now.toLocaleDateString("en", { month: "long", year: "numeric" });
   const tasks = tasksOf(p), done = tasks.filter(t => t.done && (t.doneAt || 0) >= start), next = tasks.filter(t => !t.done).sort((a, b) => taskPrioRank(a) - taskPrioRank(b) || (a.due || "9999").localeCompare(b.due || "9999")).slice(0, 6);
@@ -427,7 +427,7 @@ function clientReport(p, cp) {
   const y = cp.showPay !== false ? payOf(p) : null, esc = t => String(t || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const client = esc(clientOf(p) || (p.money || {}).client || "");
   const li = arr => arr.length ? "<ul>" + arr.map(t => `<li>${esc(t.text)}</li>`).join("") + "</ul>" : "<p class='m'>Nothing to show yet.</p>";
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.title)} · ${month} report · Ardent Studios</title>
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.title)} · ${month} report · Ardent Creative Studios</title>
 <style>@page{margin:18mm}body{font:15px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#11181F;max-width:760px;margin:0 auto;padding:28px}
 header{display:flex;align-items:center;gap:12px;border-bottom:3px solid #0D5E63;padding-bottom:14px;margin-bottom:22px}header b{font-size:22px;letter-spacing:-.01em}header span{color:#0D5E63}
 h1{font-size:26px;margin:0 0 4px}h2{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:#0D5E63;margin:26px 0 8px}.m{color:#5A646F}
@@ -436,14 +436,14 @@ h1{font-size:26px;margin:0 0 4px}h2{font-size:15px;text-transform:uppercase;lett
 ul{padding-left:20px;margin:0}li{margin:3px 0}footer{margin-top:34px;padding-top:12px;border-top:1px solid #E6E9ED;color:#5A646F;font-size:12.5px}
 .print{position:fixed;top:14px;right:14px;background:#0D5E63;color:#fff;border:0;border-radius:10px;padding:10px 16px;font:600 14px sans-serif;cursor:pointer}@media print{.print{display:none}}</style></head><body>
 <button class="print" onclick="print()">Save as PDF</button>
-<header><svg width="18" height="30" viewBox="0 0 60 100"><path fill="#0F5E57" d="M30 2C40 12 45 22 45 34A15 15 0 0 1 15 34C15 22 20 12 30 2Z"/><path fill="#3E9C8F" d="M30 21C34.5 26.5 36.5 31 36.5 38A6.5 6.5 0 0 1 23.5 38C23.5 31 25.5 26.5 30 21Z"/><path fill="#2B2E33" d="M20 66A10 10 0 0 1 40 66L36.5 92A6.5 6.5 0 0 1 23.5 92Z"/></svg><b>Ardent <span>Studios</span></b></header>
+<header><svg width="18" height="30" viewBox="0 0 60 100"><path fill="#0F5E57" d="M30 2C40 12 45 22 45 34A15 15 0 0 1 15 34C15 22 20 12 30 2Z"/><path fill="#3E9C8F" d="M30 21C34.5 26.5 36.5 31 36.5 38A6.5 6.5 0 0 1 23.5 38C23.5 31 25.5 26.5 30 21Z"/><path fill="#2B2E33" d="M20 66A10 10 0 0 1 40 66L36.5 92A6.5 6.5 0 0 1 23.5 92Z"/></svg><b>Ardent <span>Creative Studios</span></b></header>
 <h1>${esc(p.title)}</h1><div class="m">${client ? "Prepared for " + client + " · " : ""}Monthly report · ${month}</div>
 <h2>Where we are</h2><div class="grid"><div><span class="m">Stage</span><b>${esc(cur)}</b></div><div><span class="m">Progress</span><b>${pct}%</b></div><div><span class="m">Done this month</span><b>${done.length}</b></div></div>
 <div class="bar" style="margin-top:10px"><i style="width:${pct}%"></i></div>
 <h2>Done this month</h2>${li(done)}
 <h2>Coming next</h2>${li(next)}${cp.next && cp.next.text ? `<p><b>Next step:</b> ${esc(cp.next.text)}${cp.next.date ? " · " + esc(fmtDay(new Date(cp.next.date + "T12:00").getTime())) : ""}</p>` : ""}
 ${y && (y.total || y.paid) ? `<h2>Payments</h2><div class="grid"><div><span class="m">Paid</span><b>${esc(fmtCur(y.paid, y.currency))}</b></div><div><span class="m">${y.monthly ? "Due now" : "Left to pay"}</span><b>${esc(fmtCur(Math.max(0, y.total - y.paid), y.currency))}</b></div>${y.next ? `<div><span class="m">Next</span><b>${esc(fmtCur(y.next.amount, y.currency))}</b><span class="m">${esc(y.next.label)}</span></div>` : ""}</div>` : ""}
-<footer>Ardent Studios · ${now.toLocaleDateString("en", { day: "numeric", month: "long", year: "numeric" })} · Questions? Reply on your project page: ${SITE_LINK}</footer></body></html>`;
+<footer>Ardent Creative Studios · ${now.toLocaleDateString("en", { day: "numeric", month: "long", year: "numeric" })} · Questions? Reply on your project page: ${SITE_LINK}</footer></body></html>`;
   const w = window.open("", "_blank");
   if (!w) { toast("Allow pop-ups for this site to open the report", 4000); return }
   w.document.open(); w.document.write(html); w.document.close();
