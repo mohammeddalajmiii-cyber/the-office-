@@ -30,6 +30,7 @@ function statusCard(cp, { big } = {}) {
     sh.stages ? el("ol", { class: "stages", "aria-label": "Stages" }, st.map((s, i) => el("li", { class: i < cur ? "done" : i === cur ? "now" : "", "aria-current": i === cur ? "step" : null },
       el("span", { class: "dot" }, i < cur ? "✓" : String(i + 1)), el("span", { class: "sname" }, s)))) : null,
     sh.progress ? el("div", { class: "cprog" }, el("div", { class: "track" }, el("div", { class: "fill", style: `width:${pct}%` })), el("span", {}, pct + "%")) : null,
+    sh.progress ? el("p", { class: "cprog-note" }, "This bar follows the phases of our work. If it goes back a little, it means we've started the next phase and added its steps.") : null,
     sh.stages || (sh.next && nx.text) ? el("div", { class: "cnow" }, sh.stages ? el("div", {}, el("span", { class: "label" }, "Now"), el("b", {}, st[cur])) : null,
       sh.next && nx.text ? el("div", {}, el("span", { class: "label" }, "Next step"), el("b", {}, nx.text), nx.date ? el("span", { class: "cdate" }, fmtDay(new Date(nx.date + "T12:00").getTime())) : null) : null) : null,
     cp.updatedAt ? el("div", { class: "label", style: "text-transform:none;letter-spacing:0" }, "Updated " + ago(cp.updatedAt)) : null);
@@ -119,10 +120,10 @@ function renderShare(box, p) {
     // progress: automatic from the tasks, or set by hand
     const auto = cp.progressMode !== "manual", rng = el("input", { type: "range", min: "0", max: "100", step: "5", value: String(cp.progress || 0), "aria-label": "Progress", style: "flex:1" });
     rng.onchange = () => saveCP(p, { progress: +rng.value }, "Progress saved");
-    sec.append(sw("progress", "Progress bar", auto ? `Automatic from the tasks: ${live.progress}% now` : `Set by hand: ${cp.progress || 0}%`,
+    sec.append(sw("progress", "Progress bar", auto ? `Automatic from the tasks in the phases they see: ${live.progress}% now. It can go back when a new phase starts; the client sees a note explaining that.` : `Set by hand: ${cp.progress || 0}%`,
       sh.progress ? el("div", { class: "row", style: "gap:6px;margin-top:6px" }, el("div", { class: "seg seg-sm" }, el("button", { "aria-pressed": String(auto), onclick: () => saveCP(p, { progressMode: "auto" }, "Progress follows the tasks") }, "From tasks"), el("button", { "aria-pressed": String(!auto), onclick: () => saveCP(p, { progressMode: "manual" }, "You set the progress") }, "By hand")), !auto ? rng : null) : null));
     // stages: our plan's phases, or simple stages
-    const fromPlan = cp.stageMode !== "simple" && getPhases(p).length > 0, st = stagesOf(live);
+    const fromPlan = cp.stageMode !== "simple" && cvPhases(p, cp).length > 0, st = stagesOf(live);
     sec.append(sw("stages", "Stages", fromPlan ? `Our plan's phases: ${st.join(" → ")}. Now: ${st[live.stage || 0]}` : `Simple stages. Now: ${st[cp.stage || 0]}`,
       sh.stages ? el("div", { style: "display:grid;gap:6px;margin-top:6px" }, el("div", { class: "seg seg-sm" }, el("button", { "aria-pressed": String(fromPlan), disabled: !getPhases(p).length, onclick: () => saveCP(p, { stageMode: "plan" }, "Stages follow your plan") }, "Our plan's phases"), el("button", { "aria-pressed": String(!fromPlan), onclick: () => saveCP(p, { stageMode: "simple", stages: CSTAGES }, "Simple stages") }, "Simple")),
         !fromPlan ? el("div", { class: "row", style: "gap:4px" }, CSTAGES.map((s2, i2) => el("button", { class: "btn small" + ((cp.stage || 0) === i2 ? " primary" : " quiet"), onclick: () => saveCP(p, { stage: i2 }, "Stage: " + s2) }, s2))) : null) : null));
@@ -131,7 +132,16 @@ function renderShare(box, p) {
     if (!nt.value && cp.next && cp.next.text) nt.value = cp.next.text; if (!nd.value && cp.next && cp.next.date) nd.value = cp.next.date;
     sec.append(sw("next", "Next step", cp.next && cp.next.text ? "Showing: " + cp.next.text : "Nothing written yet",
       sh.next ? el("div", { class: "row", style: "gap:6px;margin-top:6px;flex-wrap:nowrap" }, nt, nd, el("button", { class: "btn small primary", onclick: () => saveCP(p, { next: { text: nt.value.trim(), date: nd.value || "" } }, nt.value.trim() ? "Next step saved" : "Next step cleared") }, "Save")) : null));
-    sec.append(sw("work", "The work, part by part", "Each phase of our plan with how much is done. Off by default"));
+    // which parts of the plan the client sees
+    const allPh = getPhases(p), shownIds = cvPhases(p, cp).map(ph => ph.id);
+    if (allPh.length) sec.append(el("div", { class: "cvrow" }, el("div", {}, el("b", {}, "Which parts of the work they see"),
+      el("span", { class: "label" }, "Only these phases count for the client's stages, progress bar and work list. Untick the ones that are only for us."),
+      el("div", { class: "pickrow", style: "margin-top:6px" }, allPh.map(ph => { const on = shownIds.includes(ph.id);
+        return el("button", { type: "button", class: "pickchip", "aria-pressed": String(on), onclick: () => {
+          const next = on ? shownIds.filter(x => x !== ph.id) : [...shownIds, ph.id];
+          if (!next.length) { toast("Keep at least one phase, or switch the stages off"); return }
+          saveCP(p, { showPhases: allPh.filter(x => next.includes(x.id)).map(x => x.id) }, on ? `${ph.name} is hidden from the client` : `The client sees ${ph.name}`) } }, (on ? "✓ " : "") + ph.name) })))));
+    sec.append(sw("work", "The work, part by part", "Each phase they see, with how much is done. Off by default"));
     sec.append(sw("pay", "Payments", p.money ? "From the Money tab: what they paid and what's next" : "Set up the money first, on the Money tab"));
     // files and links
     const links = Object.entries(cp.links || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v }));
@@ -397,11 +407,14 @@ function payOf(p) {
     next: open ? { label: open.label.match(/^\d{4}-\d{2}$/) ? monthLabel(open.label) : open.label, amount: open.expected - open.received } : (m.type === "one" && r.expected > r.received ? { label: "balance", amount: r.expected - r.received } : null), items };
 }
 // What the client page shows that comes from the project itself: its name, progress, stages, the work list and payments.
+// The task phases the client sees: all of them, unless the team picked some (cp.showPhases)
+const cvPhases = (p, cp) => { const phs = getPhases(p), pick = Array.isArray(cp && cp.showPhases) ? cp.showPhases : null; return pick ? phs.filter(ph => pick.includes(ph.id)) : phs };
 function clientLive(p, cp) {
-  const tasks = tasksOf(p), phs = getPhases(p), out = { title: p.title };
+  const tasks = tasksOf(p), phs = cvPhases(p, cp), ids = new Set(phs.map(ph => ph.id)), out = { title: p.title };
   const work = phs.map(ph => { const pr = progressOf(tasks.filter(t => t.phase === ph.id)); return { name: ph.name, done: pr.done, total: pr.total } }).filter(x => x.total);
   out.work = work;
-  out.progress = cp.progressMode === "manual" ? (cp.progress || 0) : progressOf(tasks).pct;
+  // progress follows only the phases the client sees
+  out.progress = cp.progressMode === "manual" ? (cp.progress || 0) : progressOf(tasks.filter(t => ids.has(t.phase))).pct;
   if (cp.stageMode !== "simple" && work.length) { out.stages = work.map(x => x.name); const i = work.findIndex(x => x.done < x.total); out.stage = i < 0 ? work.length - 1 : i }
   out.pay = payOf(p);
   return out;
