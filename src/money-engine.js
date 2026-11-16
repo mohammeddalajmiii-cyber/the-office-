@@ -15,7 +15,17 @@
    When a deal is over (a one-time project fully paid, or any deal marked Ended) and costs
    are still owed back, the team fund covers them: nobody stays out of pocket.
    Payment plan (one-time deals): the price can be split into steps, like a deposit and a final payment.
-   Each step says which tasks it pays for. Money that comes in fills the steps in order. */
+   Each step says which tasks it pays for. Money that comes in fills the steps in order.
+
+   Two ways to share step 5 (the team's money):
+     - By % shares (money.split is not "tasks"): the planner types each person's %.
+     - By task prices (money.split === "tasks", one-time and paid-over-months deals): a task can have a price,
+       its part of the client's price (money.prices[taskId], in the deal's currency). Money that comes in fills
+       the payments in order (deposit first); each payment's team money goes to the tasks that payment covers,
+       in proportion to their prices. A task's money is earned once the task is done, by the people on it
+       (shared equally). Money not covered by a priced task goes by the % shares, or equally to the
+       project's team when there are none. Tasks not linked to a payment are paid by the last one.
+       Nobody has to price every task: unpriced work is simply the shared part. */
 
 const MONEY_DEFAULTS = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 2, version: 2 };
 const toP = x => Math.round((Number(x) || 0) * 100);
@@ -36,7 +46,7 @@ function splitByShares(amount, shares) {
   return out;
 }
 
-function computeMoney(p, todayStr, rules) {
+function computeMoney(p, todayStr, rules, opts) {
   const m = p.money || {}, R = { ...MONEY_DEFAULTS, ...(rules || {}) };
   const fundPct = m.fundCustom && m.fundPct != null ? Number(m.fundPct) : R.fundPct;
   // who brought the client: one or several people share the finder's fee; "the team" puts it in the fund
@@ -55,9 +65,11 @@ function computeMoney(p, todayStr, rules) {
   let paLeft = paMode === "fixed" ? toP(paVal) : 0;
 
   const proposal = m.stage === "proposal", ended = m.stage === "ended";
+  const byTasks = m.split === "tasks" && type !== "monthly", team = ((opts || {}).team || []).filter(Boolean);
   const res = { type, currency: cur, rate: dealRate, receivedEGP: 0, partner: pa ? { email: pa.email, name: pa.name || pa.email, mode: paMode, value: paVal, earned: 0, paid: 0 } : null, proposal, ended, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0, fundCover: 0,
     people: {}, unassigned: 0, pending: false, held: 0, preview: null, schedule: [], late: [], monthsUnpaid: 0, ads: { in: 0, spent: 0, held: 0 },
-    flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 }, planned: false, planOff: 0 };
+    flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 }, planned: false, planOff: 0,
+    byTasks, tasks: {}, taskHeld: 0, priced: 0, pricedOver: false };
   const person = u => res.people[u] || (res.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
 
   // costs queue: paid back in order
@@ -75,7 +87,7 @@ function computeMoney(p, todayStr, rules) {
     if (into) into.partner = (into.partner || 0) + c; else res.partner.earned += c;
     return c;
   };
-  const splitProfit = (amt, shares, withFinder, into) => {
+  const splitProfit = (amt, shares, withFinder, into, sink) => {
     const t = into || res; if (amt <= 0) return;
     const c = commission(amt, withFinder, into); t.flow.partner += c; amt -= c; if (amt <= 0) return;
     const fund = Math.round(amt * fundPct / 100), find = withFinder && hasFinder ? Math.round(amt * findPct / 100) : 0;
@@ -85,13 +97,86 @@ function computeMoney(p, todayStr, rules) {
     const pp = u => (into ? (into.people[u] || (into.people[u] = { earned: 0 })) : person(u));
     if (find && m.finderTeam) t.fund += find;
     else if (find) for (const [u, v] of Object.entries(splitByShares(find, Object.fromEntries(finders.map(u => [u, 1]))))) pp(u).earned += v;
+    if (sink) { sink(rest); return }   // task prices: the caller shares it out
     let given = 0; for (const [u, v] of Object.entries(parts)) { pp(u).earned += v; given += v }
     if (rest - given > 0) t.unassigned += rest - given;   // no shares set yet
   };
 
+
+  // ---- sharing by task prices ----
+  // the money that isn't covered by a priced task: by the % shares, or equally to the project's team
+  const shareRest = (amt, people) => {
+    if (amt <= 0) return;
+    const sh = Object.values(m.shares || {}).some(v => Number(v) > 0) ? m.shares : team.length ? Object.fromEntries(team.map(u => [u, 1])) : null;
+    if (!sh) { if (people === res.people) res.unassigned += amt; else people.__none = (people.__none || 0) + amt; return }
+    for (const [u, v] of Object.entries(splitByShares(amt, sh))) { const x = people[u] || (people[u] = { earned: 0, back: 0, paid: 0, balance: 0 }); x.earned += v }
+  };
+  function taskSplit() {
+    const prices = m.prices || {}, tmap = {};
+    for (const field of ["tasks", "steps"]) for (const [id, t] of Object.entries(p[field] || {})) if (t && t.text)
+      tmap[id] = { id, text: t.text, done: !!t.done, who: [...new Set([t.owner, ...Object.entries(t.helpers || {}).filter(([, v]) => v).map(([u]) => u)].filter(Boolean))] };
+    const plan = planOf(m), total = toP(m.price);
+    const buckets = plan.length ? plan.map(st => ({ label: st.label || "", amt: toP(st.amount), tasks: (st.tasks || []).filter(id => tmap[id]) })) : [{ label: "", amt: total, tasks: [] }];
+    if (plan.length) { const off = total - buckets.reduce((a, b) => a + b.amt, 0); buckets[buckets.length - 1].amt = Math.max(0, buckets[buckets.length - 1].amt + off) }
+    const linked = new Set(buckets.flatMap(b => b.tasks)), lastB = buckets[buckets.length - 1];
+    for (const id of Object.keys(tmap)) if (!linked.has(id)) lastB.tasks.push(id);
+    for (const b of buckets) { b.pot = 0; b.got = 0; b.priced = b.tasks.reduce((a, id) => a + Math.max(0, toP(prices[id])), 0) }
+    res.priced = buckets.reduce((a, b) => a + b.priced, 0);
+    res.pricedOver = buckets.some(b => b.priced > b.amt);
+    // each payment fills the payments of the plan in order; its team money goes to that payment's tasks
+    for (const x of payments) {
+      const amt = toP(x.amount), inEGP = egp(x); if (amt <= 0) continue;
+      let left = amt; const takes = [];
+      buckets.forEach((b, i) => { if (left <= 0) return; const take = i === buckets.length - 1 ? left : Math.min(left, Math.max(0, b.amt - b.got)); if (take > 0) { b.got += take; left -= take; takes.push([b, take]) } });
+      let used = 0;
+      takes.forEach(([b, take], i) => {
+        const part = i === takes.length - 1 ? inEGP - used : Math.round(inEGP * take / amt); used += part;
+        const withFinder = true;
+        splitProfit(reimburse(part), null, withFinder, null, rest => { b.pot += rest });
+      });
+    }
+    // what each task gets from its payment's money
+    const shareOf = (b, pot, v) => { const base = Math.max(b.amt, b.priced); return base ? Math.floor(pot * v / base) : 0 };
+    for (const b of buckets) {
+      let given = 0;
+      for (const id of b.tasks) {
+        const v = Math.max(0, toP(prices[id])), t = tmap[id]; if (!v) continue;
+        const share = shareOf(b, b.pot, v); given += share;
+        const info = res.tasks[id] = { price: v, share, est: 0, step: b.label, done: t.done, who: t.who, status: "" };
+        if (!share) info.status = "unpaid";
+        else if (t.done && t.who.length) { info.status = "earned"; for (const [u, a] of Object.entries(splitByShares(share, Object.fromEntries(t.who.map(u => [u, 1]))))) person(u).earned += a }
+        else if (t.done) { info.status = "nobody"; res.unassigned += share }
+        else { info.status = "waiting"; res.taskHeld += share }
+      }
+      shareRest(b.pot - given, res.people);
+    }
+    res.held = res.taskHeld;
+    // what it looks like when the client has paid everything and every task is done (assuming no more costs)
+    const pv = { fund: 0, finderAmt: 0, unassigned: 0, people: {}, flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 } };
+    const whole = Math.round(total * dealRate); pv.whole = whole; pv.flow.costs = Math.min(whole, res.costsTotal);
+    let net = 0; splitProfit(Math.max(0, whole - res.costsTotal), null, true, pv, rest => { net = rest });
+    const sumAmt = buckets.reduce((a, b) => a + b.amt, 0) || 1;
+    for (const b of buckets) {
+      const pot = Math.floor(net * b.amt / sumAmt); let given = 0;
+      for (const id of b.tasks) {
+        const v = Math.max(0, toP(prices[id])), t = tmap[id]; if (!v) continue;
+        const est = shareOf(b, pot, v); given += est; if (res.tasks[id]) res.tasks[id].est = est;
+        if (t.who.length) for (const [u, a] of Object.entries(splitByShares(est, Object.fromEntries(t.who.map(u => [u, 1]))))) { const x = pv.people[u] || (pv.people[u] = { earned: 0 }); x.earned += a }
+        else pv.unassigned += est;
+      }
+      shareRest(pot - given, pv.people);
+    }
+    if (pv.people.__none) { pv.unassigned += pv.people.__none; delete pv.people.__none }
+    res.preview = pv;
+    res.taskRate = total ? net / total : 0;   // EGP piasters a task gets for each piaster of its price, when all is paid
+  }
+
   for (const x of payments) { res.received += toP(x.amount); res.receivedEGP += egp(x) }
 
-  if (type === "one") {
+  if (byTasks) {
+    res.expected = toP(m.price);
+    taskSplit();
+  } else if (type === "one") {
     res.expected = toP(m.price);
     const avail = reimburse(res.receivedEGP);
     if (res.expected > 0 && res.received >= res.expected) splitProfit(avail, m.shares, true);

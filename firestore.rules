@@ -24,9 +24,29 @@ service cloud.firestore {
     function plansIt() {
       return resource.data.author == request.auth.uid || (resource.data.get("planners", {}).keys().hasAny([request.auth.uid]));
     }
+    // a project's team: its planners plus everyone in "members". Someone not on it can only vote, leave notes,
+    // ask to join (or take that back) and accept or decline an invite, each only for themselves.
+    // Projects from before teams (no teamV yet) and ideas still being voted on stay open to the whole team.
+    function teamRuleOn() {
+      return resource.data.get("status", "") in ["approved", "completed"] && ("teamV" in resource.data);
+    }
+    function onProjTeam() {
+      return isAdmin() || plansIt() || resource.data.get("members", {}).get(request.auth.uid, false) == true;
+    }
+    function onlyMine(f) {
+      return request.resource.data.get(f, {}).diff(resource.data.get(f, {})).affectedKeys().hasOnly([request.auth.uid]);
+    }
+    function acceptsInviteOnly() {
+      return onlyMine("members") && onlyMine("joined") && (!request.resource.data.get("members", {}).keys().hasAny([request.auth.uid])
+        || resource.data.get("invites", {}).keys().hasAny([request.auth.uid]));
+    }
+    function outsiderOk() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["backers", "votes", "joinReqs", "invites", "members", "joined", "tasks", "steps"])
+        && onlyMine("backers") && onlyMine("votes") && onlyMine("joinReqs") && onlyMine("invites") && acceptsInviteOnly();
+    }
     match /ideas/{id} {
       allow read, create: if isTeam();
-      allow update: if isTeam() && (!moneyTouched() || isAdmin() || plansIt());
+      allow update: if isTeam() && (!moneyTouched() || isAdmin() || plansIt()) && (!teamRuleOn() || onProjTeam() || outsiderOk());
       allow delete: if isAdmin() || (isTeam() && resource.data.author == request.auth.uid);
     }
     match /chat/{id} {

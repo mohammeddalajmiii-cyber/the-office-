@@ -296,8 +296,7 @@ const topSkills = id => { const s = (people[id] || {}).skills; if (!s) return []
 function suggest(p) {
   const tasks = tasksOf(p);
   const open = tasks.filter(t => !t.done && !t.owner);
-  const joined = Object.entries(p.members || {}).filter(([, v]) => v).map(([u]) => u);
-  const pool = joined.length >= 2 ? joined : teamIds();
+  const pool = teamOf(p);
   if (!pool.length) return [];
   const load = Object.fromEntries(pool.map(u => [u, tasks.filter(t => !t.done && t.owner === u).length]));
   const out = [];
@@ -350,7 +349,7 @@ function syncPartnerEarnings() {
   }, 2000);
 }
 function renderAll() {
-  syncPartnerEarnings(); if (live) syncClientPay(); renderSearch(); renderMore(); maybeWeekly();
+  syncPartnerEarnings(); if (live) { syncClientPay(); fixOldTeams() } renderSearch(); renderMore(); maybeWeekly();
   const voting = ideas.filter(i => i.status === "voting").sort((a, b) => b.createdAt - a.createdAt);
   const removed = ideas.filter(i => i.status === "removed");
   const projects = ideas.filter(i => i.status === "approved").sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0));
@@ -380,11 +379,7 @@ function renderAll() {
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const weekKey = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x) };
 const weekLabel = k => k === weekKey() ? "This week" : "Week of " + fmtDate(k);
-const teamOf = p => {
-  const set = new Set(Object.entries(p.members || {}).filter(([, v]) => v).map(([u]) => u));
-  for (const t of tasksOf(p)) assignees(t).forEach(u => set.add(u));
-  return [...set].sort((a, b) => a === me ? -1 : b === me ? 1 : name(a).localeCompare(name(b)));
-};
+const teamOf = p => projTeam(p).sort((a, b) => a === me ? -1 : b === me ? 1 : name(a).localeCompare(name(b)));
 
 let projTab = "tasks", showSettings = null, planEdit = null;
 const taskFilter = {};   // project id -> person id whose tasks to show
@@ -393,7 +388,7 @@ function renderProjectPage(p) {
   const box = $("#project"); box.replaceChildren();
   box.append(el("button", { class: "back", onclick: () => { location.hash = p && p.status === "completed" ? "projects-done" : "projects" } }, "\u2190 Projects"));
   if (!p) { box.append(el("div", { class: "empty" }, "This project isn't on the board anymore.")); return }
-  const tasks = tasksOf(p), team = teamOf(p), joined = !!(p.members || {})[me], planner = canPlan(p);
+  const tasks = tasksOf(p), team = teamOf(p), joined = team.includes(me), planner = canPlan(p);
   const done = p.status === "completed", goal = (p.goals || {})[weekKey()];
   const mineLeft = tasks.filter(t => isAssignee(t, me) && !t.done).length;
   const settingsOpen = showSettings === p.id;
@@ -413,11 +408,15 @@ function renderProjectPage(p) {
     linksBlock(p));
   const actions = el("div", { class: "row", style: "gap:8px" });
   if (!done && !isActive(p) && !isPaused(p)) actions.append(voteButton(p));
-  if (!done && !joined) actions.append(el("button", { class: "btn", onclick: () => write(() => upd(p.id, { ["members." + me]: true }), "You joined the team") }, "Join the team"));
+  const asked = !!(p.joinReqs || {})[me], invited = (p.invites || {})[me];
+  if (!done && !joined && !invited) actions.append(asked
+    ? el("button", { class: "btn quiet", onclick: () => cancelAsk(p) }, "Asked to join · take it back")
+    : el("button", { class: "btn", onclick: () => askToJoin(p) }, planner ? "Join the team" : "Ask to join the team"));
   actions.append(el("span", { class: "spacer" }));
   const pick = isPaused(p) ? null : pickButton(p); if (pick) actions.append(pick);
   if (actions.childNodes.length > 1) head.append(actions);
   box.append(head);
+  box.append(...teamNotices(p, { joined, planner, done, asked, invited }));
 
   if (settingsOpen) box.append(projectSettings(p, { planner, joined, done }));
 
@@ -428,7 +427,7 @@ function renderProjectPage(p) {
     el("button", { "aria-pressed": String(projTab === "meet"), onclick: () => { projTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : "")),
     el("button", { "aria-pressed": String(projTab === "money"), onclick: () => { projTab = "money"; render() } }, "Money"),
     el("button", { "aria-pressed": String(projTab === "share"), onclick: () => { projTab = "share"; render() } }, "Client" + countNew(p.id))));
-  if (projTab === "share") return renderShare(box, p);
+  if (projTab === "share") { if (!inTeam(p)) { box.append(el("div", { class: "empty" }, "The client view is run by this project's team.")); return } return renderShare(box, p) }
   if (projTab === "week") return renderWeek(box, p, team);
   if (projTab === "meet") return renderMeetings(box, p);
   if (projTab === "money") return renderMoney(box, p);
@@ -443,6 +442,22 @@ function renderProjectPage(p) {
   box.append(planBody(p, { filter: f }));
 }
 
+// The lines at the top of a project about its team: an invite for you, your request, or people asking to join.
+function teamNotices(p, { joined, planner, done, asked, invited }) {
+  const out = [];
+  if (!joined && invited) out.push(el("div", { class: "notice teamnote" },
+    el("span", { style: "flex:1 1 220px" }, `${invited.by === me ? "You were" : name(invited.by) + " invited you"} to join this project's team. On the team you can take tasks, tick them and earn from them.`),
+    el("span", { class: "row", style: "gap:6px" }, el("button", { class: "btn small quiet", onclick: () => declineInvite(p) }, "No thanks"), el("button", { class: "btn small primary", onclick: () => acceptInvite(p) }, "Join the team"))));
+  else if (!joined && !done && isProj(p)) out.push(el("div", { class: "notice teamnote soft" },
+    el("span", {}, asked ? "You asked to join. A planner (" + plannerIds(p).map(firstName).join(", ") + ") will say yes or no. Until then you can look around and leave notes on tasks."
+      : "You're not on this project's team. You can look around and leave notes on tasks. To take tasks and earn from it, ask to join.")));
+  const reqs = planner ? joinReqsOf(p) : [];
+  if (reqs.length) out.push(el("div", { class: "notice teamnote" }, el("b", { style: "flex-basis:100%" }, reqs.length > 1 ? `${reqs.length} people want to join the team` : "Someone wants to join the team"),
+    reqs.map(r => el("div", { class: "row", style: "gap:8px;flex-basis:100%" }, av(r.u), el("span", { style: "flex:1" }, name(r.u) + " · asked " + ago(r.at)),
+      el("button", { class: "btn small quiet", onclick: () => declineAsk(p, r.u) }, "No"), el("button", { class: "btn small primary", onclick: () => acceptAsk(p, r.u) }, "Accept")))));
+  return out;
+}
+
 // Project settings, in the order people need them: details, people, status, and deleting last.
 function projectSettings(p, { planner, joined, done }) {
   const set = el("section", { class: "idea settings projset" }, el("div", { class: "row" }, el("h3", {}, "Project settings")));
@@ -450,19 +465,26 @@ function projectSettings(p, { planner, joined, done }) {
   if (planner) set.append(group("Details", null, renameBlock(p), catSelect(p), prioControl(p)));
 
   // people: planners shape the plan; the team is who works on it
-  const members = Object.entries(p.members || {}).filter(([, v]) => v).map(([u]) => u);
+  const members = teamOf(p), pls = plannerIds(p);
   const boss = isAdmin || p.author === me;
-  const others = teamIds().filter(u => !members.includes(u));
-  set.append(group("People", "Planners can change the plan, tasks and money. The team is everyone working on it.",
+  const inv = invitesOf(p), reqs = joinReqsOf(p);
+  const others = teamIds().filter(u => !members.includes(u) && !inv.some(x => x.u === u));
+  set.append(group("People", "Planners change the plan, tasks and money, and accept who joins. The team is everyone working on it: only they take tasks and get paid from it.",
     plannersRow(p),
     el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Team:",
-      members.length ? members.map(u => el("span", { class: "planner" }, av(u), name(u),
-        planner && u !== me ? el("button", { class: "x", "aria-label": "Take " + name(u) + " off the team", onclick: () => write(() => upd(p.id, { ["members." + u]: DEL() }), `${name(u)} is off this project's team`) }, "✕") : null)) : el("span", {}, "nobody joined yet"),
-      planner && others.length ? el("select", { class: "mini", "aria-label": "Add someone to the team", onchange: e => { const u = e.target.value; if (u) write(() => upd(p.id, { ["members." + u]: true }), `${name(u)} is on the team`) } },
-        el("option", { value: "" }, "+ Add someone"), others.map(u => el("option", { value: u }, name(u)))) : null),
+      members.map(u => el("span", { class: "planner" }, av(u), name(u), pls.includes(u) ? el("span", { class: "label" }, "planner") : null,
+        planner && u !== me && u !== p.author && (!pls.includes(u) || boss) ? el("button", { class: "x", "aria-label": "Take " + name(u) + " off the team", onclick: () => offTeam(p, u, `${name(u)} is off this project's team`) }, "✕") : null)),
+      planner && others.length ? el("select", { class: "mini", "aria-label": "Invite someone to the team", onchange: e => { const u = e.target.value; if (u) inviteToTeam(p, u) } },
+        el("option", { value: "" }, "+ Invite someone"), others.map(u => el("option", { value: u }, name(u) + ((p.joinReqs || {})[u] ? " (asked to join)" : "")))) : null),
+    inv.length ? el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Invited, waiting for them to accept:",
+      inv.map(x => el("span", { class: "planner" }, av(x.u), name(x.u), planner ? el("button", { class: "x", "aria-label": "Take back the invite for " + name(x.u), onclick: () => cancelInvite(p, x.u) }, "✕") : null))) : null,
+    planner && reqs.length ? el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Asked to join:",
+      reqs.map(x => el("span", { class: "planner" }, av(x.u), name(x.u), el("button", { class: "linkbtn", onclick: () => acceptAsk(p, x.u) }, "Accept"), el("button", { class: "x", "aria-label": "Say no to " + name(x.u), onclick: () => declineAsk(p, x.u) }, "✕")))) : null,
     el("div", { class: "row" }, el("span", { class: "spacer" }), joined
-      ? el("button", { class: "btn quiet small", onclick: () => write(() => upd(p.id, { ["members." + me]: DEL() }), "You left the team") }, "Leave the team")
-      : el("button", { class: "btn small", onclick: () => write(() => upd(p.id, { ["members." + me]: true }), "You joined the team") }, "Join the team"))));
+      ? (p.author === me ? el("span", { class: "label" }, "You pitched it, so you're always on the team") : el("button", { class: "btn quiet small", onclick: () => offTeam(p, me, "You left the team") }, "Leave the team"))
+      : (p.invites || {})[me] ? el("button", { class: "btn small primary", onclick: () => acceptInvite(p) }, "Accept the invite")
+      : (p.joinReqs || {})[me] ? el("button", { class: "btn quiet small", onclick: () => cancelAsk(p) }, "Take back my request")
+      : el("button", { class: "btn small", onclick: () => askToJoin(p) }, "Ask to join the team"))));
 
   if (planner) set.append(group("Status", done ? "This project is completed." : isPaused(p) ? "Paused: its tasks are on hold and it doesn't count as being built." : "Pause it to put everything on hold, or mark it completed when it's finished.",
     el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
@@ -476,7 +498,7 @@ function projectSettings(p, { planner, joined, done }) {
 function completeWarning(p) {
   const open = tasksOf(p).filter(t => !t.done).length, out = [];
   if (open) out.push(`${open} task${open > 1 ? "s are" : " is"} still open.`);
-  if (p.money) { const r = moneyOf(p); if (r.expected > r.received && !r.proposal) out.push(`The client still owes ${fmtEGP(r.expected - r.received)}.`); const owed = Object.values(r.people).reduce((s, v) => s + Math.max(0, v.balance), 0); if (owed) out.push(`${fmtEGP(owed)} still has to be handed to the team.`) }
+  if (p.money) { const r = moneyOf(p); if (r.expected > r.received && !r.proposal) out.push(`The client still owes ${fmtEGP(r.expected - r.received)}.`); const owed = Object.values(r.people).reduce((s, v) => s + Math.max(0, v.balance), 0); if (owed) out.push(`${fmtEGP(owed)} still has to be handed to the team.`); if (r.taskHeld) out.push(`${fmtEGP(r.taskHeld)} is waiting for tasks that aren't ticked done.`) }
   return out.length ? el("div", { class: "notice", style: "margin:0" }, out.join(" ") + " You can still complete it, and reopen it later.") : null;
 }
 
@@ -681,7 +703,8 @@ function renderWeek(box, p, members) {
   const week = (p.checkins || {})[wk] || {};
   const mine = week[me];
   box.append(el("div", { class: "row", style: "margin:22px 0 10px" }, el("h2", {}, "Weekly check-in"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${Object.keys(week).length} of ${Math.max(members.length, Object.keys(week).length)} done`)));
-  if (!mine || editCheckin === p.id) {
+  if (!members.includes(me) && !mine) box.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Check-ins are for this project's team. Ask to join the team to add yours."));
+  else if (!mine || editCheckin === p.id) {
     const f = id => el("textarea", { id: `ci-${id}-${p.id}`, class: "noteinput", rows: "2", maxlength: "800" });
     const did = f("did"), next = f("next"), blk = f("blk");
     if (checkinDraft && checkinDraft.pid === p.id && !did.value) { did.value = checkinDraft.did; next.value = checkinDraft.next; blk.value = checkinDraft.blockers }
@@ -748,7 +771,7 @@ let meetTasks = null;
 function meetingTasksForm(p, m) {
   const lines = (m.text || "").split(/\n+/).map(t => t.replace(/^\s*([-*\u2022]|\d+[.)])\s*/, "").trim()).filter(t => t.length > 2).slice(0, 30);
   const bullets = new Set((m.text || "").split(/\n+/).filter(t => /^\s*([-*\u2022]|\d+[.)])\s/.test(t)).map(t => t.replace(/^\s*([-*\u2022]|\d+[.)])\s*/, "").trim()));
-  const team = teamIds(), guess = t => team.find(u => { const f = (realName(u) || "").split(" ")[0]; return f && new RegExp("\\b" + f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(t) }) || "";
+  const team = teamOf(p), guess = t => team.find(u => { const f = (realName(u) || "").split(" ")[0]; return f && new RegExp("\\b" + f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(t) }) || "";
   const phases = getPhases(p);
   const ph = el("select", { class: "mini", "aria-label": "Phase" }, phases.length ? phases.map(x => el("option", { value: x.id }, x.name)) : el("option", { value: "" }, "No phases yet"));
   const rows = lines.map((t, i) => {
@@ -770,7 +793,7 @@ function meetingTasksForm(p, m) {
 function renderMeetings(box, p) {
   const list = Object.entries(p.meetings || {}).filter(([, v]) => v).map(([id, v]) => ({ id, ...v })).sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.at - a.at);
   box.append(el("div", { class: "row", style: "margin-bottom:12px" }, el("p", { style: "margin:0;color:var(--muted);font-size:14px;flex:1 1 220px" }, "Notes from your calls and meetups, so nobody forgets what was decided."),
-    newMeeting === p.id ? null : el("button", { class: "btn primary", onclick: () => { newMeeting = p.id; editMeeting = null; render() } }, "New meeting notes")));
+    newMeeting === p.id || !inTeam(p) ? null : el("button", { class: "btn primary", onclick: () => { newMeeting = p.id; editMeeting = null; render() } }, "New meeting notes")));
   if (newMeeting === p.id) box.append(meetingForm(p, null));
   if (!list.length && newMeeting !== p.id) box.append(el("div", { class: "empty" }, "No meeting notes yet."));
   const wrap = el("div", { class: "list", style: "margin-top:12px" });
@@ -953,7 +976,7 @@ function linkChip(p, l, editable) {
 }
 function linksBlock(p) {
   const links = linksOf(p);
-  const canAdd = p.status !== "completed" || canPlan(p);
+  const canAdd = inTeam(p) && (p.status !== "completed" || canPlan(p));
   const files = filesOf(p);
   const box = el("div", { class: "links" }, links.map(l => linkChip(p, l, true)), files.map(f => fileChip(p, f, true)));
   if (addingLink === p.id) {
@@ -1246,7 +1269,7 @@ function phaseCard(p, ph, n, phases, list, mode = {}) {
 function addTaskRow(p, ph) {
   const tid = `add-${p.id}-${ph.id}`;
   const inp = el("input", { id: tid, placeholder: "+ Add a task", maxlength: "140" });
-  const who = el("select", { class: "mini", id: tid + "-who", "aria-label": "Who does it" }, el("option", { value: "" }, "Who?"), teamIds().map(u => el("option", { value: u }, name(u))));
+  const who = el("select", { class: "mini", id: tid + "-who", "aria-label": "Who does it" }, el("option", { value: "" }, "Who?"), teamOf(p).map(u => el("option", { value: u }, name(u))));
   const add = () => {
     const text = inp.value.trim(); if (!text) return; inp.value = "";
     write(() => upd(p.id, { ["tasks." + uid()]: { text, phase: ph.id, skill: null, owner: who.value || null, assignedBy: me, assignedAt: Date.now(), done: false, order: Date.now(), due: null } }));
@@ -1317,10 +1340,20 @@ function linkify(text) {
 }
 
 // Which payment of the project's payment plan pays for this task (team only: partners and clients never see tasks).
+// Who can work on a task: the people on it and the planners, as long as they're on the project's team.
+const canWork = (p, t) => inTeam(p) && (canPlan(p) || isAssignee(t, me));
+// A task's price, when the deal shares money by task prices
+function priceChip(p, t) {
+  const m = p && p.money; if (!m || m.split !== "tasks" || m.type === "monthly") return null;
+  const v = Number((m.prices || {})[t.id]) || 0; if (!(v > 0)) return null;
+  const r = moneyOf(p), info = r.tasks[t.id], mine = isAssignee(t, me), n = Math.max(1, assignees(t).length);
+  const tip = info ? (info.status === "earned" ? "Earned: " + fmtEGP(info.share) : `Worth about ${fmtEGP(info.est)} to ${n > 1 ? "the people on it, shared" : "whoever does it"} once it's done and paid`) : "";
+  return el("span", { class: "pricechip" + (info && info.status === "earned" ? " earned" : ""), title: tip }, "\u{1F4B5} " + fmtCur(toP(v), m.currency) + (mine && info && info.est ? " · you ≈ " + fmtN(Math.floor((info.status === "earned" ? info.share : info.est) / n)) : ""));
+}
 function payChip(p, t) { const s = p && p.money ? planOf(p.money).find(x => (x.tasks || []).includes(t.id)) : null; return s ? el("span", { class: "paychip", title: "This task is paid for by: " + s.label }, "\u{1F4B0} " + s.label) : null }
 function taskItem(p, t, where, opts = {}) {
   const key = where + ":" + t.id, open = openTask === key;
-  const can = canPlan(p) || isAssignee(t, me);
+  const can = canWork(p, t);
   const cl = checkList(t), cld = cl.filter(c => c.done).length;
   const ncount = Object.values(t.notes || {}).filter(n => n && n.text).length, fcount = taskFilesOf(t).length;
   const people = assignees(t), w = t.done ? null : waitInfo(p, t), blocked = !!(w && w.open.length);
@@ -1329,7 +1362,7 @@ function taskItem(p, t, where, opts = {}) {
   const stepsDone = !t.done && cl.length && cld === cl.length;
   const needed = t.done ? [] : waitingOn(p, t).filter(x => !x.done);
   return el("div", { class: "task" + (t.done ? " done" : " tp-" + (t.priority || "medium")) + (blocked ? " blocked" : "") + (isAssignee(t, me) ? " mytask" : "") + (open ? " open" : "") },
-    el("input", { type: "checkbox", id: "c-" + key, checked: t.done, disabled: !can, "aria-label": "Done: " + t.text, title: can ? "" : "Only the people on this task or a planner can tick it", onchange: e => toggleDone(p, t, e.target.checked, key) }),
+    el("input", { type: "checkbox", id: "c-" + key, checked: t.done, disabled: !can, "aria-label": "Done: " + t.text, title: can ? "" : !inTeam(p) ? "Only this project's team can tick tasks" : "Only the people on this task or a planner can tick it", onchange: e => toggleDone(p, t, e.target.checked, key) }),
     el("button", { class: "ttext", "aria-expanded": String(open), onclick: toggle }, t.text),
     el("button", { class: "chev", "aria-label": open ? "Close details" : "Open details", onclick: toggle }, open ? "–" : "…"),
     el("div", { class: "meta" },
@@ -1343,6 +1376,7 @@ function taskItem(p, t, where, opts = {}) {
       t.priority && t.priority !== "medium" ? el("span", { class: "prio prio-" + t.priority }, PRIORITIES.find(x => x.id === t.priority).name) : null,
       dueChip(t),
       payChip(p, t),
+      priceChip(p, t),
       cl.length ? el("span", { class: "label" + (stepsDone ? " ok" : "") }, `${cld}/${cl.length} steps`) : null,
       ncount ? el("span", { class: "label" }, `${ncount} note${ncount > 1 ? "s" : ""}`) : null,
       fcount ? el("span", { class: "label", title: taskFilesOf(t).map(f => f.name).join("\n") }, `\u{1F4CE} ${fcount} file${fcount > 1 ? "s" : ""}`) : null,
@@ -1355,7 +1389,7 @@ function taskItem(p, t, where, opts = {}) {
 }
 
 function taskDetail(p, t, key) {
-  const planner = canPlan(p), can = planner || isAssignee(t, me), phases = getPhases(p);
+  const planner = canPlan(p) && inTeam(p), can = canWork(p, t), phases = getPhases(p);
   const set = (data, ok) => write(() => upd(p.id, typeof data === "function" ? data() : data), ok);
   const box = el("div", { class: "tdetail" });
   const field = (label, ...kids) => el("div", { class: "tfield" }, el("span", { class: "tlabel" }, label), el("div", { class: "tval" }, ...kids));
@@ -1367,10 +1401,10 @@ function taskDetail(p, t, key) {
   const people = assignees(t);
   if (planner) {
     const lead = el("select", { class: "mini", "aria-label": "Main person", onchange: e => set({ [t.path + ".owner"]: e.target.value || null, [t.path + ".assignedBy"]: me, [t.path + ".assignedAt"]: Date.now() }, e.target.value ? `Given to ${name(e.target.value)}` : null) },
-      el("option", { value: "" }, "Nobody yet"), teamIds().map(u => el("option", { value: u }, name(u))));
+      el("option", { value: "" }, "Nobody yet"), teamPick(p, [t.owner]).map(u => el("option", { value: u }, name(u))));
     lead.value = t.owner || "";
     const helpers = Object.entries(t.helpers || {}).filter(([, v]) => v).map(([u]) => u).filter(u => u !== t.owner);
-    const others = teamIds().filter(u => u !== t.owner && !helpers.includes(u));
+    const others = teamOf(p).filter(u => u !== t.owner && !helpers.includes(u));
     const addSel = others.length && t.owner ? el("select", { class: "mini", "aria-label": "Add someone", onchange: e => { const u = e.target.value; if (u) set({ [`${t.path}.helpers.${u}`]: { by: me, at: Date.now() } }, `${name(u)} added to the task`) } },
       el("option", { value: "" }, "+ Add someone"), others.map(u => el("option", { value: u }, name(u)))) : null;
     box.append(field("People", lead,
@@ -1447,6 +1481,7 @@ function taskDetail(p, t, key) {
   } else if (!cl.length) ck.append(el("span", { class: "label" }, "No steps"));
   box.append(field("Steps", ck));
 
+  { const mf = taskMoneyField(p, t); if (mf) box.append(field("Money", mf)) }
   box.append(field("Files", taskFilesBlock(p, t, key)));
   // drop files anywhere on the open task to attach them
   box.addEventListener("dragover", e => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); box.classList.add("dropping") } });
@@ -1454,6 +1489,7 @@ function taskDetail(p, t, key) {
   box.addEventListener("drop", e => { e.preventDefault(); box.classList.remove("dropping"); addTaskFiles(p, t, key, [...e.dataTransfer.files]) });
 
   box.append(field("Notes", notesBlock(p, t, key)));
+  if (!inTeam(p)) box.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "You can leave notes. To work on tasks, ask to join the team at the top of the project."));
 
   if (planner) box.append(el("div", { class: "row", style: "justify-content:flex-end" },
     delTask === key
@@ -1495,7 +1531,7 @@ async function uploadFilesTo(key, list, save) {
   if (added) toast(added > 1 ? `${added} files added to the task` : "File added to the task");
 }
 const dropFileParts = f => { if (f.by === me || isAdmin) for (let n = 0; n < f.parts; n++) deleteDoc(doc(db, "fileparts", `${f.id}_${n}`)).catch(() => {}) };
-const addTaskFiles = (p, t, key, list) => uploadFilesTo(key, list, file => upd(p.id, { [`${t.path}.files.${file.id}`]: file }));
+const addTaskFiles = (p, t, key, list) => !inTeam(p) ? toast(NOT_ON_TEAM) : uploadFilesTo(key, list, file => upd(p.id, { [`${t.path}.files.${file.id}`]: file }));
 // A row of file chips plus "Attach": tap a file to open it (PDFs and photos open inside the site).
 function fileRow(files, key, canRemove, onRemove, onAdd) {
   const row = el("div", { class: "links" });
@@ -1514,9 +1550,9 @@ function fileRow(files, key, canRemove, onRemove, onAdd) {
   return row;
 }
 function taskFilesBlock(p, t, key) {
-  const files = taskFilesOf(t), planner = canPlan(p);
+  const files = taskFilesOf(t), planner = canPlan(p), team = inTeam(p);
   return el("div", { style: "display:grid;gap:6px" },
-    fileRow(files, key, f => f.by === me || planner, f => upd(p.id, { [`${t.path}.files.${f.id}`]: DEL() }).then(() => dropFileParts(f)), list => addTaskFiles(p, t, key, list)),
+    fileRow(files, key, f => f.by === me || planner, f => upd(p.id, { [`${t.path}.files.${f.id}`]: DEL() }).then(() => dropFileParts(f)), team ? list => addTaskFiles(p, t, key, list) : null),
     files.length ? null : el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "PDFs, briefs, designs, photos. Up to 5 MB each. You can also drop files on this task."));
 }
 
@@ -1545,6 +1581,60 @@ function reopenTask(p, t, status) {
 let renamingPhase = null, delPhase = null;
 const canPlan = p => !!p && (isAdmin || p.author === me || !!(p.planners || {})[me]);
 const plannerIds = p => [...new Set([p.author, ...Object.entries(p.planners || {}).filter(([, v]) => v).map(([u]) => u)].filter(Boolean))];
+
+/* ----- a project's team: the people who work on it and get paid from it -----
+   Its planners are always on it. Anyone else joins by asking (a planner accepts) or by being invited (they accept).
+   Someone who isn't on the team can look at everything and leave notes on tasks, but can't change the work.
+   Projects from before teams existed count everyone who had a task there, until a planner opens it once (teamV). */
+const isProj = p => !!p && (p.status === "approved" || p.status === "completed");
+const projTeam = p => {
+  if (!p) return [];
+  const set = new Set(Object.entries(p.members || {}).filter(([, v]) => v).map(([u]) => u));
+  for (const u of plannerIds(p)) set.add(u);
+  if (!p.teamV) for (const t of tasksOf(p)) assignees(t).forEach(u => set.add(u));
+  return [...set].filter(u => !people[u] || isTeamUid(u));
+};
+const inTeam = (p, u = me) => !isProj(p) || (u === me && isAdmin) || projTeam(p).includes(u);
+const joinReqsOf = p => Object.entries((p && p.joinReqs) || {}).filter(([, v]) => v).map(([u, v]) => ({ u, ...v })).sort((a, b) => (a.at || 0) - (b.at || 0));
+const invitesOf = p => Object.entries((p && p.invites) || {}).filter(([, v]) => v).map(([u, v]) => ({ u, ...v })).sort((a, b) => (a.at || 0) - (b.at || 0));
+const NOT_ON_TEAM = "Only this project's team can do this. Ask to join the team first";
+function askToJoin(p) {
+  if ((p.invites || {})[me]) return acceptInvite(p);
+  if (canPlan(p)) return addToTeam(p, me, "You're on the team now");   // planners don't need to ask
+  write(() => upd(p.id, { ["joinReqs." + me]: { at: Date.now() } }), "Asked to join. A planner will say yes or no");
+}
+const cancelAsk = p => write(() => upd(p.id, { ["joinReqs." + me]: DEL() }), "Request taken back");
+const addToTeam = (p, u, ok) => write(() => upd(p.id, { ["members." + u]: true, ["joined." + u]: { by: me, at: Date.now() }, ["joinReqs." + u]: DEL(), ["invites." + u]: DEL() }), ok);
+const acceptAsk = (p, u) => addToTeam(p, u, `${firstName(u)} is on the team now`);
+const declineAsk = (p, u) => write(() => upd(p.id, { ["joinReqs." + u]: DEL() }), `Said no to ${firstName(u)}`);
+function inviteToTeam(p, u) {
+  if ((p.joinReqs || {})[u]) return acceptAsk(p, u);   // they already asked: just let them in
+  write(() => upd(p.id, { ["invites." + u]: { by: me, at: Date.now() } }), `Invited ${firstName(u)}. They join when they accept`);
+}
+const cancelInvite = (p, u) => write(() => upd(p.id, { ["invites." + u]: DEL() }), "Invite taken back");
+const acceptInvite = p => addToTeam(p, me, "You're on the team now");
+const declineInvite = p => write(() => upd(p.id, { ["invites." + me]: DEL() }), "Invite declined");
+// Taking someone off the team (or leaving it) also frees their open tasks, so nothing waits on someone who isn't there.
+function offTeam(p, u, ok) {
+  const data = { ["members." + u]: DEL(), ["joined." + u]: DEL() };
+  if (u !== p.author && (p.planners || {})[u]) data["planners." + u] = DEL();
+  let freed = 0;
+  for (const t of tasksOf(p)) if (!t.done && isAssignee(t, u)) { freed++; if (t.owner === u) data[t.path + ".owner"] = null; if ((t.helpers || {})[u]) data[`${t.path}.helpers.${u}`] = DEL() }
+  write(() => upd(p.id, data), ok + (freed ? `. ${freed} open task${freed > 1 ? "s are" : " is"} free for someone else now` : ""));
+}
+// Old projects: write down who was already on them (everyone with a task), once, so the team is clear from now on.
+const teamFixed = new Set();
+function fixOldTeams() {
+  for (const p of ideas) {
+    if (!isProj(p) || p.teamV || teamFixed.has(p.id) || !canPlan(p)) continue;
+    teamFixed.add(p.id);
+    const data = { teamV: 1 };
+    for (const u of projTeam(p)) if (u !== p.author && !(p.members || {})[u]) data["members." + u] = true;
+    upd(p.id, data).catch(() => teamFixed.delete(p.id));
+  }
+}
+// The people a planner can give a task (or a share) to: the project's team.
+const teamPick = (p, keep) => [...new Set([...teamOf(p), ...(keep || []).filter(Boolean)])];
 
 function getPhases(p) {
   if (p.phases) return Object.entries(p.phases).filter(([, v]) => v && v.name).map(([id, v]) => ({ id, ...v })).sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -1714,6 +1804,7 @@ function bars(skills, limit) {
 
 let openNote = null, delNote = null;   // "<where>:<taskId>" of the note box that's open; note id waiting for a second tap
 function toggleDone(p, t, done, key, force) {
+  if (!canWork(p, t)) { toast(inTeam(p) ? "Only the people on this task or a planner can tick it" : NOT_ON_TEAM); render(); return }
   if (!done) { doneAnyway = null; return reopenTask(p, t, t.status === "doing" ? "doing" : "todo") }
   // Still waiting for someone else's task? Ask first, so nothing gets ticked by mistake.
   if (!force && waitInfo(p, t).open.length) { doneAnyway = key; render(); return }
@@ -2438,6 +2529,11 @@ function buildAlerts() {
     if (p.status === "completed" && p.completedBy !== me) add("done:" + p.id, p.completedAt, p.completedBy, `${p.title} is completed`, "projects-done");
     const pl = (p.planners || {})[me];
     if (pl && typeof pl === "object" && pl.by !== me) add("planner:" + p.id, pl.at, pl.by, `${name(pl.by)} made you a planner of ${p.title}`, "plan-" + p.id);
+    if (isProj(p)) {
+      if (plannerIds(p).includes(me) || isAdmin) for (const r of joinReqsOf(p)) add("ask:" + p.id + ":" + r.u + ":" + r.at, r.at, r.u, `${name(r.u)} wants to join the team of ${p.title}`, "project-" + p.id);
+      const iv = (p.invites || {})[me]; if (iv && iv.by !== me) add("inv:" + p.id + ":" + iv.at, iv.at, iv.by, `${name(iv.by)} invited you to join the team of ${p.title}`, "project-" + p.id);
+      const jn = (p.joined || {})[me]; if (jn && jn.by !== me) add("in:" + p.id + ":" + jn.at, jn.at, jn.by, `${name(jn.by)} accepted you onto the team of ${p.title}`, "project-" + p.id);
+    }
     if (p.status !== "approved") continue;
     for (const t of tasksOf(p)) {
       const go = taskLink(p, t);
@@ -2721,7 +2817,8 @@ function buildPage() {
       step("2", "Make the change with Claude", p(`Open Claude Code, pick the ${REPO.split("/")[1]} repository and describe the change in plain words, like "add a dark blue theme". Ask it to run build.py and push to main when you're happy.`),
         el("span", { class: "row", style: "gap:6px" }, el("a", { class: "btn small", href: "https://claude.ai/code", target: "_blank", rel: "noopener noreferrer" }, "Open Claude Code"), el("button", { class: "btn small quiet", onclick: () => copyText(REPO, "Repository name copied") }, "Copy repo name"))),
       step("3", "Where things live", p("src/app.js is most of the site, src/page.html is the layout and styles, and partners.js, clients.js, push.js and money-engine.js are the partner, client, alert and money parts."),
-        p("Don't edit index.html by hand: build.py rebuilds it from the src folder.")),
+        p("Don't edit index.html by hand: build.py rebuilds it from the src folder. It also copies firestore.rules into the site, so the rules live in that one file."),
+        el("button", { class: "btn small quiet", onclick: () => { guideTab = "creators"; location.hash = "settings-guide" } }, "Read the creators' guide")),
       step("4", "Ship it", p("Once the change is on main, the live site updates within a couple of minutes and everyone gets it on their next reload. Then tap “It's live” on the request above.")),
       step("5", "Leave these to " + ADMIN_NAME, p(`Database rules (who can see and change what), the team list, money and the fund. If a change needs new database rules, update firestore.rules and tell ${ADMIN_NAME}: only he can publish them.`))));
   } else {
@@ -2730,9 +2827,85 @@ function buildPage() {
   return wrap;
 }
 
+/* ----- the guide: how Pitch Room works, for members, planners and creators ----- */
+let guideTab = null;
+function guidePage() {
+  const planner = ideas.some(i => isProj(i) && canPlan(i)), creator = amCreator();
+  const tab = guideTab || (creator && !isAdmin ? "creators" : planner ? "planners" : "everyone");
+  const wrap = el("div", { class: "guide" });
+  wrap.append(el("p", { class: "lede", style: "margin:0" }, "The small things that make work on Pitch Room faster. Read your part once; come back when you need it."),
+    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Guide for" }, [["everyone", "Everyone"], ["planners", "Planners"], ["creators", "Creators"]].map(([k, l]) =>
+      el("button", { "aria-pressed": String(tab === k), onclick: () => { guideTab = k; render() } }, l))));
+  const card = (icon, title, items) => el("section", { class: "idea" }, el("h3", {}, icon + "  " + title), el("ul", {}, items.map(x => el("li", {}, ...(Array.isArray(x) ? [el("b", {}, x[0]), " " + x[1]] : [x])))));
+  const R = rulesNow();
+  if (tab === "everyone") wrap.append(
+    card("\u{1F465}", "Project teams", [
+      ["Every project has its own team.", "Only the team takes tasks, ticks them, checks in, adds files and gets paid from the project."],
+      ["Not on the team?", "You can still open the project, read everything and leave notes on tasks. Tap Ask to join the team at the top; a planner accepts you."],
+      ["Invited?", "You'll get an alert and a Join the team button on the project. You're only on the team once you accept."],
+      ["Leaving", "is in the project's Settings › People. Your open tasks are freed for someone else; what you already earned stays yours."]]),
+    card("✅", "Tasks: the fast way", [
+      ["Tick the first step", "of a task and it starts by itself (In progress). When every step is ticked, you get a Mark done button."],
+      ["Leave a note when you finish:", "a link, where the files are, what's left. The person who gave you the task, and whoever is next, get an alert."],
+      ["Waiting for…", "on a task means it needs another task done first. You get an alert the moment you can start."],
+      ["Drop files", "straight onto an open task to attach them (PDFs, designs, photos, up to 5 MB)."],
+      ["Me › My tasks", "shows everything that's yours in Now, Next and Waiting on others. Private to-dos and notes there are only for you."],
+      ["Tap someone's photo", "above a project's tasks to see only their tasks."]]),
+    card("\u{1F4B5}", "Your money", [
+      ["Task prices:", "when a project shares money by task prices, a task shows 💵 and what you get (≈). You earn it once the task is ticked done and the client has paid for it."],
+      ["Not every task has a price.", "The part that isn't priced is shared by the team, by % or equally."],
+      ["Order of the money:", `costs you paid are paid back first, then a partner's commission, then the team fund (${R.fundPct}%), then the finder's fee (${R.findPct}%), then the team.`],
+      ["Me › Money", "shows what you're owed, what was handed to you, and every deal. Read and agree to the money rules there once."],
+      ["Paid for something yourself?", "Ask a planner to add it as a cost with your name: it's paid back before anything is split."]]),
+    card("⚡", "Shortcuts", [
+      ["Ctrl K or ⌘ K", "searches everything: tasks, projects, chat, notes."],
+      ["✦ Assistant:", "tell it what you did (“I finished the logo, here's the link”) and it offers to tick the task and leave the note for you. Nothing happens until you tap Do it, and you can undo."],
+      ["Weekly check-in", "(Week tab) takes a minute: what you did, what's next, what's blocking you. Blockers alert the team."],
+      ["Alerts on your phone:", "Settings › Alerts. Install the site as an app from Settings › Install the app."],
+      ["Something looks old?", "Settings › Help and fixes › Reload."]]));
+  if (tab === "planners") wrap.append(
+    card("\u{1F9ED}", "Your job as a planner", [
+      "You're always on the project's team. You shape the plan, the tasks and the money, and you decide who joins.",
+      ["Join requests", "show at the top of the project and in your alerts. Accept or say no."],
+      ["Invite people:", "Settings › People › + Invite someone. They join once they accept. Only the team can be given tasks."],
+      ["Taking someone off the team", "frees their open tasks so they can go to someone else."]]),
+    card("\u{1F5C2}️", "Planning fast", [
+      ["Import plan:", "plan with the assistant or Claude, paste the text, and every phase and task is added at once."],
+      ["Suggest who does what", "gives open tasks to people by their skills and how busy they are. You check it before it saves."],
+      ["Meetings › Make tasks from these notes", "turns the lines of your meeting notes into tasks, guessing who from the names."],
+      ["Waiting for:", "link tasks that need another one first, so people know what they can start now."],
+      ["Set a weekly goal", "on the Week tab: one clear thing everyone pushes for."]]),
+    card("\u{1F4B0}", "Setting up the money", [
+      ["1. Edit deal:", "pick One-time, Monthly or Paid over months, the price, the currency, who brought the client, and a partner if one did."],
+      ["2. How the team's money is shared:", "By task prices (best for one-time work) or By % shares. Monthly deals use % shares, and you can change them for one month with Who worked?"],
+      ["3. Payment plan:", "split the price into a deposit and the rest, and link the tasks each payment pays for. The plan tells you when it's time to ask the client for the next payment."],
+      ["4. Task prices (Money tab):", "give tasks their part of the price. You don't need to price everything: Spread over the rest fills the tasks without a price for you, then fix any by hand. What isn't priced is shared by the team."],
+      ["5. Record payments and costs", "as they happen (+ Payment, + Cost). Mark paid when you hand someone their money, so their balance is right."],
+      ["Every change is logged", "on the Money tab, and the team gets an alert when the deal changes."]]),
+    card("\u{1F91D}", "Client and partners", [
+      ["Client tab:", "turn on the client view to give the client a page with the stage, progress, next step and what they've paid. Make a monthly report there and save it as a PDF."],
+      ["Partner tasks:", "give partners on this project their own small tasks; they tick them in their portal."]]));
+  if (tab === "creators") wrap.append(
+    card("\u{1F6E0}️", "What creators do", [
+      `Creators change Pitch Room itself: new features, fixes and design. The team asks in Settings › Build Pitch Room; tap I'll build it so nobody does it twice, then It's live when it's out.`,
+      ["Get the code:", `accept the GitHub invite, then open Claude Code on the ${REPO.split("/")[1]} repository and describe the change in plain words.`],
+      ["Ship it:", "ask Claude to run build.py and push to main. The live site updates in a couple of minutes."]]),
+    card("\u{1F4C1}", "Where things live", [
+      ["src/app.js", "is most of the site; src/page.html is the layout and styles."],
+      ["src/money-engine.js", "is all the money maths (costs, partner, fund, finder, shares, task prices). Test changes to it with a few sample deals: the numbers must always add up to what came in."],
+      ["partners.js, clients.js, push.js", "are the partner portal, the client portal and phone alerts."],
+      ["Never edit index.html by hand:", "build.py makes it from the src folder."]]),
+    card("\u{1F6E1}️", "The rules that keep things safe", [
+      ["firestore.rules", `decides who can change what in the database: money only by planners, project work only by the project's team, partners and clients only their own things. build.py copies it into the site, so edit only that file.`],
+      ["New rules need publishing:", `tell ${ADMIN_NAME} after changing firestore.rules; only he can publish them in Firebase.`],
+      ["Project teams:", "when you add a new way to change a project, check it with inTeam(p) (on the team) and canPlan(p) (planner), and say why in plain words when someone can't."],
+      ["Keep the words simple.", "Short sentences, no jargon, and say what happens next. Add a What's new entry for anything people should know about."]]));
+  return wrap;
+}
+
 /* ----- settings: a home page of grouped rows (like a phone's Settings app), each opening its own page ----- */
 let setQuery = "";
-const SET_PAGES = { build: "Build Pitch Room", profile: "Profile", appearance: "Appearance", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
+const SET_PAGES = { guide: "How Pitch Room works", build: "Build Pitch Room", profile: "Profile", appearance: "Appearance", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
 function setIcon(sym, color) { return el("span", { class: "seticon", style: `background:${color}` }, sym) }
 function renderSettings() {
   const box = $("#settings"); box.replaceChildren();
@@ -2769,6 +2942,7 @@ function renderSettings() {
       row("\u{1F4BE}", "#56CCF2", "Backup", prof.lastBackup ? "Last: " + fmtDay(prof.lastBackup) : "Never", goto("backup"), "download export"),
       row("\u{1F4E1}", "#9B51E0", "Alert server", pushServerState === "ok" ? "Working" : pushBase() ? "Check" : "Not set up", goto("alerts"), "push cloudflare worker")) : null,
     group("Help",
+      row("\u{1F4D6}", "#0D5E63", "How Pitch Room works", "Tips for everyone", goto("guide"), "guide help tips how to planner creator team join money task price"),
       row("\u{1F4F2}", "#219653", "Install the app", isHomeScreenApp() ? "Installed" : "", goto("install"), "home screen dock desktop"),
       row("\u{1F6DF}", "#EB5757", "Help and fixes", "", goto("help"), "reload refresh problem support version"),
       row("\u{1F517}", "#2D9CDB", "Share the site link", "Copy", () => copyText(SITE_LINK, "Link copied"), "url")),
@@ -2830,6 +3004,7 @@ function settingsPage(box, sub, prof) {
       item("How", "In Firebase: delete everything in the Rules box, paste, then press Publish.", null)));
   if (sub === "backup" && isAdmin) box.append(card(item("Download a backup", "Everything on the board in one file: projects, tasks, money, chat, partners and clients. Keep it in Google Drive. Do it once a month." + (prof.lastBackup ? " Last one: " + fmtDay(prof.lastBackup) + "." : ""),
     el("button", { class: "btn small primary", onclick: downloadBackup }, "Download"))));
+  if (sub === "guide") box.append(guidePage());
   if (sub === "install") { const g = installGuide(); g.open = true; box.append(card(g)) }
   if (sub === "help") {
     const adminId = Object.entries(people).find(([, x]) => ADMINS.includes((x.email || "").toLowerCase()));
@@ -2859,6 +3034,7 @@ function renderMore() {
     item("\u{1F50D}", "Search", () => { moreOpen = false; searchOpen = true; render() }),
     item("⭐", "Skills and team", go("skills")),
     item("\u{1F4F2}", "Install the app", go("settings-install")),
+    item("\u{1F4D6}", "How Pitch Room works", go("settings-guide")),
     item("\u{1F6DF}", "Help and fixes", go("settings-help")),
     el("div", { class: "morediv" }),
     item("↪️", "Sign out", () => { moreOpen = false; doSignOut() }, true));
@@ -3014,8 +3190,9 @@ If they ask what something means (a word, a business or tech idea, or how a part
 How Pitch Room works:
 - Ideas: anyone pitches; an idea moves to Projects or gets removed only after at least half the team voted.
 - Projects: Building now, Up next (vote for what's next), Paused, Completed. Planners (the person who pitched it, the admin and added planners) change the plan and the money.
+- Project teams: each project has its own team. Planners are always on it. Others tap "Ask to join the team" and wait for a planner to accept, or a planner invites them and they accept. Someone not on the team can look and leave notes on tasks, but can't take, tick or change tasks, check in or add files. Only the team can be given tasks and get money from the project. Leaving or being taken off frees your open tasks.
 - Tasks: status (not started, in progress, done), priority, due date, steps (ticking the first step starts the task), notes for the team, and "waiting for" (a task can't start until another is done; finishing one tells the next person). My tasks groups them into Now, Next and Waiting on others.
-- Money: for each deal, costs people paid are paid back first, then a partner's commission if a partner abroad brought the client, then the team fund % (40% now), then the finder's fee, then the shares. Deals can be in any currency; each payment saves its rate. Proposals have nothing due. One-time deals can have a payment plan (a deposit, then the rest), and each payment says which tasks it pays for. Every money change is in the project's change log. Everyone agrees to the money rules.
+- Money: for each deal, costs people paid are paid back first, then a partner's commission if a partner abroad brought the client, then the team fund % (40% now), then the finder's fee, then the shares. Deals can be in any currency; each payment saves its rate. Proposals have nothing due. One-time deals can have a payment plan (a deposit, then the rest), and each payment says which tasks it pays for. Every money change is in the project's change log. Everyone agrees to the money rules. Sharing the team's money: by % shares, or by task prices (one-time and paid-over-months deals): a task can have a price (its part of the client's price). Whoever does a priced task earns its share once the task is done and the payment that covers it is in; not every task needs a price, the unpriced part is shared by the % shares or equally by the project's team.
 - Team fund: pays subscriptions and saves for goals. Goals can be added without a price, researched, then priced. If someone pays for the team from their own pocket, the fund owes it back.
 - Partners: lead finders abroad in country groups. They call numbers, post updates, chat with the team and see their earnings. A number marked Client can become a project with their commission set.
 - Clients: see their project's stage, progress, next step, payments and a chat with the team.
@@ -3222,6 +3399,8 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 /* ----- what's new: tell members about new things (they can turn it off) ----- */
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
+  { id: "f-teams-prices-1", date: "2026-11-16", icon: "\u{1F465}", title: "Project teams and task prices",
+    text: "Each project now has its own team. Ask to join and a planner accepts you, or accept a planner's invite. Only the team works on and earns from a project; anyone can still look and leave notes. Planners can give tasks a price: whoever does a task earns it once it's done and paid for. There's a new guide too: Settings › How Pitch Room works.", go: "settings-guide" },
   { id: "f-money-plan-1", date: "2026-11-15", icon: "\u{1F4B0}", title: "Deposits and payment plans",
     text: "Each project's Money tab now shows the price, what came in and what's left in three plain numbers. Split the price into a deposit and the rest, link the tasks each payment pays for, and see where every pound goes: costs, partner, team fund, finder, and the team.", go: "projects" },
   { id: "f-build-1", date: "2026-11-15", icon: "🛠️", title: "Build Pitch Room with us",
@@ -3318,7 +3497,8 @@ const DEAL_TYPES = [["one", "One-time"], ["monthly", "Monthly"], ["installments"
 const STAGES = [["proposal", "Proposal sent"], ["agreed", "Deal agreed"], ["ended", "Ended"]];
 const METHODS = ["Cash", "InstaPay", "Vodafone Cash", "Bank transfer", "Other"];
 let editDeal = null, moneyForm = null, delMoney = null, shareMonth = null;
-const moneyOf = p => computeMoney(p, todayStr(), rulesNow());
+const moneyCache = new WeakMap();   // one sum per project version, so task chips don't redo it for every task
+const moneyOf = p => { const k = todayStr() + JSON.stringify(moneyRules || {}) + projTeam(p).join(","), c = moneyCache.get(p); if (c && c.k === k) return c.r; const r = computeMoney(p, todayStr(), rulesNow(), { team: projTeam(p) }); moneyCache.set(p, { k, r }); return r };
 const CURRENCIES = ["EGP", "USD", "EUR", "GBP", "SAR", "AED", "QAR", "KWD"];
 const fmtCur = (v, cur) => !cur || cur === "EGP" ? fmtEGP(v) : fmtN(v) + " " + cur;
 // Every money change is logged on the project, so everyone can see who changed what and when.
@@ -3397,7 +3577,9 @@ function renderMoney(box, p) {
   if (r.proposal) warn.push("This is a proposal. Nothing is due or late until the client agrees. Change the stage to Deal agreed in Edit deal when they say yes.");
   if (r.costsUnpaid > 0 && !r.pending) warn.push(`${fmtEGP(r.costsUnpaid)} of costs still needs paying back. It comes out of the next payment.`);
   if (r.fundCover > 0) warn.push(`This deal cost more than it earned. The team fund covered ${fmtEGP(r.fundCover)}, so nobody is out of pocket.`);
-  if (r.unassigned > 0) warn.push(`${fmtEGP(r.unassigned)} isn't assigned to anyone yet. Set the shares in Edit deal.`);
+  if (r.unassigned > 0) warn.push(r.byTasks ? `${fmtEGP(r.unassigned)} isn't going to anyone yet: a done task has nobody on it, or the project has no team. Give the task to someone, or add people to the team.` : `${fmtEGP(r.unassigned)} isn't assigned to anyone yet. Set the shares in Edit deal.`);
+  if (r.byTasks && r.taskHeld > 0) warn.push(`${fmtEGP(r.taskHeld)} is paid for but waiting: its tasks aren't done yet. It goes to the people on them when they tick them done.`);
+  if (r.byTasks && r.pricedOver) warn.push("The task prices add up to more than a payment covers, so they're scaled down to fit. Check the prices below.");
   if (warn.length) box.append(el("div", { class: "notice", style: "margin:0 0 12px" }, warn.map(w => el("div", {}, w))));
 
   /* actions */
@@ -3412,20 +3594,21 @@ function renderMoney(box, p) {
 
   /* payment plan: the deposit, what's left, and which tasks each payment pays for */
   if (m.type === "one") box.append(planBlock(p, r));
+  if (r.byTasks) box.append(taskPricesBlock(p, r));
 
   /* where the money goes, then who gets what */
   const split = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "Where the money goes"), el("span", { class: "spacer" }), el("span", { class: "label" }, "In EGP")));
   split.append(flowList(p, r));
-  if (r.pending) {
+  if (r.pending || (r.byTasks && r.preview && r.received < r.expected)) {
     const pv = r.preview, pe = Object.entries(pv.people).sort((a, b) => b[1].earned - a[1].earned);
     if (pe.length) {
-      split.append(el("div", { class: "tlabel", style: "margin-top:10px" }, "Each person will get"));
+      split.append(el("div", { class: "tlabel", style: "margin-top:10px" }, r.byTasks ? "When it's all paid and done, each person gets" : "Each person will get"));
       for (const [u, v] of pe) split.append(el("div", { class: "mrow" }, av(u), el("span", { class: "mname" }, name(u)), el("span", { class: "mval" }, fmtEGP(v.earned))));
     }
   }
   const people = Object.entries(r.people).filter(([, v]) => v.earned || v.back || v.paid).sort((a, b) => b[1].balance - a[1].balance);
   if (people.length) {
-    split.append(el("div", { class: "tlabel", style: "margin-top:10px" }, r.pending ? "So far (costs paid back)" : "Each person"));
+    split.append(el("div", { class: "tlabel", style: "margin-top:10px" }, r.pending ? "So far (costs paid back)" : r.byTasks && r.received < r.expected ? "Earned so far" : "Each person"));
     split.append(el("div", { class: "mhead" }, el("span", {}, "In EGP"), el("span", {}, "Their money"), el("span", {}, "Handed over"), el("span", {}, "Still owed")));
     for (const [u, v] of people) split.append(el("div", { class: "mrow4" },
       el("span", { class: "by" }, av(u), el("span", { class: "mname" }, name(u))),
@@ -3616,6 +3799,76 @@ function planEditor(p, r) {
   updTotal();
   return box;
 }
+// Task prices: what each task is worth, grouped by the payment that pays for it.
+let priceEdit = null, priceDraft = null;
+function taskBuckets(p) {
+  const m = p.money, plan = planOf(m), all = tasksOf(p);
+  if (!plan.length) return [{ label: m.type === "installments" ? "The whole price" : "The price", amount: Number(m.price) || 0, tasks: all }];
+  const ids = new Set(plan.flatMap(s => s.tasks || []));
+  return plan.map((s, i) => ({ label: s.label || `Payment ${i + 1}`, amount: Number(s.amount) || 0, tasks: all.filter(t => (s.tasks || []).includes(t.id) || (i === plan.length - 1 && !ids.has(t.id))) }));
+}
+function taskPricesBlock(p, r) {
+  const m = p.money, can = canMoney(p), cur = r.currency, f = v => fmtCur(v, cur), all = tasksOf(p);
+  const editing = can && priceEdit === p.id && priceDraft;
+  const sec = el("section", { class: "idea tprices" }, el("div", { class: "row" }, el("h3", {}, "Task prices"), el("span", { class: "spacer" }),
+    can && !editing && all.length ? el("button", { class: "btn small" + (r.priced ? "" : " primary"), onclick: () => { priceEdit = p.id; priceDraft = { ...(m.prices || {}) }; render() } }, r.priced ? "Edit prices" : "Set prices") : null));
+  const price = toP(m.price);
+  sec.append(el("p", { style: "margin:0;font-size:14px" }, r.priced
+    ? `${f(r.priced)} of the ${f(price)} price is on tasks. A task pays whoever does it, once it's done and its payment is in. ${r.priced < price ? "The other " + f(price - r.priced) + " is shared by the team." : ""}`
+    : "No task has a price yet, so the team shares everything" + (Object.keys(m.shares || {}).length ? " by the % shares." : " equally.") + (can ? " Give tasks a price so the people who do them earn them." : "")));
+  if (r.taskRate) sec.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, `After costs, the team fund and the finder, a task keeps about ${Math.round(r.taskRate * 100)}% of its price. A 1,000 ${cur} task ≈ ${fmtEGP(Math.round(100000 * r.taskRate))} for the people on it.`));
+  if (!all.length) { sec.append(el("p", { class: "label", style: "margin:0" }, "Add tasks on the Tasks tab first.")); return sec }
+  const buckets = taskBuckets(p);
+  for (const b of buckets) {
+    const bw = el("div", { class: "tpbucket" });
+    const sumNow = () => b.tasks.reduce((a, t) => a + (Number((editing ? priceDraft : m.prices || {})[t.id]) || 0), 0);
+    const head = el("div", { class: "row", style: "gap:8px" }, el("b", {}, b.label), el("span", { class: "label" }, f(toP(b.amount))), el("span", { class: "spacer" }));
+    const left = el("span", { class: "label" });
+    const updLeft = () => { const d = Math.round((b.amount - sumNow()) * 100) / 100; left.textContent = d > 0 ? `${f(toP(d))} not on a task` : d < 0 ? `${f(toP(-d))} too much` : "all on tasks ✓"; left.className = "label " + (d < 0 ? "bad" : d === 0 ? "ok" : "") };
+    head.append(left);
+    if (editing) head.append(el("button", { class: "btn small quiet", type: "button", title: "Shares what isn't priced yet equally over the tasks without a price", onclick: () => {
+      const un = b.tasks.filter(t => !(Number(priceDraft[t.id]) > 0)); const rest = Math.round((b.amount - sumNow()) * 100) / 100;
+      if (!un.length) { toast("Every task here already has a price"); return } if (rest <= 0) { toast("Nothing left to spread: this payment is already on tasks"); return }
+      const each = Math.floor(rest / un.length * 100) / 100; un.forEach((t, i) => { priceDraft[t.id] = i === un.length - 1 ? Math.round((rest - each * (un.length - 1)) * 100) / 100 : each }); render() } }, "Spread over the rest"));
+    bw.append(head);
+    for (const t of b.tasks) {
+      const info = r.tasks[t.id], who = assignees(t);
+      const st = !info ? (t.done ? "Done · no price" : "") : info.status === "earned" ? "Earned" : info.status === "waiting" ? "Paid · waiting for it to be done" : info.status === "nobody" ? "Done · nobody on it" : t.done ? "Done · waiting for payment" : "Waiting for payment";
+      let val;
+      if (editing) { val = el("input", { id: `tp-${p.id}-${t.id}`, class: "mini pct", style: "width:90px", type: "number", inputmode: "decimal", min: "0", step: "any", placeholder: "0", oninput: e => { const v = Number(e.target.value); if (v > 0) priceDraft[t.id] = v; else delete priceDraft[t.id]; updLeft() } });
+        if (!val.value && priceDraft[t.id]) val.value = priceDraft[t.id] }
+      else val = el("span", { class: "mval" }, info ? f(info.price) : "—");
+      bw.append(el("div", { class: "tprow" + (t.done ? " done" : "") }, el("span", { class: "ptick" }, t.done ? "✓" : "○"),
+        el("div", { class: "tpmain" }, el("div", {}, t.text), el("div", { class: "label" }, [who.length ? who.map(firstName).join(" & ") : "nobody on it yet", info ? (info.status === "earned" ? "got " + fmtEGP(info.share) : "≈ " + fmtEGP(info.est) + " to them") : null, st].filter(Boolean).join(" · "))),
+        val));
+    }
+    updLeft();
+    sec.append(bw);
+  }
+  if (editing) sec.append(el("div", { class: "row" }, el("span", { class: "label" }, "Prices are in " + cur + ", as part of the client's price."), el("span", { class: "spacer" }),
+    el("button", { class: "btn quiet", onclick: () => { priceEdit = null; priceDraft = null; render() } }, "Cancel"),
+    el("button", { class: "btn primary", onclick: () => {
+      const clean = {}; for (const [k, v] of Object.entries(priceDraft)) if (Number(v) > 0 && all.some(t => t.id === k)) clean[k] = Math.round(Number(v) * 100) / 100;
+      const before = m.prices || {}, ch = all.filter(t => Number(before[t.id] || 0) !== Number(clean[t.id] || 0));
+      priceEdit = null; priceDraft = null;
+      if (!ch.length) { render(); return }
+      moneyUpd(p, { "money.prices": clean }, "Task prices: " + ch.slice(0, 6).map(t => `${t.text.slice(0, 30)} ${clean[t.id] ? fmtCur(toP(clean[t.id]), cur) : "no price"}`).join(" · ") + (ch.length > 6 ? ` and ${ch.length - 6} more` : ""), "deal", "Prices saved");
+    } }, "Save prices")));
+  return sec;
+}
+// On a task's details: what it's worth and when the money comes.
+function taskMoneyField(p, t) {
+  const m = p.money; if (!m || m.split !== "tasks" || m.type === "monthly") return null;
+  const r = moneyOf(p), info = r.tasks[t.id], who = assignees(t), n = Math.max(1, who.length), cur = r.currency;
+  const go = canMoney(p) ? el("button", { class: "linkbtn", onclick: () => { projTab = "money"; priceEdit = p.id; priceDraft = { ...(m.prices || {}) }; render(); scrollTo(0, 0) } }, info ? "Change the price" : "Give it a price") : null;
+  if (!info) return el("span", { class: "row", style: "gap:8px" }, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "No price. It's part of what the team shares."), go);
+  const each = v => n > 1 ? `${fmtEGP(Math.floor(v / n))} each (${n} people)` : fmtEGP(v);
+  const say = info.status === "earned" ? `Earned ${each(info.share)}.`
+    : info.status === "waiting" ? `The client paid for it: ${each(info.share)} is waiting until it's ticked done.`
+    : `Gets about ${each(info.est)} once it's done and the client has paid ${info.step ? "the " + info.step.toLowerCase() : "for it"}.`;
+  return el("span", { style: "display:grid;gap:2px" }, el("span", {}, el("b", {}, fmtCur(info.price, cur)), " of the price. ", say), go);
+}
+
 // Where the money goes, step by step, in the order the rules take it.
 function flowList(p, r) {
   const m = p.money, pv = r.pending ? r.preview : null, fl = pv ? pv.flow : r.flow, whole = pv ? pv.whole : r.receivedEGP;
@@ -3631,7 +3884,8 @@ function flowList(p, r) {
   if (fl.partner) wrap.append(row("−", `Partner: ${r.partner ? r.partner.name : "partner"}`, r.partner && r.partner.mode === "fixed" ? `fixed ${fmtEGP(toP(r.partner.value))} for bringing the client` : `${r.partner ? r.partner.value : ""}% for bringing the client`, fl.partner));
   if (fl.fund || !fl.shares) wrap.append(row("−", `Team fund (${r.fundPct}%)`, "saved for the office and our subscriptions", fl.fund));
   if (fl.finder) wrap.append(row("−", `Finder's fee (${r.findPct}%)`, "for bringing the client" + (finderTo ? ", " + finderTo : ""), fl.finder));
-  wrap.append(row("=", "Shared by the team", share ? "by shares: " + share : "no shares set yet", fl.shares, "fout"));
+  const restBy = share ? "the rest by shares: " + share : "the rest equally by the project's team";
+  wrap.append(row("=", "Shared by the team", r.byTasks ? (r.priced ? `by task prices (${fmtCur(r.priced, r.currency)} of the price is priced), ${restBy}` : "by task prices: no task has a price yet, so " + restBy.replace("the rest ", "")) : share ? "by shares: " + share : "no shares set yet", fl.shares, "fout"));
   if (pv && r.received) wrap.append(el("p", { class: "label", style: "margin:8px 0 0" }, `So far: ${fmtEGP(r.receivedEGP)} came in.` + (r.flow.costs ? ` ${fmtEGP(r.flow.costs)} paid back costs.` : "") + (r.held ? ` ${fmtEGP(r.held)} is waiting to be split.` : "")));
   return wrap;
 }
@@ -3643,7 +3897,7 @@ function moneyLogBlock(p) {
     el("div", { class: "idea", style: "gap:0;margin-top:10px" }, log.slice(0, 60).map(x => el("div", { class: "hrow" + (x.kind === "deal" ? " logdeal" : "") }, av(x.by),
       el("div", { class: "hmain" }, el("div", {}, x.what), el("div", { class: "label" }, `${name(x.by)} \u00b7 ${ago(x.at)}`))))));
 }
-function teamChoices(p) { return [...new Set([...teamOf(p), ...teamIds()])] }
+function teamChoices(p) { return [...new Set([...teamOf(p), ...teamIds()])] }   // finders can be anyone on the team; shares only the project's team
 function personSelect(id, value, p, blank) {
   const s = el("select", { class: "mini", id }, blank ? el("option", { value: "" }, blank) : null, teamChoices(p).map(u => el("option", { value: u }, realName(u) || "Someone")));
   s.value = value || ""; return s;
@@ -3726,12 +3980,12 @@ function moneyEntryForm(p, r) {
 }
 
 // share editor: percentages that must add up to 100
-function sharesEditor(prefix, p, current, suggestBtn) {
+function sharesEditor(prefix, p, current, suggestBtn, optional) {
   const wrap = el("div", { class: "shares" });
-  const ids = teamChoices(p);
+  const ids = teamPick(p, Object.keys(current || {}).filter(u => Number((current || {})[u]) > 0));
   const inputs = {};
   const total = el("span", { class: "label" });
-  const upd8 = () => { const t = ids.reduce((s, u) => s + (Number(inputs[u].value) || 0), 0); total.textContent = `Total ${t}%` + (t === 100 ? " ✓" : " (needs to be 100%)"); total.className = "label" + (t === 100 ? " ok" : " bad") };
+  const upd8 = () => { const t = ids.reduce((s, u) => s + (Number(inputs[u].value) || 0), 0); if (optional && !t) { total.textContent = "Empty: shared equally by the team"; total.className = "label ok"; return } total.textContent = `Total ${t}%` + (t === 100 ? " ✓" : " (needs to be 100%)"); total.className = "label" + (t === 100 ? " ok" : " bad") };
   for (const u of ids) {
     const i = el("input", { id: `${prefix}-${u}`, class: "mini pct", type: "number", inputmode: "numeric", min: "0", max: "100", step: "1", oninput: upd8 });
     if (!i.value && current && current[u] != null) i.value = current[u];
@@ -3746,14 +4000,14 @@ function sharesEditor(prefix, p, current, suggestBtn) {
   return wrap;
 }
 
-let dealTypeDraft = {}, dealCurDraft = {};
+let dealTypeDraft = {}, dealCurDraft = {}, dealSplitDraft = {};
 function dealForm(p) {
   const m = p.money || {}, R = rulesNow();
   const type = dealTypeDraft[p.id] || m.type || "one";
   const box = el("section", { class: "idea mform" }, el("h3", {}, m.type ? "Edit the deal" : "Set up the deal"),
     el("p", { style: "margin:0;font-size:14px" }, "How the client pays, and how the money is shared. Everyone on the team can see this."));
   box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Deal type" }, DEAL_TYPES.map(([v, l]) => el("button", { type: "button", "aria-pressed": String(type === v), onclick: () => { dealTypeDraft[p.id] = v; render() } }, l))));
-  box.append(el("p", { class: "label", style: "margin:0" }, { one: "One price, usually a deposit first and the rest at the end. Split when fully paid.", monthly: "A fee every month (like running Google Ads), plus an optional setup fee. Split every month.", installments: "One total price paid in equal monthly payments. Split as each payment arrives." }[type]));
+  box.append(el("p", { class: "label", style: "margin:0" }, { one: "One price, usually a deposit first and the rest at the end. With % shares it's split when fully paid; with task prices, task by task as each payment comes in.", monthly: "A fee every month (like running Google Ads), plus an optional setup fee. Split every month.", installments: "One total price paid in equal monthly payments. Split as each payment arrives." }[type]));
   const client = el("input", { id: "deal-client", class: "noteinput", maxlength: "80", placeholder: "Client name (optional)" }); if (!client.value) client.value = m.client || p.client || "";
   const stage = el("select", { class: "mini", id: "deal-stage" }, STAGES.map(([v, l]) => el("option", { value: v }, l))); stage.value = m.stage || "agreed";
   box.append(fieldRow("Client", client), fieldRow("Stage", stage));
@@ -3773,8 +4027,16 @@ function dealForm(p) {
   if (type === "monthly") box.append(fieldRow("Monthly fee", fee), fieldRow("Setup fee", setup), fieldRow("Starts", start), fieldRow("Ends", end, el("span", { class: "label" }, "leave empty if ongoing")), fieldRow("Due by day", dueDay),
     el("label", { class: "row", style: "gap:8px;font-size:14px" }, ads, "The client also pays their ad budget through us (tracked separately, never split)"));
 
-  box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, type === "monthly" ? "Who built it (setup fee shares)" : "Who gets what (shares)"));
-  const shares = sharesEditor("sh-" + p.id, p, m.shares, true); box.append(shares);
+  // one-time and paid-over-months deals: share by task prices, or by % shares
+  const split = type === "monthly" ? "shares" : (dealSplitDraft[p.id] || m.split || (m.type ? "shares" : "tasks"));
+  if (type !== "monthly") box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "How the team's money is shared"),
+    el("div", { class: "seg seg-wide", role: "group", "aria-label": "How the team's money is shared" },
+      [["tasks", "By task prices"], ["shares", "By % shares"]].map(([v, l]) => el("button", { type: "button", "aria-pressed": String(split === v), onclick: () => { dealSplitDraft[p.id] = v; render() } }, l))),
+    el("p", { class: "label", style: "margin:0" }, split === "tasks"
+      ? "Give tasks a price on the Money tab. Whoever does a task earns its price (after costs, the fund and the finder), once it's done and paid for. You don't have to price every task: whatever isn't priced is shared by the % below, or equally by the team if you leave them empty."
+      : "Type each person's %. Only people on the project's team can get a share."));
+  box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, type === "monthly" ? "Who built it (setup fee shares)" : split === "tasks" ? "Shares for the unpriced part (optional)" : "Who gets what (shares)"));
+  const shares = sharesEditor("sh-" + p.id, p, m.shares, true, split === "tasks"); box.append(shares);
   let mshares = null;
   if (type === "monthly") { box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "Who runs it each month (monthly fee shares)")); mshares = sharesEditor("msh-" + p.id, p, m.monthlyShares || m.shares, false); box.append(mshares, el("p", { class: "label", style: "margin:0" }, "You can change this for a single month later with “Who worked?”.")) }
 
@@ -3801,7 +4063,7 @@ function dealForm(p) {
   const save = () => {
     // a proposal can be saved before the shares are agreed; a real deal needs them to add up to 100%
     const prop = stage.value === "proposal";
-    const s = shares.read(); if (s.total !== 100 && !(prop && s.total === 0)) { toast(prop ? "The shares need to add up to 100%, or leave them all empty for now" : "The shares need to add up to 100%"); return }
+    const s = shares.read(); if (s.total !== 100 && !((prop || split === "tasks") && s.total === 0)) { toast(prop ? "The shares need to add up to 100%, or leave them all empty for now" : "The shares need to add up to 100%"); return }
     let ms = null; if (mshares) { ms = mshares.read(); if (ms.total !== 100 && !(prop && ms.total === 0)) { toast("The monthly shares need to add up to 100%"); return } }
     const n = x => Math.round((Number(x.value) || 0) * 100) / 100;
     const finders = fMode.value === "people" ? [...fBoxes.querySelectorAll("input:checked")].map(i => i.value) : [];
@@ -3815,11 +4077,11 @@ function dealForm(p) {
     const data = { type, currency: cur, rate: rt, partner: pmx ? { email: pmx.id, name: pmx.name || pmx.id, gid: pmx.gid || "", mode: paMode.value, value: pv } : null, client: client.value.trim(), stage: stage.value, shares: s.shares, finder: null, finders, finderTeam: fMode.value === "team",
       fundCustom: fundIn ? fundV !== R.fundPct : !!m.fundCustom, fundPct: fundIn ? fundV : (m.fundPct != null ? m.fundPct : null),
       findCustom: findIn ? findV !== R.findPct : !!m.findCustom, findPct: findIn ? findV : (m.findPct != null ? m.findPct : null),
-      monthShares: m.monthShares || {}, plan: Array.isArray(m.plan) ? m.plan : [], setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
+      monthShares: m.monthShares || {}, plan: Array.isArray(m.plan) ? m.plan : [], split, prices: m.prices || {}, setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
     if (type === "one") { if (!(n(price) > 0)) { toast("Enter the price"); return } data.price = n(price) }
     if (type === "installments") { if (!(n(price) > 0)) { toast("Enter the total price"); return } Object.assign(data, { price: n(price), installments: Math.max(2, Math.round(Number(months.value) || 3)), startMonth: start.value || thisMonth(), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)) }) }
     if (type === "monthly") { if (!(n(fee) > 0)) { toast("Enter the monthly fee"); return } Object.assign(data, { monthlyFee: n(fee), setupFee: n(setup), startMonth: start.value || thisMonth(), endMonth: end.value || (stage.value === "ended" ? thisMonth() : ""), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)), adBudget: ads.checked, monthlyShares: ms.shares }) }
-    editDeal = null; delete dealTypeDraft[p.id]; delete dealCurDraft[p.id];
+    editDeal = null; delete dealTypeDraft[p.id]; delete dealCurDraft[p.id]; delete dealSplitDraft[p.id];
     // log what changed, in words, so nobody is surprised by a new split
     const ch = [];
     if (!m.type) ch.push("Deal set up");
@@ -3827,6 +4089,7 @@ function dealForm(p) {
       const sd = sharesDiff(m.shares, data.shares); if (sd) ch.push("Shares: " + sd);
       if (data.monthlyShares) { const md = sharesDiff(m.monthlyShares || m.shares, data.monthlyShares); if (md) ch.push("Monthly shares: " + md) }
       for (const [k, l] of [["price", "Price"], ["monthlyFee", "Monthly fee"], ["setupFee", "Setup fee"]]) if (data[k] != null && Number(m[k] || 0) !== Number(data[k] || 0)) ch.push(`${l}: ${m[k] || 0} \u2192 ${data[k]} ${cur}`);
+      if ((m.split || "shares") !== split) ch.push(split === "tasks" ? "Now shared by task prices" : "Now shared by % shares");
       if ((m.currency || "EGP") !== cur) ch.push(`Currency: ${m.currency || "EGP"} \u2192 ${cur}`);
       if ((m.stage || "agreed") !== data.stage) ch.push("Stage: " + (STAGES.find(x => x[0] === data.stage) || [, data.stage])[1]);
       if (JSON.stringify(m.partner || null) !== JSON.stringify(data.partner)) ch.push(data.partner ? `Partner: ${data.partner.name} ${data.partner.mode === "fixed" ? data.partner.value + " EGP" : data.partner.value + "%"}` : "Partner removed");
@@ -4238,7 +4501,7 @@ $("#asst-btn").onclick = () => { asstOpen = !asstOpen; alertsOpen = false; rende
 $("#brand").onclick = () => { location.hash = "me" };
 
 /* ----- backup: everything on the board in one file ----- */
-const RULES_VERSION = "2026-11-12";
+const RULES_VERSION = "2026-11-16";
 function downloadBackup() {
   const strip = o => { const x = { ...o }; delete x.pushSubs; return x };
   const data = { app: "Pitch Room", at: new Date().toISOString(), by: myProfile && myProfile.email,
@@ -4366,7 +4629,7 @@ function parseActions(text) {
     const ref = asstRefs[(a.match(/[TP]\d+/i) || [""])[0].toUpperCase()]; if (!ref) continue;
     if (ref.personal) { const t = personal.find(x => x.id === ref.personal); if (t && kind === "done") out.push({ kind: "pdone", t }); continue }
     const p = ideas.find(i => i.id === ref.pid), t = p && tasksOf(p).find(x => x.id === ref.tid); if (!t) continue;
-    if (!(canPlan(p) || isAssignee(t, me))) continue;   // only things this person is allowed to change
+    if (!(canWork(p, t) || (kind === "note" && b))) continue;   // only things this person is allowed to change (anyone can leave a note)
     if (kind === "done" && !t.done) out.push({ kind, p, t, text: b.slice(0, 1000) });
     else if (kind === "start" && !t.done && t.status !== "doing") out.push({ kind, p, t });
     else if (kind === "note" && b) out.push({ kind, p, t, text: b.slice(0, 1000) });
