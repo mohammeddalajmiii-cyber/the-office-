@@ -1280,7 +1280,16 @@ function phaseCard(p, ph, n, phases, list, mode = {}) {
   if (!list.length) sec.append(el("p", { style: "font-size:14px" }, planner ? "No tasks yet. Add the first one below." : "No tasks yet."));
   // Most important first: urgent, high, medium, low. Done tasks go to the bottom.
   // Most important first: urgent, high, medium, low. Tasks still waiting for others come after the ones you can start. Done tasks go to the bottom.
-  for (const t of [...list].sort((a, b) => (a.done - b.done) || (isBlocked(p, a) - isBlocked(p, b)) || taskPrioRank(a) - taskPrioRank(b))) sec.append(taskItem(p, t, "p", { people: "always" }));
+  // open tasks first; done ones fold away under "✓ N done" and come back with a tap (untick one to reopen it)
+  const sorted = [...list].sort((a, b) => (isBlocked(p, a) - isBlocked(p, b)) || taskPrioRank(a) - taskPrioRank(b));
+  for (const t of sorted.filter(t => !t.done)) sec.append(taskItem(p, t, "p", { people: "always" }));
+  const doneList = sorted.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)), dk = p.id + ":" + ph.id;
+  if (doneList.length) {
+    const keepOpen = shownDone.has(dk) || doneList.some(t => openTask === "p:" + t.id);
+    sec.append(el("details", { class: "donefold", open: keepOpen, ontoggle: e => { if (e.target.open) shownDone.add(dk); else shownDone.delete(dk) } },
+      el("summary", {}, `✓ ${doneList.length} done`, el("span", { class: "label" }, keepOpen ? "tap to hide" : "tap to see them")),
+      doneList.map(t => taskItem(p, t, "p", { people: "always" }))));
+  }
   if (planner && !loose && !mode.filtered) sec.append(addTaskRow(p, ph));
   return sec;
 }
@@ -1600,6 +1609,7 @@ function reopenTask(p, t, status) {
 /* ----- planners & phases ----- */
 
 let renamingPhase = null, delPhase = null;
+const shownDone = new Set();   // phases where you opened the done tasks
 const canPlan = p => !!p && (isAdmin || p.author === me || !!(p.planners || {})[me]);
 const plannerIds = p => [...new Set([p.author, ...Object.entries(p.planners || {}).filter(([, v]) => v).map(([u]) => u)].filter(Boolean))];
 
@@ -2871,7 +2881,8 @@ function guidePage() {
       ["Waiting for…", "on a task means it needs another task done first. You get an alert the moment you can start."],
       ["Drop files", "straight onto an open task to attach them (PDFs, designs, photos, up to 5 MB)."],
       ["Me › My tasks", "shows everything that's yours in Now, Next and Waiting on others. Private to-dos and notes there are only for you."],
-      ["Tap someone's photo", "above a project's tasks to see only their tasks."]]),
+      ["Tap someone's photo", "above a project's tasks to see only their tasks."],
+      ["Done tasks fold away", "at the bottom of their phase under ✓ done. Tap it to review them; untick one to bring it back."]]),
     card("\u{1F4B5}", "Your money", [
       ["Task prices:", "when a project shares money by task prices, a task shows 💵 and what you get (≈). You earn it once the task is ticked done and the client has paid for it."],
       ["Not every task has a price.", "The part that isn't priced is shared by the team, by % or equally."],
