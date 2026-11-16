@@ -649,7 +649,7 @@ function startProjectFromLead(l) {
     await setDoc(doc(db, "ideas", id), { title: client, pitch: pitch.slice(0, 600), category: "Business", categories: ["Business"], client, author: me, createdAt: now, status: "approved", approvedAt: now,
       votes: { [me]: "keep" }, tasks: {}, backers: {}, money, fromLead: { id: l.id, gid: l.gid }, moneyLog: { [uid()]: { by: me, at: now, what: `Deal started from ${groupName(l.gid)}: partner ${pm ? pm.name || pm.id : "unknown"} at 10% (change it in Edit deal)`, kind: "deal" } } });
     await updateDoc(doc(db, "pleads", l.id), { projectId: id, projectAt: now });
-  }, "Project made. Set the price and the shares in its Money tab").then(ok => { if (ok) { projTab = "money"; location.hash = "project-" + id } });
+  }, "Project made. Set the price and the shares in its Money tab").then(ok => { if (ok) { projTab = "money"; pendingTab = "money"; location.hash = "project-" + id } });
 }
 
 

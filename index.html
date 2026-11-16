@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261116074153">
+<meta name="build" content="20261116074946">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -1409,7 +1409,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261116074153";
+const BUILD_ID = "20261116074946";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -2712,7 +2712,7 @@ function startProjectFromLead(l) {
     await setDoc(doc(db, "ideas", id), { title: client, pitch: pitch.slice(0, 600), category: "Business", categories: ["Business"], client, author: me, createdAt: now, status: "approved", approvedAt: now,
       votes: { [me]: "keep" }, tasks: {}, backers: {}, money, fromLead: { id: l.id, gid: l.gid }, moneyLog: { [uid()]: { by: me, at: now, what: `Deal started from ${groupName(l.gid)}: partner ${pm ? pm.name || pm.id : "unknown"} at 10% (change it in Edit deal)`, kind: "deal" } } });
     await updateDoc(doc(db, "pleads", l.id), { projectId: id, projectAt: now });
-  }, "Project made. Set the price and the shares in its Money tab").then(ok => { if (ok) { projTab = "money"; location.hash = "project-" + id } });
+  }, "Project made. Set the price and the shares in its Money tab").then(ok => { if (ok) { projTab = "money"; pendingTab = "money"; location.hash = "project-" + id } });
 }
 
 
@@ -3865,8 +3865,8 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 /* ---------- routing ---------- */
 
 const VIEWS = ["me", "ideas", "projects", "chat", "partners", "skills", "settings", "money", "project"];
-function route() {
-  const h = location.hash.slice(1);
+function route(hash) {
+  const h = (hash == null ? location.hash : hash).replace(/^#/, "");
   if (h === "money-fund" || h === "money-rules") return { view: "money", tab: h.slice(6) };
   if (h.startsWith("settings-")) return { view: "settings", sub: h.slice(9) };
   if (h.startsWith("task-")) { const [id, task] = h.slice(5).split("-"); return { view: "project", id, task } }
@@ -3892,7 +3892,29 @@ let showTaskAt = null;
 for (const b of document.querySelectorAll("#app .tab")) b.onclick = () => { location.hash = b.dataset.view };
 for (const b of document.querySelectorAll("#partner .tab")) b.onclick = () => { location.hash = b.dataset.pview };
 let curHash = location.hash;
-addEventListener("hashchange", () => { prevHash = curHash; curHash = location.hash; show(); scrollTo(0, 0) });
+/* Smart use: forms, edits and "are you sure?" questions close by themselves when you leave a page or switch a
+   project's tab, and a project opens on its Tasks tab (unless a link asked for another tab). Nothing stays half-open. */
+let pendingTab = null;
+function closeForms() {
+  moneyForm = null; editDeal = null; payPlanEdit = null; planDraft = null; phaseDraft = null; priceEdit = null; priceDraft = null; holdDecide = null; shareMonth = null; delMoney = null; confirmDelDeal = null;
+  newMeeting = null; editMeeting = null; delMeeting = null; meetTasks = null; editGoal = null;
+  planEdit = null; renamingPhase = null; delPhase = null; addingLink = null; delLink = null; delFile = null; delTask = null; doneAnyway = null; waitPick = null; delNote = null; delTaskFile = null;
+  confirmDone = null; confirmDelProject = null; confirmDelIdea = null; newCatFor = null; fundForm = null; goalEdit = null; subPay = null; subEdit = null; delFund = null; cvOpen = {};
+}
+const routeKey = h => { const r = route.call(null, h); return r.view + ":" + (r.id || r.sub || r.dm || r.gid || "") };
+function leavePage() { closeForms(); showSettings = null; openTask = null; openNote = null; editCheckin = null; projTab = pendingTab || "tasks"; pendingTab = null }
+addEventListener("hashchange", () => {
+  prevHash = curHash; curHash = location.hash;
+  if (routeKey(prevHash) !== routeKey(curHash)) leavePage();
+  show(); scrollTo(0, 0);
+});
+// Escape closes whatever is open on the page
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || e.defaultPrevented || moreOpen || alertsOpen || searchOpen || asstOpen || document.querySelector("#lightbox:not([hidden]), dialog[open]")) return;
+  const anyOpen = showSettings || moneyForm || editDeal || payPlanEdit || phaseDraft || priceEdit || holdDecide || newMeeting || editMeeting || editGoal || planEdit || addingLink || confirmDone || confirmDelProject || fundForm || goalEdit || subEdit || Object.keys(cvOpen).some(k => cvOpen[k]);
+  if (!anyOpen) return;
+  closeForms(); showSettings = null; render();
+});
 
 /* ---------- auth & data ---------- */
 
@@ -4189,11 +4211,11 @@ function renderProjectPage(p) {
 
   const meetings = Object.values(p.meetings || {}).filter(Boolean).length;
   box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin:4px 0 14px" },
-    el("button", { "aria-pressed": String(projTab === "tasks"), onclick: () => { projTab = "tasks"; render() } }, "Tasks"),
-    el("button", { "aria-pressed": String(projTab === "week"), onclick: () => { projTab = "week"; render() } }, "Week"),
-    el("button", { "aria-pressed": String(projTab === "meet"), onclick: () => { projTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : "")),
-    el("button", { "aria-pressed": String(projTab === "money"), onclick: () => { projTab = "money"; render() } }, "Money"),
-    el("button", { "aria-pressed": String(projTab === "share"), onclick: () => { projTab = "share"; render() } }, "Client" + countNew(p.id))));
+    el("button", { "aria-pressed": String(projTab === "tasks"), onclick: () => { if (projTab !== "tasks") closeForms(); projTab = "tasks"; render() } }, "Tasks"),
+    el("button", { "aria-pressed": String(projTab === "week"), onclick: () => { if (projTab !== "week") closeForms(); projTab = "week"; render() } }, "Week"),
+    el("button", { "aria-pressed": String(projTab === "meet"), onclick: () => { if (projTab !== "meet") closeForms(); projTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : "")),
+    el("button", { "aria-pressed": String(projTab === "money"), onclick: () => { if (projTab !== "money") closeForms(); projTab = "money"; render() } }, "Money"),
+    el("button", { "aria-pressed": String(projTab === "share"), onclick: () => { if (projTab !== "share") closeForms(); projTab = "share"; render() } }, "Client" + countNew(p.id))));
   if (projTab === "share") { if (!inTeam(p)) { box.append(el("div", { class: "empty" }, "The client view is run by this project's team.")); return } return renderShare(box, p) }
   if (projTab === "week") return renderWeek(box, p, team);
   if (projTab === "meet") return renderMeetings(box, p);
@@ -4310,7 +4332,7 @@ function renameBlock(p) {
     const t = title.value.trim(), d = pitch.value.trim(), c = client.value.trim().replace(/\s+/g, " ");
     if (!t) { toast("The project needs a name"); title.focus(); return }
     if (t === p.title && d === (p.pitch || "") && c === (p.client || "")) { toast("Nothing changed"); return }
-    write(() => upd(p.id, { title: t, pitch: d, client: c || DEL() }), "Saved");
+    write(() => upd(p.id, { title: t, pitch: d, client: c || DEL() }), "Saved").then(ok => { if (ok) { showSettings = null; render() } });
   };
   title.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save() } });
   return el("div", { class: "renameblock" },
@@ -4442,7 +4464,7 @@ function importPanel(p) {
 function openImport(p, text) {
   importState[p.id] = { open: true, text: text || (importState[p.id] || {}).text || "", preview: null };
   if (text) importState[p.id].preview = parsePlan(text, p);
-  projTab = "tasks"; taskFilter[p.id] = null;
+  projTab = "tasks"; pendingTab = "tasks"; taskFilter[p.id] = null;
   if (location.hash !== "#project-" + p.id) location.hash = "project-" + p.id; else render();
 }
 
@@ -4874,12 +4896,13 @@ function startBuilding(p) {
 }
 const isPaused = p => !!(p && p.paused && p.status === "approved");
 function pauseProject(p) {
+  showSettings = null;
   write(async () => {
     await upd(p.id, { paused: { by: me, at: Date.now() } });
     if (activeMap[p.id] || focusId === p.id) { const data = { ["active." + p.id]: DEL() }; if (focusId === p.id) data.projectId = null; await updateDoc(doc(db, "meta", "focus"), data).catch(() => {}) }
   }, "Project paused. Its tasks are on hold");
 }
-function resumeProject(p) { write(() => upd(p.id, { paused: DEL() }), "Project resumed. It's back in Up next") }
+function resumeProject(p) { showSettings = null; write(() => upd(p.id, { paused: DEL() }), "Project resumed. It's back in Up next") }
 function pauseBuilding(p) {
   write(async () => {
     const data = { ["active." + p.id]: DEL() };
@@ -4895,7 +4918,7 @@ function completeButton(p) {
   return el("button", { class: "btn", onclick: () => { confirmDone = p.id; render() } }, "Mark as completed");
 }
 function completeProject(p) {
-  confirmDone = null;
+  confirmDone = null; showSettings = null;
   write(async () => {
     await upd(p.id, { status: "completed", completedAt: Date.now(), completedBy: me });
     if (isAdmin && (activeMap[p.id] || focusId === p.id)) await updateDoc(doc(db, "meta", "focus"), { ["active." + p.id]: DEL(), ...(focusId === p.id ? { projectId: null } : {}) }).catch(() => {});
@@ -4903,7 +4926,7 @@ function completeProject(p) {
   celebrate();
   location.hash = "projects-done";
 }
-function reopenProject(p) { write(() => upd(p.id, { status: "approved", completedAt: DEL(), completedBy: DEL() }), "Reopened. It's back in Projects") }
+function reopenProject(p) { showSettings = null; write(() => upd(p.id, { status: "approved", completedAt: DEL(), completedBy: DEL() }), "Reopened. It's back in Projects") }
 function celebrate() {
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const c = el("canvas", { class: "confetti" }); document.body.append(c);
@@ -7087,7 +7110,7 @@ async function runAssistant(userText, opts = {}) {
       const j = JSON.parse(text.replace(/^```(?:json)?|```$/g, "").trim());
       checkinDraft = { pid: p.id, did: String(j.did || ""), next: String(j.next || ""), blockers: String(j.blockers || "") };
       asstMsgs.push({ role: "ai", text: "I drafted your check-in from the board. It's filled in on the project's “This week” tab. Check it, change anything, and tap Save." });
-      editCheckin = p.id; projTab = "week"; asstOpen = false;
+      editCheckin = p.id; projTab = "week"; pendingTab = "week"; asstOpen = false;
     } else {
       const acts = parseActions(text);
       const found = parseIdeas(text = text.split("\n").filter(l => !/^\s*ACTION\s*:/i.test(l)).join("\n").trim());
@@ -8493,7 +8516,7 @@ function rulesChanges(R) {
   const names = { fundPct: ["Team fund", "%"], findPct: ["Finder's fee", "%"], finderMonths: ["Finder's fee on monthly deals", " months"], pauseAfterLate: ["Pause after", " months late"], reviewMonths: ["Review every", " months"] };
   return Object.entries(names).filter(([k]) => pv[k] != null && pv[k] !== R[k]).map(([k, [l, u]]) => `${l}: ${pv[k]}${u} → ${R[k]}${u}`);
 }
-const moneyGo = (p) => { projTab = "money"; location.hash = "project-" + p.id };
+const moneyGo = (p) => { pendingTab = "money"; projTab = "money"; location.hash = "project-" + p.id };
 
 function renderMoneyPage() {
   const box = $("#money"); box.replaceChildren();
