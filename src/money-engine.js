@@ -325,10 +325,13 @@ function computeMoney(p, todayStr, rules, opts) {
 const isPhased = m => !!m && m.type !== "monthly" && m.type !== "installments" && Array.isArray(m.phases) && m.phases.some(Boolean);
 const phasesPrice = m => Math.round((m.phases || []).filter(ph => ph && ph.agreed).reduce((a, ph) => a + (Number(ph.price) || 0), 0) * 100) / 100;
 function phaseSteps(ph) { return Array.isArray(ph.steps) && ph.steps.length ? ph.steps : [{ id: ph.id + "-all", label: "Full payment", amount: Number(ph.price) || 0, tasks: [] }] }
+// The task phases a money phase pays for: none, one or many. Money phases and task phases are separate things;
+// linking them is optional. (Older deals kept one link in "phase".)
+const linkedPhases = ph => Array.isArray(ph && ph.phases) ? ph.phases.filter(Boolean) : ph && ph.phase ? [ph.phase] : [];
 // Tasks in a plan phase whose money phase isn't agreed yet: they wait for that phase, not the current one.
 function laterTasks(m, p) {
   const out = new Set(); if (!isPhased(m) || !p) return out;
-  const later = new Set(m.phases.filter(ph => ph && !ph.agreed && ph.phase).map(ph => ph.phase));
+  const later = new Set(m.phases.filter(ph => ph && !ph.agreed).flatMap(linkedPhases));
   for (const f of ["tasks", "steps"]) for (const [id, t] of Object.entries(p[f] || {})) if (t && t.text && later.has(t.phase || "build")) out.add(id);
   return out;
 }
@@ -337,11 +340,16 @@ function planOf(m, p) {
   if (!isPhased(m)) return (Array.isArray(m.plan) ? m.plan : []).filter(st => st && toP(st.amount) >= 0);
   const agreed = m.phases.filter(ph => ph && ph.agreed), out = [];
   const byHand = new Set(agreed.flatMap(ph => phaseSteps(ph).flatMap(st => st.tasks || [])));
+  // tasks no money phase pays for (by hand or through its task phases) go with the first money phase that isn't linked to
+  // any task phase, so a deal split into phases keeps its tasks with phase 1
+  const allLinks = new Set(m.phases.filter(Boolean).flatMap(linkedPhases)), catchAll = agreed.find(ph => !linkedPhases(ph).length);
+  const leftover = p && catchAll ? [...Object.entries(p.tasks || {}), ...Object.entries(p.steps || {})].filter(([id, t]) => t && t.text && !byHand.has(id) && !allLinks.has(t.phase || "build")).map(([id]) => id) : [];
   for (const ph of agreed) {
     const steps = phaseSteps(ph);
-    const auto = p && ph.phase ? [...Object.entries(p.tasks || {}), ...Object.entries(p.steps || {})].filter(([id, t]) => t && t.text && (t.phase || "build") === ph.phase && !byHand.has(id)).map(([id]) => id) : [];
+    const links = new Set(linkedPhases(ph));
+    const auto = p && links.size ? [...Object.entries(p.tasks || {}), ...Object.entries(p.steps || {})].filter(([id, t]) => t && t.text && links.has(t.phase || "build") && !byHand.has(id)).map(([id]) => id) : [];
     steps.forEach((st, i) => out.push({ ...st, label: `${ph.name || "Phase"} · ${st.label || "Payment " + (i + 1)}`, short: st.label || "Payment " + (i + 1), part: ph.id, pn: i + 1, plast: i === steps.length - 1,
-      tasks: [...(st.tasks || []), ...(i === steps.length - 1 ? auto : [])] }));
+      tasks: [...(st.tasks || []), ...(i === steps.length - 1 ? auto : []), ...(i === steps.length - 1 && ph === catchAll ? leftover : [])] }));
   }
   return out.filter(st => toP(st.amount) >= 0);
 }

@@ -2896,7 +2896,7 @@ function guidePage() {
       ["1. Edit deal:", "pick One-time, Monthly or Paid over months, the price, the currency, who brought the client, and a partner if one did."],
       ["2. How the team's money is shared:", "By task prices (best for one-time work) or By % shares. Monthly deals use % shares, and you can change them for one month with Who worked?"],
       ["3. Payment plan:", "split the price into a deposit and the rest, and link the tasks each payment pays for. The plan tells you when it's time to ask the client for the next payment."],
-      ["Client working step by step?", "Split the deal into phases (Money tab › Payment plan). Each phase has its own price, deposit and final payment, and pays for the tasks in its phase of the plan. When a phase is done and paid, tap + Add the next phase. A phase that's only offered stays Not agreed yet until you tap The client agreed."],
+      ["Client working step by step?", "Split the deal into phases (Money tab › Payment plan). Each money phase has its own price, deposit and final payment. Money phases are separate from task phases: tick the task phases a money phase pays for (one, several or none). When a phase is done and paid, tap + Add the next phase. A phase that's only offered stays Not agreed yet until you tap The client agreed."],
       ["4. Task prices (Money tab):", "give tasks their part of the price. You don't need to price everything: Spread over the rest fills the tasks without a price for you, then fix any by hand. What isn't priced is shared by the team."],
       ["Not sure yet?", "choose Keep it in the fund, decide later. Record payments as they come (say how you got them and pick The team fund under Who has it). When the team agrees, tap Decide the split: it shows what each way would give before you choose."],
       ["5. Record payments and costs", "as they happen (+ Payment, + Cost). Write how you got the money and who has it, and attach the signed quotation with the deposit (or a receipt) under Papers. You can add files to a payment later from the History list. Mark paid when you hand someone their money, so their balance is right."],
@@ -3420,7 +3420,7 @@ let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
 // Built-in notes for new features, newest first. The admin can also post team updates (saved in meta/news).
 const WHATS_NEW = [
   { id: "f-phases-1", date: "2026-11-16", icon: "\u{1FA9C}", title: "Deals in phases",
-    text: "A client working with us step by step? On the Money tab, tap Split the deal into phases. Each phase (like company profile, then social media, then the website) has its own price, deposit and final payment, and pays for the tasks in its phase of the plan. When a phase is done and paid, tap + Add the next phase.", go: "projects" },
+    text: "A client working with us step by step? On the Money tab, tap Split the deal into phases. Each phase (like company profile, then social media, then the website) has its own price, deposit and final payment. Money phases are separate from task phases: you can tick which task phases one pays for (one, several or none). When a phase is done and paid, tap + Add the next phase.", go: "projects" },
   { id: "f-hold-1", date: "2026-11-16", icon: "\u{1F3E6}", title: "Keep a project's money in the fund, decide later",
     text: "Not sure how to split a project's money yet? In Edit deal choose Keep it in the fund, decide later. Payments wait in the team fund, written as that project's, until the planners tap Decide the split (it shows what each way gives first). When you add a payment, say how you got it and attach the signed quotation or a receipt. Every project now shows whose idea it is and who's planning it.", go: "projects" },
   { id: "f-teams-prices-1", date: "2026-11-16", icon: "\u{1F465}", title: "Project teams and task prices",
@@ -3729,8 +3729,8 @@ const phaseStatus = (ph, steps) => { if (!ph.agreed) return ["Not agreed yet", "
 // Turn a normal deal into phases: what's there now becomes phase 1, linked to the plan's first phase.
 function toPhases(p) {
   const m = p.money, pl = planOf(m, p), phs = getPhases(p), id = uid();
-  const steps = pl.length ? pl.map(st => ({ id: st.id, label: st.label || "", amount: Number(st.amount) || 0, date: st.date || "", covers: st.covers || "", tasks: st.tasks || [] })) : presetSteps(Number(m.price) || 0, [50, 50]);
-  const ph = { id, name: phs[0] ? phs[0].name : "Phase 1", phase: phs[0] ? phs[0].id : "", price: Number(m.price) || 0, agreed: true, steps };
+  const steps = pl.length ? pl.map(st => ({ id: st.id, label: st.label || "", amount: Number(st.amount) || 0, date: st.date || "", covers: st.covers || "", tasks: (st.tasks || []).slice() })) : presetSteps(Number(m.price) || 0, [50, 50]).map(st => ({ ...st, tasks: [] }));
+  const ph = { id, name: "Phase 1", phases: [], price: Number(m.price) || 0, agreed: true, steps };
   moneyUpd(p, { "money.phases": [ph], "money.plan": DEL() }, `The deal is now in phases. Phase 1: ${ph.name}, ${fmtCur(toP(ph.price), m.currency)}`, "deal", "Done. Add the next phase when the client agrees to it");
 }
 function savePhases(p, list, what, ok) {
@@ -3742,14 +3742,15 @@ function phasesBlock(p, r) {
   if (can && phaseDraft && phaseDraft.pid === p.id) return phaseEditor(p, r);
   const agreedN = list.filter(ph => ph.agreed).length;
   const sec = el("section", { class: "idea mplan" }, el("div", { class: "row" }, el("h3", {}, "Phases"), el("span", { class: "spacer" }), el("span", { class: "label" }, `${f(r.expected)} agreed · ${agreedN} of ${list.length} phase${list.length > 1 ? "s" : ""}`)),
-    el("p", { style: "margin:0;font-size:14px" }, "The client works with us step by step. Each phase has its own price and payments, and pays for the tasks in its phase of the plan. Add the next phase when the client agrees to it."));
+    el("p", { style: "margin:0;font-size:14px" }, "The client works with us step by step. Each money phase has its own price and payments. It's separate from the task phases: you can say which task phases it pays for, or not. Add the next phase when the client agrees to it."));
   list.forEach((ph, i) => {
     const steps = r.schedule.filter(x => x.part === ph.id), [st, cls] = phaseStatus(ph, steps), got = steps.reduce((a, x) => a + x.received, 0);
-    const link = phs.find(x => x.id === ph.phase);
+    const link = linkedPhases(ph).map(x => (phs.find(y => y.id === x) || {}).name).filter(Boolean);
     const card = el("div", { class: "phasebox" + (ph.agreed ? "" : " later") },
       el("div", { class: "row", style: "gap:8px" }, el("span", { class: "phase-n" }, `${i + 1}/${list.length}`), el("b", { style: "font-size:16px" }, ph.name || "Phase " + (i + 1)), el("span", { class: "mstat " + cls }, st), el("span", { class: "spacer" }), el("b", {}, f(toP(ph.price)))),
-      el("div", { class: "label", style: "text-transform:none;letter-spacing:0" }, [link ? "Pays for the plan's phase: " + link.name : "Not linked to a phase of the plan", ph.agreed && got ? `${f(got)} paid · ${f(Math.max(0, toP(ph.price) - got))} left` : null].filter(Boolean).join(" · ")));
+      el("div", { class: "label", style: "text-transform:none;letter-spacing:0" }, [link.length ? "Pays for the tasks in: " + link.join(", ") : null, ph.agreed && got ? `${f(got)} paid · ${f(Math.max(0, toP(ph.price) - got))} left` : null].filter(Boolean).join(" · ")));
     if (ph.agreed) steps.forEach(x => card.append(stepCard(p, r, x, all, ph)));
+    else card.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Nothing is due until the client agrees to this phase. It's not part of the price yet."));
     const pt = (r.parts || {})[ph.id];
     if (pt && pt.payments.length) card.append(el("details", { class: "pstep-tasks" }, el("summary", {}, `Money from this phase: ${f(pt.received)} came in`),
       el("div", { style: "display:grid;gap:2px;margin-top:6px" }, pt.payments.map(x => el("div", { class: "hrow" }, el("span", { class: "hsign" }, "+"),
@@ -3759,7 +3760,6 @@ function phasesBlock(p, r) {
         pt.fund ? `Team fund ${fmtEGP(pt.fund)}` : null,
         ...Object.entries(pt.people).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([u, v]) => `${u === me ? "You" : firstName(u)} ${fmtEGP(v)}`),
         r.holding ? "kept in the fund, not split yet" : !Object.values(pt.people).some(v => v > 0) && pt.received ? (r.byTasks ? "waiting for its tasks to be done" : "split once this phase is fully paid") : null].filter(Boolean).join(" · "))));
-    else card.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Nothing is due until the client agrees to this phase. It's not part of the price yet."));
     if (can) card.append(el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
       !ph.agreed ? el("button", { class: "btn small primary", onclick: () => savePhases(p, list.map(x => x.id === ph.id ? { ...x, agreed: true, agreedAt: Date.now() } : x), `The client agreed to ${ph.name}: ${f(toP(ph.price))}`, `${ph.name} is agreed. Its deposit is due now`) }, "The client agreed") : null,
       el("button", { class: "btn small", onclick: () => openPhaseEditor(p, ph) }, "Edit phase")));
@@ -3771,10 +3771,9 @@ function phasesBlock(p, r) {
 }
 function openPhaseEditor(p, ph) {
   const m = p.money, list = (m.phases || []).filter(Boolean), phs = getPhases(p);
-  const used = new Set(list.map(x => x.phase).filter(Boolean)), nextPlan = phs.find(x => !used.has(x.id));
-  const base = ph || { id: uid(), name: nextPlan ? nextPlan.name : `Phase ${list.length + 1}`, phase: nextPlan ? nextPlan.id : "", price: 0, agreed: true, steps: [] };
+  const base = ph || { id: uid(), name: `Phase ${list.length + 1}`, phases: [], price: 0, agreed: true, steps: [] };
   const steps = (ph && Array.isArray(ph.steps) && ph.steps.length ? ph.steps : presetSteps(Number(base.price) || 0, [50, 50])).map(st => ({ id: st.id, label: st.label || "", amount: Number(st.amount) || 0, date: st.date || "", covers: st.covers || "", tasks: (st.tasks || []).slice() }));
-  phaseDraft = { pid: p.id, isNew: !ph, v: 0, id: base.id, name: base.name || "", phase: base.phase || "", price: Number(base.price) || 0, agreed: base.agreed !== false, steps };
+  phaseDraft = { pid: p.id, isNew: !ph, v: 0, id: base.id, name: base.name || "", links: linkedPhases(base).filter(x => phs.some(y => y.id === x)), price: Number(base.price) || 0, agreed: base.agreed !== false, steps };
   render(); scrollTo(0, 0);
 }
 function phaseEditor(p, r) {
@@ -3782,8 +3781,9 @@ function phaseEditor(p, r) {
   const got = r.schedule.filter(x => x.part === d.id).reduce((a, x) => a + x.received, 0);
   const box = el("section", { class: "idea mform mplan" }, el("h3", {}, d.isNew ? "Add the next phase" : "Edit phase"));
   const nm = el("input", { id: `phe-${v}-name`, class: "noteinput", maxlength: "50", placeholder: "e.g. Social media", value: d.name, oninput: e => { d.name = e.target.value } });
-  const link = el("select", { class: "mini", id: `phe-${v}-link`, onchange: e => { d.phase = e.target.value; if (!d.name.trim()) { const x = phs.find(y => y.id === d.phase); if (x) d.name = x.name } render() } },
-    el("option", { value: "" }, "None"), phs.map(x => el("option", { value: x.id }, x.name))); link.value = d.phase;
+  const link = phs.length ? el("div", { class: "finders" }, phs.map(x => el("label", { class: "share" },
+    el("input", { type: "checkbox", id: `phe-${v}-l-${x.id}`, checked: d.links.includes(x.id), onchange: e => { d.links = e.target.checked ? [...new Set([...d.links, x.id])] : d.links.filter(y => y !== x.id); render() } }), el("span", { class: "mname" }, x.name))))
+    : el("span", { class: "label" }, "The project has no task phases yet");
   const price = el("input", { id: `phe-${v}-price`, class: "noteinput", type: "number", inputmode: "decimal", min: "0", step: "any", placeholder: "Price of this phase", value: d.price || "", oninput: e => {
     const old = d.price || 0, sum = sumNow(); d.price = Number(e.target.value) || 0;
     // the payments follow the price while they still match it (or are empty): 50/50 stays 50/50
@@ -3791,7 +3791,9 @@ function phaseEditor(p, r) {
       d.steps.forEach((st, i) => { const a = i === n - 1 ? Math.round((d.price - given) * 100) / 100 : Math.round((sum ? d.price * (Number(st.amount) || 0) / sum : d.price / n) * 100) / 100; given += a; st.amount = a; const inp = document.getElementById(`phe-${v}-${st.id}-a`); if (inp) inp.value = a || "" }) }
     updTotal() } });
   const agreed = el("input", { type: "checkbox", id: `phe-${v}-agreed`, checked: d.agreed, onchange: e => { d.agreed = e.target.checked } });
-  box.append(fieldRow("Name", nm), fieldRow("Pays for", link, el("span", { class: "label" }, "the tasks in this phase of the plan")), fieldRow("Price", price, el("span", { class: "label" }, cur)),
+  box.append(fieldRow("Name", nm), fieldRow("Price", price, el("span", { class: "label" }, cur)),
+    el("div", { class: "tlabel", style: "margin-top:4px" }, "Pays for the tasks in (optional)"), link,
+    el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Money phases and task phases are separate. Tick any task phases this money pays for (one, several, or none). It only matters for task prices and for showing what each payment covers."),
     el("label", { class: "row", style: "gap:8px;font-size:14px" }, agreed, "The client agreed to this phase (untick if it's only offered: nothing is due yet)"));
   // its payments
   const total = el("div", { class: "label" }), pctEls = {};
@@ -3814,10 +3816,9 @@ function phaseEditor(p, r) {
   });
   box.append(el("div", { class: "row", style: "gap:8px" }, total, el("span", { class: "spacer" }),
     el("button", { class: "btn small", type: "button", onclick: () => { d.steps.push({ id: uid(), label: "", amount: Math.max(0, Math.round(((d.price || 0) - sumNow()) * 100) / 100), date: "", covers: "", tasks: [] }); d.v++; render() } }, "+ Add a payment")));
-  const linkedTasks = d.phase ? tasksOf(p).filter(t => t.phase === d.phase) : [];
-  box.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, d.phase
-    ? `It pays for the ${linkedTasks.length} task${linkedTasks.length === 1 ? "" : "s"} in “${(phs.find(x => x.id === d.phase) || {}).name}” (the last payment covers them). New tasks you add to that phase are included automatically.`
-    : "Link it to a phase of the plan so everyone sees which tasks this money pays for."));
+  const linkedTasks = d.links.length ? tasksOf(p).filter(t => d.links.includes(t.phase)) : [];
+  if (d.links.length) box.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" },
+    `It pays for the ${linkedTasks.length} task${linkedTasks.length === 1 ? "" : "s"} in ${d.links.map(x => "“" + ((phs.find(y => y.id === x) || {}).name || "") + "”").join(", ")} (the last payment covers them). New tasks you add there are included automatically.`));
   const save = () => {
     const n = d.steps.length, name = d.name.trim() || "Phase " + (list.length + 1);
     if (!(d.price > 0)) { toast("Enter the phase's price"); price.focus(); return }
@@ -3825,7 +3826,7 @@ function phaseEditor(p, r) {
     if (steps.some(x => !(x.amount > 0))) { toast("Every payment needs an amount bigger than 0"); return }
     if (Math.abs(sumNow() - d.price) > 0.009) { toast(`The payments need to add up to the phase's price (${f(d.price)})`); return }
     if (!d.agreed && got) { toast("Money already came in for this phase, so it stays agreed"); return }
-    const ph = { id: d.id, name, phase: d.phase, price: Math.round(d.price * 100) / 100, agreed: d.agreed, steps };
+    const ph = { id: d.id, name, phases: d.links, phase: null, price: Math.round(d.price * 100) / 100, agreed: d.agreed, steps };
     const old = list.find(x => x.id === d.id);
     const nl = old ? list.map(x => x.id === d.id ? { ...x, ...ph } : x) : [...list, { ...ph, addedAt: Date.now(), addedBy: me }];
     savePhases(p, nl, (old ? "Phase changed: " : "New phase: ") + `${name}, ${f(ph.price)}` + (ph.agreed ? "" : " (not agreed yet)") + ` · ${steps.map(x => `${x.label} ${f(x.amount)}`).join(" · ")}`, old ? "Phase saved" : `${name} added`);
@@ -3861,8 +3862,8 @@ function stepCard(p, r, s, all, ph) {
       ts.length ? el("details", { class: "pstep-tasks", open: s.status !== "paid" && ts.length <= 6 },
         el("summary", {}, `Pays for ${ts.length} task${ts.length > 1 ? "s" : ""} · ${done} done`),
         ts.map(t => el("div", { class: "ptask" + (t.done ? " done" : "") }, el("span", { class: "ptick" }, t.done ? "✓" : "○"), el("span", {}, t.text))))
-        : ph && ph.phase && !s.plast ? el("div", { class: "label" }, first ? "Paid before the work on this phase starts." : "A payment along the way for this phase.")
-        : !s.covers ? el("div", { class: "label" }, "Nothing linked to this payment yet." + (can ? (ph ? " Link the phase to a phase of the plan, or use Edit phase." : " Use Edit plan to say what it covers.") : "")) : null,
+        : ph && linkedPhases(ph).length && !s.plast ? el("div", { class: "label" }, first ? "Paid before the work on this phase starts." : "A payment along the way for this phase.")
+        : !s.covers && !ph ? el("div", { class: "label" }, "Nothing linked to this payment yet." + (can ? " Use Edit plan to say what it covers." : "")) : null,
       ask ? el("div", { class: "pstep-hint ok" }, "All the work this payment covers is done. Time to ask the client for it.") : null,
       early ? el("div", { class: "pstep-hint warn" }, `${done} of its task${done > 1 ? "s are" : " is"} already done, but this payment hasn't come in yet.`) : null,
       can && open ? el("div", { class: "row" }, el("button", { class: "btn small" + (s.status === "due" || ask || s.status === "late" ? " primary" : ""), onclick: () => { moneyForm = { pid: p.id, kind: "pay", step: s.step, amount: left / 100 }; render(); setTimeout(() => { const n = document.getElementById("mf-amount"); if (n) n.scrollIntoView({ block: "center", behavior: "smooth" }) }, 0) } }, `+ Record ${s.label}`)) : null));
