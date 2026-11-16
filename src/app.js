@@ -3660,7 +3660,7 @@ function renderMoney(box, p) {
 
   /* history */
   const hist = [];
-  for (const [id, x] of Object.entries(p.payments || {})) if (x) hist.push({ id, files: payFilesOf(x), coll: "payments", date: x.date, at: x.at, sign: "+", amount: x.amount, cur, rate: x.rate, text: `${x.stepLabel || { deposit: "Deposit", setup: "Setup fee", monthly: "Monthly fee " + monthLabel(x.month), installment: "Installment" }[x.kind] || "Payment"}${x.method ? " · " + x.method : ""}${x.inFund ? " · in the team fund" : x.heldBy ? " · with " + firstName(x.heldBy) : ""}`, note: [x.source, x.note].filter(Boolean).join(" · ") });
+  for (const [id, x] of Object.entries(p.payments || {})) if (x) hist.push({ id, files: payFilesOf(x), coll: "payments", date: x.date, at: x.at, sign: "+", amount: x.amount, cur, rate: x.rate, text: `${(r.alloc && r.alloc[id] && r.alloc[id].length ? r.alloc[id].map(o => r.alloc[id].length > 1 ? `${o.label} (${fmtCur(o.amount, cur)})` : o.label).join(" + ") : "") || x.stepLabel || { deposit: "Deposit", setup: "Setup fee", monthly: "Monthly fee " + monthLabel(x.month), installment: "Installment" }[x.kind] || "Payment"}${x.method ? " · " + x.method : ""}${x.inFund ? " · in the team fund" : x.heldBy ? " · with " + firstName(x.heldBy) : ""}`, note: [x.source, x.note].filter(Boolean).join(" · ") });
   for (const [id, x] of Object.entries(p.costs || {})) if (x) hist.push({ id, coll: "costs", date: x.date, at: x.at, sign: "−", amount: x.amount, text: `Cost: ${x.what || "spent"}${x.paidBy ? " · paid by " + firstName(x.paidBy) : ""}`, note: x.note });
   for (const [id, x] of Object.entries(p.payouts || {})) if (x) hist.push({ id, coll: "payouts", date: x.date, at: x.at, sign: "→", amount: x.amount, text: x.toPartner ? `Paid to ${(r.partner && r.partner.name) || x.toPartner} (partner)${x.from ? " by " + firstName(x.from) : ""}` : `Paid to ${firstName(x.to)}${x.from ? " by " + firstName(x.from) : ""}`, note: x.note });
   for (const [id, x] of Object.entries(p.ads || {})) if (x) hist.push({ id, coll: "ads", date: x.date, at: x.at, sign: x.kind === "spent" ? "−" : "+", amount: x.amount, text: x.kind === "spent" ? "Ad money spent on ads" : "Ad money from client", note: x.note, ad: true });
@@ -3750,6 +3750,15 @@ function phasesBlock(p, r) {
       el("div", { class: "row", style: "gap:8px" }, el("span", { class: "phase-n" }, `${i + 1}/${list.length}`), el("b", { style: "font-size:16px" }, ph.name || "Phase " + (i + 1)), el("span", { class: "mstat " + cls }, st), el("span", { class: "spacer" }), el("b", {}, f(toP(ph.price)))),
       el("div", { class: "label", style: "text-transform:none;letter-spacing:0" }, [link ? "Pays for the plan's phase: " + link.name : "Not linked to a phase of the plan", ph.agreed && got ? `${f(got)} paid · ${f(Math.max(0, toP(ph.price) - got))} left` : null].filter(Boolean).join(" · ")));
     if (ph.agreed) steps.forEach(x => card.append(stepCard(p, r, x, all, ph)));
+    const pt = (r.parts || {})[ph.id];
+    if (pt && pt.payments.length) card.append(el("details", { class: "pstep-tasks" }, el("summary", {}, `Money from this phase: ${f(pt.received)} came in`),
+      el("div", { style: "display:grid;gap:2px;margin-top:6px" }, pt.payments.map(x => el("div", { class: "hrow" }, el("span", { class: "hsign" }, "+"),
+        el("div", { class: "hmain" }, el("div", {}, x.step + (x.source ? " · " + x.source : "")), el("div", { class: "label" }, [fmtDate(x.date), x.method, x.note].filter(Boolean).join(" · "))),
+        el("span", { class: "hamt" }, f(x.amount))))),
+      el("div", { class: "label", style: "margin-top:6px;text-transform:none;letter-spacing:0" }, [
+        pt.fund ? `Team fund ${fmtEGP(pt.fund)}` : null,
+        ...Object.entries(pt.people).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([u, v]) => `${u === me ? "You" : firstName(u)} ${fmtEGP(v)}`),
+        r.holding ? "kept in the fund, not split yet" : !Object.values(pt.people).some(v => v > 0) && pt.received ? (r.byTasks ? "waiting for its tasks to be done" : "split once this phase is fully paid") : null].filter(Boolean).join(" · "))));
     else card.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Nothing is due until the client agrees to this phase. It's not part of the price yet."));
     if (can) card.append(el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
       !ph.agreed ? el("button", { class: "btn small primary", onclick: () => savePhases(p, list.map(x => x.id === ph.id ? { ...x, agreed: true, agreedAt: Date.now() } : x), `The client agreed to ${ph.name}: ${f(toP(ph.price))}`, `${ph.name} is agreed. Its deposit is due now`) }, "The client agreed") : null,
@@ -4484,6 +4493,21 @@ function renderMoneyPage() {
       el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, (s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label) + " · " + fmtCur(s.expected - s.received, p.money.currency))))) : null,
     !all.projects.length ? el("p", { style: "margin:0" }, "No deals yet. Set one up on a project's Money tab.") : null));
 
+  /* every deal, phase by phase: what came in, what went to the fund, and what's yours */
+  if (all.projects.length) {
+    const sec = el("section", { class: "idea", style: "gap:0" });
+    sec.append(el("div", { class: "mhead bypart" }, el("span", {}, "Project · phase"), el("span", {}, "Came in"), el("span", {}, "To the fund"), el("span", {}, "Yours")));
+    for (const { p, r } of all.projects.slice().sort((a, b) => b.r.receivedEGP - a.r.receivedEGP)) {
+      const parts = Object.values(r.parts || {}), cur = r.currency, mine = (r.people[me] || {}).earned || 0;
+      sec.append(el("button", { class: "mlink bypart top", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")),
+        el("span", {}, fmtEGP(r.receivedEGP)), el("span", {}, r.holding ? "kept: " + fmtEGP(r.holdAmt) : fmtEGP(r.fund)), el("span", {}, fmtEGP(mine))));
+      for (const pt of parts) sec.append(el("button", { class: "mlink bypart sub" + (pt.agreed ? "" : " later"), onclick: () => moneyGo(p) },
+        el("span", { class: "mname" }, "↳ " + pt.name + (pt.agreed ? (pt.received >= pt.price && pt.price ? " · paid" : ` · ${fmtN(pt.received)} of ${fmtCur(pt.price, cur)}`) : " · not agreed yet")),
+        el("span", {}, fmtEGP(pt.receivedEGP)), el("span", {}, r.holding ? "–" : fmtEGP(pt.fund)), el("span", {}, fmtEGP(pt.people[me] || 0))));
+    }
+    box.append(el("h2", { class: "sec-h" }, "By project and phase"), sec);
+  }
+
   /* deals at a glance */
   if (all.projects.length) box.append(el("h2", { class: "sec-h" }, "Deals"), el("section", { class: "idea", style: "gap:0" },
     all.projects.sort((a, b) => (b.r.late.length - a.r.late.length) || (a.r.proposal - b.r.proposal)).map(({ p, r }) => { const [st, cls] = moneyStatus(p, r), mine = r.people[me];
@@ -4510,10 +4534,16 @@ function renderFundTab(box, all, F) {
       el("div", {}, el("b", {}, fmtEGP(F.spent)), el("span", {}, "spent" + (F.extra ? ` \u00b7 ${fmtEGP(F.extra)} added by hand` : ""))),
       el("div", { class: runway != null && runway < 2 ? "late" : "" }, el("b", {}, runway == null ? "–" : runway > 24 ? "24+" : String(runway)), el("span", {}, runway == null ? "no subscriptions" : "months of subscriptions covered")))));
   if (isAdmin && fundForm === "spend") box.append(fundEntryForm(F));
+  { const src = all.projects.filter(({ r }) => r.fund > 0);
+    if (src.length) box.append(el("details", { class: "removed", style: "margin-top:12px" }, el("summary", {}, `Where the fund's money came from (${src.length} project${src.length > 1 ? "s" : ""})`),
+      el("section", { class: "idea", style: "gap:0;margin-top:8px" }, src.flatMap(({ p, r }) => [
+        el("button", { class: "mlink", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title), el("span", {}, fmtEGP(r.fund))),
+        ...Object.values(r.parts || {}).filter(pt => pt.fund).map(pt => el("button", { class: "mlink sub", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, "↳ " + pt.name), el("span", { class: "label" }, fmtEGP(pt.fund))))])))) }
   if (all.kept.length) box.append(el("section", { class: "idea", style: "margin-top:12px;gap:0" },
     el("div", { class: "row", style: "margin-bottom:4px" }, el("h3", {}, "Kept for projects"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(all.flow.kept))),
     el("p", { class: "label", style: "margin:0 0 6px;text-transform:none;letter-spacing:0" }, "Money the fund is holding for a project until its team decides the split. It's not in the fund's balance above and can't be spent on goals."),
-    all.kept.map(({ p, amt }) => el("button", { class: "mlink", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, fmtEGP(amt))))));
+    all.kept.flatMap(({ p, amt }) => { const r = moneyOf(p); return [el("button", { class: "mlink", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, fmtEGP(amt))),
+      ...Object.values(r.parts || {}).filter(pt => pt.receivedEGP).map(pt => el("button", { class: "mlink sub", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, "↳ " + pt.name), el("span", { class: "label" }, fmtEGP(pt.receivedEGP))))] })));
 
   /* the fund owes people who paid from their own pocket */
   if (F.owes.length) box.append(el("section", { class: "idea", style: "margin-top:12px;gap:0" }, el("div", { class: "row", style: "margin-bottom:6px" }, el("h3", {}, "The fund owes"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(F.owed))),

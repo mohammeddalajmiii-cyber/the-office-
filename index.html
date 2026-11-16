@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261116054658">
+<meta name="build" content="20261116055748">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -698,6 +698,10 @@ input,select,textarea{background-color:var(--field)}
 .whose{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13.5px;color:var(--muted)}.whose>span{display:inline-flex;align-items:center;gap:6px}.whose b{color:var(--ink);font-weight:600}
 .whose .av{width:20px;height:20px}.whose .stack .av{width:20px;height:20px}.whose.small{font-size:12.5px}.whose.small .av{width:18px;height:18px}
 .phasebox{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--field)}.phasebox.later{opacity:.8;border-style:dashed}
+.mlink.bypart{display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:8px;font-size:14px}.mlink.bypart>span:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+.mhead.bypart{grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr))}.mlink.bypart.top{font-weight:600}
+.mlink.bypart .mname{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+.mlink.sub{border-top:0;padding:4px 0 4px 10px;font-size:13px;color:var(--muted)}.mlink.sub.later{opacity:.7}
 .tipline{font-size:13px;color:var(--muted);margin:0}.tipline b{color:var(--ink)}
 @media (max-width:480px){.mtile{padding:8px 9px}.mtile b{font-size:15.5px}.pstep-top{grid-template-columns:auto minmax(0,1fr) auto}.pstep-top .mstat{grid-column:2/-1;justify-self:start}}
 .hrow{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
@@ -1361,7 +1365,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261116054658";
+const BUILD_ID = "20261116055748";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -1442,6 +1446,12 @@ function computeMoney(p, todayStr, rules, opts) {
     flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 }, planned: false, planOff: 0,
     byTasks, byFund, holding, holdAmt: 0, tasks: {}, taskHeld: 0, priced: 0, pricedOver: false };
   const person = u => res.people[u] || (res.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
+  // deals in phases: what came in, went to the fund and went to each person, phase by phase
+  res.parts = {};
+  if (phased) for (const ph of m.phases) if (ph) res.parts[ph.id] = { id: ph.id, name: ph.name || "Phase", agreed: !!ph.agreed, price: toP(ph.price), received: 0, receivedEGP: 0, fund: 0, people: {}, payments: [] };
+  const partOf = id => (id && res.parts[id]) || null;
+  const credit = (u, v, partId) => { person(u).earned += v; const pt = partOf(partId); if (pt) pt.people[u] = (pt.people[u] || 0) + v };
+  const fundInto = (partId, fn) => { const before = res.fund; fn(); const pt = partOf(partId); if (pt) pt.fund += res.fund - before };
 
   // costs queue: paid back in order
   const queue = costs.map(c => ({ by: c.paidBy, left: toP(c.amount) }));
@@ -1477,18 +1487,18 @@ function computeMoney(p, todayStr, rules, opts) {
 
   // ---- sharing by task prices ----
   // the money that isn't covered by a priced task: by the % shares, or equally to the project's team
-  const shareRest = (amt, people) => {
+  const shareRest = (amt, people, partId) => {
     if (amt <= 0) return;
     const sh = Object.values(m.shares || {}).some(v => Number(v) > 0) ? m.shares : team.length ? Object.fromEntries(team.map(u => [u, 1])) : null;
     if (!sh) { if (people === res.people) res.unassigned += amt; else people.__none = (people.__none || 0) + amt; return }
-    for (const [u, v] of Object.entries(splitByShares(amt, sh))) { const x = people[u] || (people[u] = { earned: 0, back: 0, paid: 0, balance: 0 }); x.earned += v }
+    for (const [u, v] of Object.entries(splitByShares(amt, sh))) { if (people === res.people) { credit(u, v, partId); continue } const x = people[u] || (people[u] = { earned: 0, back: 0, paid: 0, balance: 0 }); x.earned += v }
   };
   function taskSplit() {
     const prices = m.prices || {}, tmap = {};
     for (const field of ["tasks", "steps"]) for (const [id, t] of Object.entries(p[field] || {})) if (t && t.text)
       tmap[id] = { id, text: t.text, done: !!t.done, who: [...new Set([t.owner, ...Object.entries(t.helpers || {}).filter(([, v]) => v).map(([u]) => u)].filter(Boolean))] };
     const plan = planOf(m, p), total = toP(m.price);
-    const buckets = plan.length ? plan.map(st => ({ label: st.label || "", amt: toP(st.amount), tasks: (st.tasks || []).filter(id => tmap[id]) })) : [{ label: "", amt: total, tasks: [] }];
+    const buckets = plan.length ? plan.map(st => ({ label: st.label || "", part: st.part || "", amt: toP(st.amount), tasks: (st.tasks || []).filter(id => tmap[id]) })) : [{ label: "", amt: total, tasks: [] }];
     if (plan.length) { const off = total - buckets.reduce((a, b) => a + b.amt, 0); buckets[buckets.length - 1].amt = Math.max(0, buckets[buckets.length - 1].amt + off) }
     const linked = new Set(buckets.flatMap(b => b.tasks)), lastB = buckets[buckets.length - 1], later = laterTasks(m, p);
     for (const id of Object.keys(tmap)) if (!linked.has(id) && !later.has(id)) lastB.tasks.push(id);
@@ -1503,8 +1513,7 @@ function computeMoney(p, todayStr, rules, opts) {
       let used = 0;
       takes.forEach(([b, take], i) => {
         const part = i === takes.length - 1 ? inEGP - used : Math.round(inEGP * take / amt); used += part;
-        const withFinder = true;
-        splitProfit(reimburse(part), null, withFinder, null, rest => { b.pot += rest });
+        fundInto(b.part, () => splitProfit(reimburse(part), null, true, null, rest => { b.pot += rest }));
       });
     }
     // what each task gets from its payment's money
@@ -1516,11 +1525,11 @@ function computeMoney(p, todayStr, rules, opts) {
         const share = shareOf(b, b.pot, v); given += share;
         const info = res.tasks[id] = { price: v, share, est: 0, step: b.label, done: t.done, who: t.who, status: "" };
         if (!share) info.status = "unpaid";
-        else if (t.done && t.who.length) { info.status = "earned"; for (const [u, a] of Object.entries(splitByShares(share, Object.fromEntries(t.who.map(u => [u, 1]))))) person(u).earned += a }
+        else if (t.done && t.who.length) { info.status = "earned"; for (const [u, a] of Object.entries(splitByShares(share, Object.fromEntries(t.who.map(u => [u, 1]))))) credit(u, a, b.part) }
         else if (t.done) { info.status = "nobody"; res.unassigned += share }
         else { info.status = "waiting"; res.taskHeld += share }
       }
-      shareRest(b.pot - given, res.people);
+      shareRest(b.pot - given, res.people, b.part);
     }
     res.held = res.taskHeld;
     // what it looks like when the client has paid everything and every task is done (assuming no more costs)
@@ -1564,10 +1573,10 @@ function computeMoney(p, todayStr, rules, opts) {
       const amt = toP(x.amount), inEGP = egp(x); if (amt <= 0) continue;
       let left = amt, used = 0; const takes = [];
       parts.forEach((b, i) => { if (left <= 0) return; const take = i === parts.length - 1 ? left : Math.min(left, Math.max(0, b.amt - b.got)); if (take > 0) { b.got += take; left -= take; takes.push([b, take]) } });
-      takes.forEach(([b, take], i) => { const part = i === takes.length - 1 ? inEGP - used : Math.round(inEGP * take / amt); used += part; splitProfit(reimburse(part), null, true, null, rest => { b.pot += rest }) });
+      takes.forEach(([b, take], i) => { const part = i === takes.length - 1 ? inEGP - used : Math.round(inEGP * take / amt); used += part; fundInto(b.id, () => splitProfit(reimburse(part), null, true, null, rest => { b.pot += rest })) });
     }
     for (const b of parts) {
-      if (b.amt > 0 && b.got >= b.amt) { let given = 0; for (const [u, v] of Object.entries(splitByShares(b.pot, m.shares))) { person(u).earned += v; given += v } res.unassigned += b.pot - given }
+      if (b.amt > 0 && b.got >= b.amt) { let given = 0; for (const [u, v] of Object.entries(splitByShares(b.pot, m.shares))) { credit(u, v, b.id); given += v } res.unassigned += b.pot - given }
       else { res.held += b.pot; if (b.pot || b.amt) res.pending = true }
     }
     if (res.pending) {
@@ -1648,6 +1657,18 @@ function computeMoney(p, todayStr, rules, opts) {
     res.planned = true;
   } else if (type === "one" && res.expected > 0) {
     res.schedule.push({ label: "Total", month: nowM, expected: res.expected, received: res.received, status: res.received >= res.expected ? "paid" : "due" });
+  }
+  // which payment (deposit, final...) and which phase each payment went to, in the order they fill
+  res.alloc = {};
+  if (res.planned) {
+    const caps = res.schedule.map(s => ({ s, left: s.expected }));
+    for (const x of payments) {
+      let left = toP(x.amount); const out = res.alloc[x.id] = []; if (left <= 0) continue;
+      caps.forEach((c, i) => { if (left <= 0) return; const take = i === caps.length - 1 ? left : Math.min(left, Math.max(0, c.left)); if (take > 0) { c.left -= take; left -= take; out.push({ step: c.s.step, label: c.s.label, short: c.s.short, part: c.s.part, amount: take }) } });
+      const inEGP = egp(x), amt = toP(x.amount); let used = 0;
+      out.forEach((o, i) => { o.egp = i === out.length - 1 ? inEGP - used : Math.round(inEGP * o.amount / amt); used += o.egp;
+        const pt = partOf(o.part); if (pt) { pt.received += o.amount; pt.receivedEGP += o.egp; pt.payments.push({ id: x.id, date: x.date || "", amount: o.amount, step: o.short, method: x.method || "", source: x.source || "", note: x.note || "" }) } });
+    }
   }
   // a proposal hasn't been agreed yet: nothing is due or late, and nothing is expected this month
   if (proposal) for (const s of res.schedule) if (s.status === "late" || s.status === "due") s.status = "upcoming";
@@ -7158,7 +7179,7 @@ function renderMoney(box, p) {
 
   /* history */
   const hist = [];
-  for (const [id, x] of Object.entries(p.payments || {})) if (x) hist.push({ id, files: payFilesOf(x), coll: "payments", date: x.date, at: x.at, sign: "+", amount: x.amount, cur, rate: x.rate, text: `${x.stepLabel || { deposit: "Deposit", setup: "Setup fee", monthly: "Monthly fee " + monthLabel(x.month), installment: "Installment" }[x.kind] || "Payment"}${x.method ? " · " + x.method : ""}${x.inFund ? " · in the team fund" : x.heldBy ? " · with " + firstName(x.heldBy) : ""}`, note: [x.source, x.note].filter(Boolean).join(" · ") });
+  for (const [id, x] of Object.entries(p.payments || {})) if (x) hist.push({ id, files: payFilesOf(x), coll: "payments", date: x.date, at: x.at, sign: "+", amount: x.amount, cur, rate: x.rate, text: `${(r.alloc && r.alloc[id] && r.alloc[id].length ? r.alloc[id].map(o => r.alloc[id].length > 1 ? `${o.label} (${fmtCur(o.amount, cur)})` : o.label).join(" + ") : "") || x.stepLabel || { deposit: "Deposit", setup: "Setup fee", monthly: "Monthly fee " + monthLabel(x.month), installment: "Installment" }[x.kind] || "Payment"}${x.method ? " · " + x.method : ""}${x.inFund ? " · in the team fund" : x.heldBy ? " · with " + firstName(x.heldBy) : ""}`, note: [x.source, x.note].filter(Boolean).join(" · ") });
   for (const [id, x] of Object.entries(p.costs || {})) if (x) hist.push({ id, coll: "costs", date: x.date, at: x.at, sign: "−", amount: x.amount, text: `Cost: ${x.what || "spent"}${x.paidBy ? " · paid by " + firstName(x.paidBy) : ""}`, note: x.note });
   for (const [id, x] of Object.entries(p.payouts || {})) if (x) hist.push({ id, coll: "payouts", date: x.date, at: x.at, sign: "→", amount: x.amount, text: x.toPartner ? `Paid to ${(r.partner && r.partner.name) || x.toPartner} (partner)${x.from ? " by " + firstName(x.from) : ""}` : `Paid to ${firstName(x.to)}${x.from ? " by " + firstName(x.from) : ""}`, note: x.note });
   for (const [id, x] of Object.entries(p.ads || {})) if (x) hist.push({ id, coll: "ads", date: x.date, at: x.at, sign: x.kind === "spent" ? "−" : "+", amount: x.amount, text: x.kind === "spent" ? "Ad money spent on ads" : "Ad money from client", note: x.note, ad: true });
@@ -7248,6 +7269,15 @@ function phasesBlock(p, r) {
       el("div", { class: "row", style: "gap:8px" }, el("span", { class: "phase-n" }, `${i + 1}/${list.length}`), el("b", { style: "font-size:16px" }, ph.name || "Phase " + (i + 1)), el("span", { class: "mstat " + cls }, st), el("span", { class: "spacer" }), el("b", {}, f(toP(ph.price)))),
       el("div", { class: "label", style: "text-transform:none;letter-spacing:0" }, [link ? "Pays for the plan's phase: " + link.name : "Not linked to a phase of the plan", ph.agreed && got ? `${f(got)} paid · ${f(Math.max(0, toP(ph.price) - got))} left` : null].filter(Boolean).join(" · ")));
     if (ph.agreed) steps.forEach(x => card.append(stepCard(p, r, x, all, ph)));
+    const pt = (r.parts || {})[ph.id];
+    if (pt && pt.payments.length) card.append(el("details", { class: "pstep-tasks" }, el("summary", {}, `Money from this phase: ${f(pt.received)} came in`),
+      el("div", { style: "display:grid;gap:2px;margin-top:6px" }, pt.payments.map(x => el("div", { class: "hrow" }, el("span", { class: "hsign" }, "+"),
+        el("div", { class: "hmain" }, el("div", {}, x.step + (x.source ? " · " + x.source : "")), el("div", { class: "label" }, [fmtDate(x.date), x.method, x.note].filter(Boolean).join(" · "))),
+        el("span", { class: "hamt" }, f(x.amount))))),
+      el("div", { class: "label", style: "margin-top:6px;text-transform:none;letter-spacing:0" }, [
+        pt.fund ? `Team fund ${fmtEGP(pt.fund)}` : null,
+        ...Object.entries(pt.people).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([u, v]) => `${u === me ? "You" : firstName(u)} ${fmtEGP(v)}`),
+        r.holding ? "kept in the fund, not split yet" : !Object.values(pt.people).some(v => v > 0) && pt.received ? (r.byTasks ? "waiting for its tasks to be done" : "split once this phase is fully paid") : null].filter(Boolean).join(" · "))));
     else card.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Nothing is due until the client agrees to this phase. It's not part of the price yet."));
     if (can) card.append(el("div", { class: "row", style: "gap:8px" }, el("span", { class: "spacer" }),
       !ph.agreed ? el("button", { class: "btn small primary", onclick: () => savePhases(p, list.map(x => x.id === ph.id ? { ...x, agreed: true, agreedAt: Date.now() } : x), `The client agreed to ${ph.name}: ${f(toP(ph.price))}`, `${ph.name} is agreed. Its deposit is due now`) }, "The client agreed") : null,
@@ -7982,6 +8012,21 @@ function renderMoneyPage() {
       el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, (s.label.match(/^\d{4}-\d{2}$/) ? monthLabel(s.label) : s.label) + " · " + fmtCur(s.expected - s.received, p.money.currency))))) : null,
     !all.projects.length ? el("p", { style: "margin:0" }, "No deals yet. Set one up on a project's Money tab.") : null));
 
+  /* every deal, phase by phase: what came in, what went to the fund, and what's yours */
+  if (all.projects.length) {
+    const sec = el("section", { class: "idea", style: "gap:0" });
+    sec.append(el("div", { class: "mhead bypart" }, el("span", {}, "Project · phase"), el("span", {}, "Came in"), el("span", {}, "To the fund"), el("span", {}, "Yours")));
+    for (const { p, r } of all.projects.slice().sort((a, b) => b.r.receivedEGP - a.r.receivedEGP)) {
+      const parts = Object.values(r.parts || {}), cur = r.currency, mine = (r.people[me] || {}).earned || 0;
+      sec.append(el("button", { class: "mlink bypart top", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")),
+        el("span", {}, fmtEGP(r.receivedEGP)), el("span", {}, r.holding ? "kept: " + fmtEGP(r.holdAmt) : fmtEGP(r.fund)), el("span", {}, fmtEGP(mine))));
+      for (const pt of parts) sec.append(el("button", { class: "mlink bypart sub" + (pt.agreed ? "" : " later"), onclick: () => moneyGo(p) },
+        el("span", { class: "mname" }, "↳ " + pt.name + (pt.agreed ? (pt.received >= pt.price && pt.price ? " · paid" : ` · ${fmtN(pt.received)} of ${fmtCur(pt.price, cur)}`) : " · not agreed yet")),
+        el("span", {}, fmtEGP(pt.receivedEGP)), el("span", {}, r.holding ? "–" : fmtEGP(pt.fund)), el("span", {}, fmtEGP(pt.people[me] || 0))));
+    }
+    box.append(el("h2", { class: "sec-h" }, "By project and phase"), sec);
+  }
+
   /* deals at a glance */
   if (all.projects.length) box.append(el("h2", { class: "sec-h" }, "Deals"), el("section", { class: "idea", style: "gap:0" },
     all.projects.sort((a, b) => (b.r.late.length - a.r.late.length) || (a.r.proposal - b.r.proposal)).map(({ p, r }) => { const [st, cls] = moneyStatus(p, r), mine = r.people[me];
@@ -8008,10 +8053,16 @@ function renderFundTab(box, all, F) {
       el("div", {}, el("b", {}, fmtEGP(F.spent)), el("span", {}, "spent" + (F.extra ? ` \u00b7 ${fmtEGP(F.extra)} added by hand` : ""))),
       el("div", { class: runway != null && runway < 2 ? "late" : "" }, el("b", {}, runway == null ? "–" : runway > 24 ? "24+" : String(runway)), el("span", {}, runway == null ? "no subscriptions" : "months of subscriptions covered")))));
   if (isAdmin && fundForm === "spend") box.append(fundEntryForm(F));
+  { const src = all.projects.filter(({ r }) => r.fund > 0);
+    if (src.length) box.append(el("details", { class: "removed", style: "margin-top:12px" }, el("summary", {}, `Where the fund's money came from (${src.length} project${src.length > 1 ? "s" : ""})`),
+      el("section", { class: "idea", style: "gap:0;margin-top:8px" }, src.flatMap(({ p, r }) => [
+        el("button", { class: "mlink", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title), el("span", {}, fmtEGP(r.fund))),
+        ...Object.values(r.parts || {}).filter(pt => pt.fund).map(pt => el("button", { class: "mlink sub", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, "↳ " + pt.name), el("span", { class: "label" }, fmtEGP(pt.fund))))])))) }
   if (all.kept.length) box.append(el("section", { class: "idea", style: "margin-top:12px;gap:0" },
     el("div", { class: "row", style: "margin-bottom:4px" }, el("h3", {}, "Kept for projects"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(all.flow.kept))),
     el("p", { class: "label", style: "margin:0 0 6px;text-transform:none;letter-spacing:0" }, "Money the fund is holding for a project until its team decides the split. It's not in the fund's balance above and can't be spent on goals."),
-    all.kept.map(({ p, amt }) => el("button", { class: "mlink", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, fmtEGP(amt))))));
+    all.kept.flatMap(({ p, amt }) => { const r = moneyOf(p); return [el("button", { class: "mlink", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, p.title + (p.money.client ? " · " + p.money.client : "")), el("span", {}, fmtEGP(amt))),
+      ...Object.values(r.parts || {}).filter(pt => pt.receivedEGP).map(pt => el("button", { class: "mlink sub", onclick: () => moneyGo(p) }, el("span", { class: "mname" }, "↳ " + pt.name), el("span", { class: "label" }, fmtEGP(pt.receivedEGP))))] })));
 
   /* the fund owes people who paid from their own pocket */
   if (F.owes.length) box.append(el("section", { class: "idea", style: "margin-top:12px;gap:0" }, el("div", { class: "row", style: "margin-bottom:6px" }, el("h3", {}, "The fund owes"), el("span", { class: "spacer" }), el("span", { class: "label" }, fmtEGP(F.owed))),
