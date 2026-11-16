@@ -702,6 +702,16 @@ input,select,textarea{background-color:var(--field)}
 .mhead.bypart{grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr))}.mlink.bypart.top{font-weight:600}
 .mlink.bypart .mname{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
 .mlink.sub{border-top:0;padding:4px 0 4px 10px;font-size:13px;color:var(--muted)}.mlink.sub.later{opacity:.7}
+.moneyacts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}.moneyacts .moneyin{flex:1 1 220px;font-size:16px;padding:12px 18px}
+.fold{margin:0 0 12px;border:1px solid var(--line);border-radius:18px;background:var(--surface)}.fold>summary{cursor:pointer;list-style:none;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:14px 16px}
+.fold>summary::-webkit-details-marker{display:none}.fold>summary::before{content:"\203A";display:inline-block;transition:transform .2s;color:var(--muted);font-weight:700}.fold[open]>summary::before{transform:rotate(90deg)}
+.fold>summary b{font-size:16px}.fold>summary .label{text-transform:none;letter-spacing:0}.fold .infold{border:0;background:none;box-shadow:none;margin:0;padding-top:0}
+.setup{gap:14px}.setq{display:grid;gap:8px}.setq-h{display:flex;gap:8px;align-items:center}.setq-h b{font-size:15.5px}
+.bigamt{font-size:22px;font-weight:700;padding:12px 14px}
+.pickrow{display:flex;flex-wrap:wrap;gap:6px}.pickchip{display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;border:1px solid var(--line);background:var(--field);color:var(--ink);border-radius:12px;padding:8px 12px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.pickchip small{font-weight:500;color:var(--muted);font-size:12px}.pickchip[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft)}
+.moneyinform{gap:10px}.moneyinform .tlabel{margin-top:4px}
+.moreopts{border-top:1px solid var(--line);padding-top:8px}.moreopts>summary{cursor:pointer;font-size:13.5px;font-weight:600;color:var(--muted);padding:4px 0}.moreopts[open]{display:grid;gap:10px}
 .tipline{font-size:13px;color:var(--muted);margin:0}.tipline b{color:var(--ink)}
 @media (max-width:480px){.mtile{padding:8px 9px}.mtile b{font-size:15.5px}.pstep-top{grid-template-columns:auto minmax(0,1fr) auto}.pstep-top .mstat{grid-column:2/-1;justify-self:start}}
 .hrow{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
