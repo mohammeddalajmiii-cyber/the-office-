@@ -398,10 +398,15 @@ details.removed .idea{opacity:.75}
 .att-name{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .att-size{font:500 11px/1.4 var(--body);color:var(--muted)}
 .att-file .act{flex:none}
-.lightbox{position:fixed;inset:0;z-index:50;background:rgba(10,14,18,.86);display:grid;grid-template-rows:auto 1fr;padding:calc(12px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));gap:10px}
-.lb-bar{display:flex;gap:8px;align-items:center;color:#fff}
-.lb-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.lb-body{display:grid;place-items:center;min-height:0;color:#fff}
+.lightbox{position:fixed;inset:0;z-index:50;background:rgba(10,14,18,.86);display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);overflow:hidden;overscroll-behavior:contain;padding:calc(12px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));gap:10px}
+.lb-bar{display:flex;gap:8px;align-items:center;color:#fff;min-width:0}
+.lb-bar .btn{flex:none}
+.lb-x{width:40px;height:40px;padding:0;border-radius:50%;display:grid;place-items:center;font-size:18px;line-height:1}
+html.lb-open,html.lb-open body{overflow:hidden;overscroll-behavior:none}
+.lb-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 0}
+.lb-body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);place-items:center;min-height:0;min-width:0;overflow:hidden;color:#fff}
+.lb-body.lb-img{touch-action:none}
+.lb-body.lb-img img{transform-origin:center center;will-change:transform;-webkit-user-drag:none;user-select:none;-webkit-user-select:none}
 .lb-body img,.lb-body video{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
 .lb-body.lb-doc{display:block;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-top:10px}
 .lb-pages{display:flex;flex-direction:column;align-items:center;gap:12px}

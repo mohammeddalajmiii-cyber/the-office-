@@ -2221,15 +2221,69 @@ async function openLinkViewer(url, label, pv) {
   try { await showPdf(pv.pdf, body, lb) }
   catch { if (!lb.hidden) frame("https://docs.google.com/viewer?embedded=true&url=" + encodeURIComponent(pv.pdf)) }   // the site doesn't let us read it directly
 }
+// Photo viewer gestures, like WhatsApp: pinch or double-tap to zoom, drag to move a zoomed photo, drag a fitted photo down to close
+function enableZoom(body, lb, close) {
+  body.classList.add("lb-img");
+  const pts = new Map(); let s = 1, x = 0, y = 0, base = null, moved = false, downAt = 0, lastTap = 0, dragY = 0;
+  const img = () => body.querySelector("img");
+  const apply = anim => { const i = img(); if (!i) return; i.style.transition = anim ? "transform .2s ease" : "none"; i.style.transform = `translate(${x}px,${y}px) scale(${s})` };
+  const clamp = () => { const i = img(); if (!i) return; const mx = Math.max(0, (i.offsetWidth * s - body.clientWidth) / 2), my = Math.max(0, (i.offsetHeight * s - body.clientHeight) / 2); x = Math.min(mx, Math.max(-mx, x)); y = Math.min(my, Math.max(-my, y)) };
+  const rel = p => { const r = body.getBoundingClientRect(); return { x: p.x - (r.left + r.width / 2), y: p.y - (r.top + r.height / 2) } };
+  const mid = () => { const a = [...pts.values()]; return a.length > 1 ? { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 } : { x: a[0].x, y: a[0].y } };
+  const dist = () => { const a = [...pts.values()]; return a.length > 1 ? Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) : 0 };
+  const snap = () => { base = { s, x, y, c: mid(), d: dist() } };
+  const zoomAt = (p, ns) => { const r = rel(p); ns = Math.min(5, Math.max(1, ns)); x = r.x - (r.x - x) / s * ns; y = r.y - (r.y - y) / s * ns; s = ns; if (s === 1) { x = 0; y = 0 } clamp() };
+  body.addEventListener("lb-reset", () => { s = 1; x = 0; y = 0; dragY = 0; apply(false) });
+  body.addEventListener("pointerdown", e => {
+    if (e.target.closest("button, a")) return;
+    try { body.setPointerCapture(e.pointerId) } catch { }
+    if (!pts.size) { moved = false; downAt = Date.now(); dragY = 0 }
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); snap();
+    if (pts.size > 1) moved = true;
+  });
+  body.addEventListener("pointermove", e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size >= 2 && base.d) {
+      moved = true;
+      const c = rel(mid()), c0 = rel(base.c), ns = Math.min(5, Math.max(1, base.s * dist() / base.d));
+      x = c.x - (c0.x - base.x) / base.s * ns; y = c.y - (c0.y - base.y) / base.s * ns; s = ns; clamp(); apply(false);
+    } else if (pts.size === 1) {
+      const c = mid(), dx = c.x - base.c.x, dy = c.y - base.c.y;
+      if (Math.hypot(dx, dy) > 8) moved = true;
+      if (s > 1) { x = base.x + dx; y = base.y + dy; clamp(); apply(false) }
+      else if (moved) { dragY = dy; y = dy; lb.style.opacity = String(1 - Math.min(.6, Math.abs(dy) / 450)); apply(false) }
+    }
+  });
+  const up = e => {
+    if (!pts.has(e.pointerId)) return;
+    const p = { x: e.clientX, y: e.clientY }; pts.delete(e.pointerId);
+    if (pts.size) { snap(); return }
+    if (s < 1.05) { s = 1; x = 0; y = 0 }
+    if (s === 1 && Math.abs(dragY) > 110) { close(); return }
+    lb.style.opacity = ""; dragY = 0;
+    if (s === 1) y = 0;
+    if (!moved && Date.now() - downAt < 300 && e.type === "pointerup") {
+      if (Date.now() - lastTap < 320) { lastTap = 0; zoomAt(p, s > 1 ? 1 : 2.5); apply(true); return }
+      lastTap = Date.now();
+    }
+    clamp(); apply(true);
+  };
+  body.addEventListener("pointerup", up); body.addEventListener("pointercancel", up);
+  body.addEventListener("wheel", e => { e.preventDefault(); zoomAt({ x: e.clientX, y: e.clientY }, s * (e.deltaY < 0 ? 1.2 : 1 / 1.2)); apply(false) }, { passive: false });
+}
 async function openViewer(f) {
-  const lb = $("#lightbox"); lb.hidden = false;
-  const body = el("div", { class: "lb-body" }, f.thumb ? el("img", { src: f.thumb, alt: f.name }) : el("p", {}, "Loading\u2026"));
-  const close = () => { lb.hidden = true; lb.replaceChildren(); document.removeEventListener("keydown", esc) };
+  const lb = $("#lightbox"); lb.hidden = false; lb.style.opacity = "";
+  const body = el("div", { class: "lb-body" }, f.thumb ? el("img", { src: f.thumb, alt: f.name, draggable: false }) : el("p", {}, "Loading\u2026"));
+  const close = () => { lb.hidden = true; lb.style.opacity = ""; lb.replaceChildren(); document.removeEventListener("keydown", esc) };
   const esc = e => { if (e.key === "Escape") close() };
   document.addEventListener("keydown", esc);
-  lb.replaceChildren(el("div", { class: "lb-bar" }, el("span", { class: "lb-name" }, f.name), el("span", { class: "spacer" }),
-    el("button", { class: "btn", onclick: () => downloadFile(f) }, "Download"), el("button", { class: "btn", onclick: close }, "Close")), body);
+  lb.replaceChildren(el("div", { class: "lb-bar" },
+    el("button", { class: "btn lb-x", "aria-label": "Close", title: "Close", onclick: close }, "\u2715"),
+    el("span", { class: "lb-name" }, f.name),
+    el("button", { class: "btn", onclick: () => downloadFile(f) }, "Download")), body);
   lb.onclick = e => { if (e.target === lb) close() };
+  if (isPic(f) && !isPdf(f)) enableZoom(body, lb, close);
   try {
     const url = await loadFile(f);
     if (lb.hidden) return;
@@ -2241,10 +2295,17 @@ async function openViewer(f) {
     }
     const media = f.type.startsWith("video/") ? el("video", { src: url, controls: true, autoplay: true, playsinline: true })
       : f.type.startsWith("audio/") ? el("audio", { src: url, controls: true, autoplay: true })
-      : el("img", { src: url, alt: f.name });
-    body.replaceChildren(media);
+      : el("img", { src: url, alt: f.name, draggable: false });
+    body.replaceChildren(media); body.dispatchEvent(new Event("lb-reset"));
   } catch { body.replaceChildren(el("p", {}, "This file couldn't be shown here. Tap Download to open it on your device.")) }
 }
+// While the viewer is open the page behind it must not move, scroll or zoom
+(() => {
+  const lb = document.getElementById("lightbox");
+  new MutationObserver(() => document.documentElement.classList.toggle("lb-open", !lb.hidden)).observe(lb, { attributes: true, attributeFilter: ["hidden"] });
+  lb.addEventListener("touchmove", e => { if (!e.target.closest(".lb-doc")) e.preventDefault() }, { passive: false });
+  lb.addEventListener("gesturestart", e => e.preventDefault());
+})();
 
 function jumpTo(id) {
   const n = document.getElementById("msg-" + id); if (!n) return;
