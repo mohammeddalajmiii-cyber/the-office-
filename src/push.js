@@ -140,6 +140,12 @@ function pushAlertsFor(u) {
     if (p.status === "completed" && p.completedBy === me) add("done:" + p.id, p.completedAt, `Marked ${p.title} as completed`, "projects-done");
     const pl = (p.planners || {})[u];
     if (pl && typeof pl === "object" && pl.by === me) add("planner:" + p.id, pl.at, `Made you a planner of ${p.title}`, "plan-" + p.id);
+    if (isProj(p)) {
+      const iv = (p.invites || {})[u]; if (iv && iv.by === me) add("inv:" + p.id + ":" + iv.at, iv.at, `Invited you to join the team of ${p.title}`, "project-" + p.id);
+      const jn = (p.joined || {})[u]; if (jn && jn.by === me) add("in:" + p.id + ":" + jn.at, jn.at, jn.vote ? `Made ${p.title} a project. You voted Keep, so you're on its team` : `Accepted you onto the team of ${p.title}`, "project-" + p.id);
+      const rq = (p.joinReqs || {})[me]; if (rq && rq.at && uPlans(p)) add("ask:" + p.id + ":" + me + ":" + rq.at, rq.at, `Wants to join the team of ${p.title}`, "project-" + p.id);
+      const mj = (p.joined || {})[me]; if (mj && mj.inv === u) add("acc:" + p.id + ":" + me + ":" + mj.at, mj.at, `Accepted your invite and joined the team of ${p.title}`, "project-" + p.id);
+    }
     if (p.status !== "approved") continue;
     for (const t of tasksOf(p)) {
       if (inCheck(t) && (t.checker === u || (t.checker === "planners" && uPlans(p))) && t.review.by === me) add("chk:" + t.id + ":" + t.review.at, t.review.at, `Finished "${t.text}". Please check it (${p.title})`, taskLink(p, t));

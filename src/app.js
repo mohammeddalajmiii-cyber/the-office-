@@ -471,15 +471,19 @@ function projectSettings(p, { planner, joined, done }) {
   const members = teamOf(p), pls = plannerIds(p);
   const boss = isAdmin || p.author === me;
   const inv = invitesOf(p), reqs = joinReqsOf(p);
-  const others = teamIds().filter(u => !members.includes(u) && !inv.some(x => x.u === u));
+  const sending = teamIds().filter(u => invSending.has(p.id + ":" + u) && !inv.some(x => x.u === u) && !members.includes(u));
+  const others = teamIds().filter(u => !members.includes(u) && !inv.some(x => x.u === u) && !sending.includes(u));
   set.append(group("People", "Planners change the plan, tasks and money, and accept who joins. The team is everyone working on it: only they take tasks and get paid from it.",
     plannersRow(p),
     el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Team:",
       members.map(u => el("span", { class: "planner" }, av(u), name(u), pls.includes(u) ? el("span", { class: "label" }, "planner") : null,
         planner && u !== me && u !== p.author && (!pls.includes(u) || boss) ? el("button", { class: "x", "aria-label": "Take " + name(u) + " off the team", onclick: () => offTeam(p, u, `${name(u)} is off this project's team`) }, "✕") : null)),
-      planner && others.length ? el("select", { class: "mini", "aria-label": "Invite someone to the team", onchange: e => { const u = e.target.value; if (u) inviteToTeam(p, u) } },
-        el("option", { value: "" }, "+ Invite someone"), others.map(u => el("option", { value: u }, name(u) + ((p.joinReqs || {})[u] ? " (asked to join)" : "")))) : null),
-    inv.length ? el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Invited, waiting for them to accept:",
+      planner && others.length && invitePick !== p.id ? el("button", { class: "btn small", onclick: () => { invitePick = p.id; render() } }, "+ Invite someone") : null),
+    planner && others.length && invitePick === p.id ? el("div", { class: "row invpick", style: "gap:6px;font-size:13px;color:var(--muted)" }, "Tap who to invite:",
+      others.map(u => el("button", { class: "planner invbtn", onclick: () => inviteToTeam(p, u) }, av(u), name(u), (p.joinReqs || {})[u] ? el("span", { class: "label" }, "asked to join") : null)),
+      el("button", { class: "linkbtn", onclick: () => { invitePick = null; render() } }, "Done")) : null,
+    inv.length || sending.length ? el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Invited, waiting for them to accept:",
+      sending.map(u => el("span", { class: "planner soft" }, av(u), name(u), el("span", { class: "label" }, "sending…"))),
       inv.map(x => el("span", { class: "planner" }, av(x.u), name(x.u), planner ? el("button", { class: "x", "aria-label": "Take back the invite for " + name(x.u), onclick: () => cancelInvite(p, x.u) }, "✕") : null))) : null,
     planner && reqs.length ? el("div", { class: "row", style: "gap:8px;font-size:13px;color:var(--muted)" }, "Asked to join:",
       reqs.map(x => el("span", { class: "planner" }, av(x.u), name(x.u), el("button", { class: "linkbtn", onclick: () => acceptAsk(p, x.u) }, "Accept"), el("button", { class: "x", "aria-label": "Say no to " + name(x.u), onclick: () => declineAsk(p, x.u) }, "✕")))) : null,
@@ -1816,12 +1820,20 @@ const cancelAsk = p => write(() => upd(p.id, { ["joinReqs." + me]: DEL() }), "Re
 const addToTeam = (p, u, ok) => write(() => upd(p.id, { ["members." + u]: true, ["joined." + u]: { by: me, at: Date.now() }, ["joinReqs." + u]: DEL(), ["invites." + u]: DEL() }), ok);
 const acceptAsk = (p, u) => addToTeam(p, u, `${firstName(u)} is on the team now`);
 const declineAsk = (p, u) => write(() => upd(p.id, { ["joinReqs." + u]: DEL() }), `Said no to ${firstName(u)}`);
+let invitePick = null;   // the project whose "who to invite" list is open
+const invSending = new Set();   // "<project>:<person>" invites on their way to the database
 function inviteToTeam(p, u) {
   if ((p.joinReqs || {})[u]) return acceptAsk(p, u);   // they already asked: just let them in
-  write(() => upd(p.id, { ["invites." + u]: { by: me, at: Date.now() } }), `Invited ${firstName(u)}. They join when they accept`);
+  const k = p.id + ":" + u; if (invSending.has(k)) return;
+  invSending.add(k); render();
+  toast(`Invited ${firstName(u)}. They get an alert and join when they accept`);
+  write(() => upd(p.id, { ["invites." + u]: { by: me, at: Date.now() } })).then(() => { invSending.delete(k); render() });
 }
 const cancelInvite = (p, u) => write(() => upd(p.id, { ["invites." + u]: DEL() }), "Invite taken back");
-const acceptInvite = p => addToTeam(p, me, "You're on the team now");
+function acceptInvite(p) {
+  const iv = (p.invites || {})[me];
+  write(() => upd(p.id, { ["members." + me]: true, ["joined." + me]: { by: me, at: Date.now(), ...(iv && iv.by ? { inv: iv.by } : {}) }, ["joinReqs." + me]: DEL(), ["invites." + me]: DEL() }), "You're on the team now");
+}
 const declineInvite = p => write(() => upd(p.id, { ["invites." + me]: DEL() }), "Invite declined");
 // Taking someone off the team (or leaving it) also frees their open tasks, so nothing waits on someone who isn't there.
 function offTeam(p, u, ok) {
@@ -2855,6 +2867,7 @@ function buildAlerts() {
     if (pl && typeof pl === "object" && pl.by !== me) add("planner:" + p.id, pl.at, pl.by, `${name(pl.by)} made you a planner of ${p.title}`, "plan-" + p.id);
     if (isProj(p)) {
       if (plannerIds(p).includes(me) || isAdmin) for (const r of joinReqsOf(p)) add("ask:" + p.id + ":" + r.u + ":" + r.at, r.at, r.u, `${name(r.u)} wants to join the team of ${p.title}`, "project-" + p.id);
+      for (const [u, j] of Object.entries(p.joined || {})) if (j && j.inv === me && u !== me) add("acc:" + p.id + ":" + u + ":" + j.at, j.at, u, `${name(u)} accepted your invite and joined the team of ${p.title}`, "project-" + p.id);
       const iv = (p.invites || {})[me]; if (iv && iv.by !== me) add("inv:" + p.id + ":" + iv.at, iv.at, iv.by, `${name(iv.by)} invited you to join the team of ${p.title}`, "project-" + p.id);
       const jn = (p.joined || {})[me]; if (jn && jn.by !== me) add("in:" + p.id + ":" + jn.at, jn.at, jn.by, (jn.vote ? `${name(jn.by)} made ${p.title} a project. You voted Keep, so you're on its team` : `${name(jn.by)} accepted you onto the team of ${p.title}`), "project-" + p.id);
     }
