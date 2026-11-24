@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261124160804">
+<meta name="build" content="20261124161852">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -1443,7 +1443,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261124160804";
+const BUILD_ID = "20261124161852";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -4746,8 +4746,7 @@ function renderIdeas(all, removed) {
         el("span", { class: "spacer" }),
         ideaDeleteBtn(i),
         el("button", { class: "btn", disabled: !(enough && d > k), title: `Available when at least ${need} of ${team} have voted and more said drop`, onclick: () => write(() => upd(i.id, { status: "removed" }), "Idea removed") }, "Remove"),
-        ownerMove(i, k, d, enough),
-        el("button", { class: "btn primary", disabled: !(enough && k > d), title: `Available when at least ${need} of ${team} have voted and more said keep`, onclick: () => write(() => upd(i.id, { status: "approved", approvedAt: Date.now() }), "Moved to Projects") }, "Confirm → Projects"))));
+        confirmIdeaBtn(i, k, d, enough))));
   }
   const rb = $("#removed"); rb.replaceChildren();
   if (removed.length) {
@@ -4758,12 +4757,20 @@ function renderIdeas(all, removed) {
   }
 }
 
-// The person who pitched an idea can make it a project once at least 1 other person voted Keep (and Keep is ahead).
-function ownerMove(i, k, d, enough) {
-  if (i.author !== me || (enough && k > d)) return null;
-  const others = voters(i, "keep").filter(u => u !== i.author).length, ok = others >= 1 && k > d;
-  return ok ? el("button", { class: "btn primary", title: `${others} people voted Keep`, onclick: () => write(() => upd(i.id, { status: "approved", approvedAt: Date.now(), movedBy: me }), "It's a project now. Plan it in Projects") }, `Make it a project (${others} want it)`)
-    : el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, `Needs 1 Keep vote from someone else: then you can make it a project yourself`);
+// Only the person who pitched an idea confirms it to Projects, once enough people voted and Keep is ahead.
+// Everyone who voted Keep joins the new project's team straight away, so planners don't have to invite them.
+function confirmIdeaBtn(i, k, d, enough) {
+  const ready = enough && k > d;
+  if (i.author !== me) return ready ? el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, `Keep won. Waiting for ${firstName(i.author)} to confirm it`) : null;
+  const joiners = voters(i, "keep").filter(u => u !== i.author && isTeamUid(u));
+  return el("button", { class: "btn primary", disabled: !ready, title: ready ? (joiners.length ? `${joiners.map(firstName).join(", ")} voted Keep and join the team` : "") : "Available when enough people have voted and more said keep", onclick: () => confirmIdea(i) }, "Confirm → Projects");
+}
+function confirmIdea(i) {
+  if (i.author !== me) return;
+  const now = Date.now(), joiners = voters(i, "keep").filter(u => u !== i.author && isTeamUid(u));
+  const data = { status: "approved", approvedAt: now, movedBy: me, teamV: 1 };
+  for (const u of joiners) { data["members." + u] = true; data["joined." + u] = { by: me, at: now, vote: true }; data["joinReqs." + u] = DEL(); data["invites." + u] = DEL() }
+  write(() => upd(i.id, data), joiners.length ? `It's a project now. ${joiners.map(u => name(u).split(" ")[0]).join(", ")} ${joiners.length > 1 ? "are" : "is"} on the team because they voted Keep` : "It's a project now. Plan it in Projects");
 }
 
 // The person who pitched an idea, and the admin, can delete it (asks once to be sure).
@@ -6692,7 +6699,7 @@ function buildAlerts() {
     if (isProj(p)) {
       if (plannerIds(p).includes(me) || isAdmin) for (const r of joinReqsOf(p)) add("ask:" + p.id + ":" + r.u + ":" + r.at, r.at, r.u, `${name(r.u)} wants to join the team of ${p.title}`, "project-" + p.id);
       const iv = (p.invites || {})[me]; if (iv && iv.by !== me) add("inv:" + p.id + ":" + iv.at, iv.at, iv.by, `${name(iv.by)} invited you to join the team of ${p.title}`, "project-" + p.id);
-      const jn = (p.joined || {})[me]; if (jn && jn.by !== me) add("in:" + p.id + ":" + jn.at, jn.at, jn.by, `${name(jn.by)} accepted you onto the team of ${p.title}`, "project-" + p.id);
+      const jn = (p.joined || {})[me]; if (jn && jn.by !== me) add("in:" + p.id + ":" + jn.at, jn.at, jn.by, (jn.vote ? `${name(jn.by)} made ${p.title} a project. You voted Keep, so you're on its team` : `${name(jn.by)} accepted you onto the team of ${p.title}`), "project-" + p.id);
     }
     if (p.status !== "approved") continue;
     for (const t of tasksOf(p)) {
@@ -7011,7 +7018,7 @@ function guidePage() {
       ["Alerts on your phone:", "Settings › Alerts. Install the site as an app from Settings › Install the app."],
       ["Something looks old?", "Settings › Help and fixes › Reload."],
       ["Found a bug, or an idea to make work easier?", "⋯ › Bugs and ideas. Write what happened and the creators get an alert; you hear back when it's fixed."],
-      ["Your idea got 1 more Keep vote?", "If you pitched it, you can make it a project yourself from the Ideas tab, once Keep is ahead."]]));
+      ["Your idea won the vote?", "Only the person who pitched it confirms it to Projects. Everyone who voted Keep joins its team, no invite needed."]]));
   if (tab === "planners") wrap.append(
     card("\u{1F9ED}", "Your job as a planner", [
       "You're always on the project's team. You shape the plan, the tasks and the money, and you decide who joins.",
@@ -7507,7 +7514,7 @@ Only use team members' real first names. Due dates must be after today and reali
 EXPLAINING
 If they ask what something means (a word, a business or tech idea, or how a part of Pitch Room works), explain it simply in a few lines with a small example from their own work when you can.
 How Pitch Room works:
-- Ideas: anyone pitches; an idea moves to Projects or gets removed once at least 2 people voted (the pitcher's own Keep counts, so 1 more vote is enough). Keep ahead: anyone can confirm it to Projects; Drop ahead: it can be removed.
+- Ideas: anyone pitches; an idea moves to Projects or gets removed once at least 2 people voted (the pitcher's own Keep counts, so 1 more vote is enough). Keep ahead: only the person who pitched it can confirm it to Projects, and everyone who voted Keep joins the project's team automatically; Drop ahead: it can be removed.
 - Bugs and ideas (⋯ menu): anyone reports a bug or suggests what would make work easier; creators get an alert.
 - Projects: Building now, Up next (vote for what's next), Paused, Completed. A planner can also pause one phase (its tasks go on hold) and resume it later. Planners (the person who pitched it, the admin and added planners) change the plan and the money.
 - Project teams: each project has its own team. Planners are always on it. Others tap "Ask to join the team" and wait for a planner to accept, or a planner invites them and they accept. Someone not on the team can look and leave notes on tasks, but can't take, tick or change tasks, check in or add files. Only the team can be given tasks and get money from the project. Leaving or being taken off frees your open tasks.
