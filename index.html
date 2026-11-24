@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261124182119">
+<meta name="build" content="20261124183140">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -2027,7 +2027,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261124182119";
+const BUILD_ID = "20261124183140";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -7231,26 +7231,38 @@ function cancelChatMode() {
 
 /* voice messages: recorded in the browser, sent like a file (about 1 MB a minute) */
 let rec = null;
+// The sound is taken straight from the microphone and saved as a plain WAV file that every phone and browser plays.
+// (Each browser's own recorder makes its own format, and some browsers can't play the others'.)
 async function startRec() {
-  if (!navigator.mediaDevices || !window.MediaRecorder) { toast("Voice messages need a newer browser. Try Chrome or Safari"); return }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("Voice messages need a newer browser. Try Chrome or Safari"); return }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let ac = null; try { ac = AC ? new AC() : null } catch { }   // made inside the tap, so phones let it run
   let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }) } catch { toast("Allow the microphone to record a voice message"); return }
-  const type = ["audio/mp4;codecs=mp4a.40.2", "audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
-  let mr; try { mr = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined) } catch { mr = new MediaRecorder(stream) }
-  rec = { mr, chunks: [], start: Date.now(), stream, type: mr.mimeType || type || "audio/webm", levels: [] };
-  mr.ondataavailable = e => { if (e.data && e.data.size) rec && rec.chunks.push(e.data) };
-  try {
-    const ac = new (window.AudioContext || window.webkitAudioContext)(), an = ac.createAnalyser(); an.fftSize = 256;
-    ac.createMediaStreamSource(stream).connect(an); rec.ac = ac; rec.an = an;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }) } catch { try { ac && ac.close() } catch { } toast("Allow the microphone to record a voice message"); return }
+  rec = { chunks: [], pcm: [], start: Date.now(), stream, levels: [], lvl: 0 };
+  let ok = false;
+  if (ac && ac.createScriptProcessor) try {
+    if (ac.state === "suspended") await ac.resume();
+    const src = ac.createMediaStreamSource(stream), proc = ac.createScriptProcessor(4096, 1, 1), mute = ac.createGain(); mute.gain.value = 0;
+    proc.onaudioprocess = e => { if (!rec || rec.ac !== ac) return; const d = e.inputBuffer.getChannelData(0); rec.pcm.push(new Float32Array(d)); let m = 0; for (let i = 0; i < d.length; i += 16) m = Math.max(m, Math.abs(d[i])); rec.lvl = Math.min(1, m * 2) };
+    src.connect(proc); proc.connect(mute); mute.connect(ac.destination);
+    Object.assign(rec, { ac, rate: ac.sampleRate, src, proc, mute }); ok = true;
   } catch { }
-  mr.start(250);
+  if (!ok) {   // very old browsers: use the browser's own recorder
+    try { ac && ac.close() } catch { }
+    if (!window.MediaRecorder) { stream.getTracks().forEach(t => t.stop()); rec = null; toast("Voice messages need a newer browser. Try Chrome or Safari"); return }
+    const type = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+    let mr; try { mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined) } catch { mr = new MediaRecorder(stream) }
+    Object.assign(rec, { mr, type: mr.mimeType || type || "audio/webm" });
+    mr.ondataavailable = e => { if (e.data && e.data.size) rec && rec.chunks.push(e.data) };
+    mr.start(250);
+  }
   $("#nc-rec").hidden = false; $("#chatform").hidden = true; closeMentions(); ncPlusOpen = false; renderPlus();
   const wave = $("#nc-recwave"); wave.replaceChildren(...Array.from({ length: 28 }, () => el("i", { style: "height:4px" })));
-  const buf = new Uint8Array(128);
   rec.timer = setInterval(() => {
     if (!rec) return;
     const s = (Date.now() - rec.start) / 1000; $("#nc-rect").textContent = fmtSecs(s);
-    let lvl = Math.random() * .5; if (rec.an) { rec.an.getByteTimeDomainData(buf); lvl = Math.min(1, buf.reduce((a, v) => Math.max(a, Math.abs(v - 128)), 0) / 64) }
+    const lvl = rec.ac ? rec.lvl : Math.random() * .5;
     const bars = [...wave.children]; bars.forEach((b, i) => { b.style.height = (i === bars.length - 1 ? 4 + lvl * 20 : parseFloat((bars[i + 1] || b).style.height)) + "px" });
     if (s >= 290) stopRec(true);
   }, 120);
@@ -7259,20 +7271,32 @@ function stopRec(send) {
   const r = rec; if (!r) return; rec = null; clearInterval(r.timer);
   $("#nc-rec").hidden = true; $("#chatform").hidden = false;
   const k = chatKey(), secs = Math.max(1, Math.round((Date.now() - r.start) / 1000));
-  r.mr.onstop = async () => {
-    r.stream.getTracks().forEach(t => t.stop()); try { r.ac && r.ac.close() } catch { }
+  const done = async () => {
+    r.stream.getTracks().forEach(t => t.stop());
+    if (r.ac) { try { r.src.disconnect(); r.proc.disconnect(); r.mute.disconnect() } catch { } try { r.ac.close() } catch { } }
     if (!send || !k) { if (!send) toast("Voice message deleted"); return }
-    let type = (r.type || "audio/webm").split(";")[0], blob = new Blob(r.chunks, { type }), len = secs;
+    let type, blob, len = secs;
     setUploadStatus("Sending voice message…");
-    // Every phone records in its own format, and some can't play the others'. So the recording is turned into
-    // a plain sound file (WAV, voice quality) that every phone and browser plays, before it's sent.
-    try { const w = await voiceToWav(blob); if (w) { blob = w.blob; type = "audio/wav"; len = Math.max(1, Math.round(w.secs)) } } catch { }
+    if (r.ac) {
+      if (!r.pcm.length) { setUploadStatus(""); toast("No sound was recorded. Check the microphone and try again"); return }
+      const w = pcmToWav(r.pcm, r.rate); blob = w.blob; type = "audio/wav"; len = Math.max(1, Math.round(w.secs));
+    } else {
+      type = (r.type || "audio/webm").split(";")[0]; blob = new Blob(r.chunks, { type });
+      try { const w = await voiceToWav(blob); if (w) { blob = w.blob; type = "audio/wav"; len = Math.max(1, Math.round(w.secs)) } } catch { }
+    }
     if (blob.size > MAX_FILE) { setUploadStatus(""); toast("That voice message is too long. Keep it under 5 minutes"); return }
     try { const file = await uploadFile({ blob, name: "Voice message." + (type === "audio/wav" ? "wav" : /mp4|aac/.test(type) ? "m4a" : /ogg/.test(type) ? "ogg" : "webm"), type }, null, extraFor(k)); file.voice = len; ncToBottom = true; await sendMsg(k, { file }) }
     catch { toast("The voice message didn't send. Check your connection and try again", 5000) }
     setUploadStatus("");
   };
-  try { r.mr.stop() } catch { r.mr.onstop() }
+  if (r.mr) { r.mr.onstop = done; try { r.mr.stop() } catch { done() } } else done();
+}
+// raw microphone sound -> mono 16 kHz WAV (clear for voice, about 2 MB a minute)
+function pcmToWav(chunks, rate) {
+  const total = chunks.reduce((s, c) => s + c.length, 0), out = 16000, ratio = rate / out, n = Math.max(1, Math.floor(total / ratio)), res = new Float32Array(n);
+  let ci = 0, off = 0, acc = 0, cnt = 0, oi = 0, next = ratio, pos = 0;
+  for (const c of chunks) for (let i = 0; i < c.length; i++) { acc += c[i]; cnt++; pos++; if (pos >= next && oi < n) { res[oi++] = acc / cnt; acc = 0; cnt = 0; next += ratio } }
+  return { blob: wavBlob(res.subarray(0, oi), out), secs: total / rate };
 }
 // one player for all voice messages, so playing survives the page redrawing
 const ncAudio = { a: new Audio(), id: null, rate: 1, loading: null, alt: {} };
