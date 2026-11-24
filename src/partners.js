@@ -220,14 +220,14 @@ function partnerTeamSubs() {
   const fail = e => { pErr = e && e.code === "permission-denied" ? "rules" : "network"; pLoaded = true; render() };
   const ok = () => { pErr = null; pLoaded = true };
   return [
-    onSnapshot(collection(db, "pgroups"), s => { pGroups = s.docs.map(d => ({ id: d.id, ...d.data() })); ok(); render() }, fail),
-    onSnapshot(collection(db, "pmembers"), s => { pMembers = s.docs.map(d => ({ id: d.id, ...d.data() })); render() }, fail),
-    onSnapshot(collection(db, "pleads"), s => { pLeads = s.docs.map(d => ({ id: d.id, ...d.data() })); render() }, fail),
+    onSnapshot(collection(db, "pgroups"), s => { pGroups = s.docs.map(d => ({ id: d.id, ...d.data() })); ok(); renderSoon() }, fail),
+    onSnapshot(collection(db, "pmembers"), s => { pMembers = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, fail),
+    onSnapshot(collection(db, "pleads"), s => { pLeads = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, fail),
     onSnapshot(collection(db, "pposts"), s => {
       const before = new Set(pPosts.map(p => p.id)), first = !pPosts.length;
       pPosts = s.docs.map(d => ({ id: d.id, ...d.data() }));
       if (!first) for (const p of pPosts) if (!before.has(p.id) && !p.team && route().gid !== p.gid) toast(`${p.name || "A partner"} (${groupName(p.gid)}): ${(p.text || "").slice(0, 60)}`);
-      render();
+      renderSoon();
     }, fail),
   ];
 }
@@ -482,11 +482,11 @@ function startPartner(u, pm) {
     if (!s.exists() || s.data().active === false) { partnerEnded(u); return }
     pMe = { id: s.id, ...s.data() };
     if (pMe.gid !== pGid) partnerGroupSubs(pMe.gid);
-    render();
+    renderSoon();
   }, e => { if (e.code === "permission-denied") partnerEnded(u) }));
   partnerGroupSubs(pm.gid);
   partnerProjectSubs(pm.id);
-  unsubs.push(onSnapshot(query(collection(db, "dms"), where("members", "array-contains", me)), q => { pDms = q.docs.map(d => ({ id: d.id, ...d.data() })); pDmOff = false; render() }, () => { pDmOff = true; render() }));
+  unsubs.push(onSnapshot(query(collection(db, "dms"), where("members", "array-contains", me)), q => { pDms = q.docs.map(d => ({ id: d.id, ...d.data() })); pDmOff = false; renderSoon() }, () => { pDmOff = true; renderSoon() }));
   if (!["leads", "updates", "info", "projects"].includes(location.hash.slice(1)) && !location.hash.startsWith("#pdm-")) history.replaceState(null, "", "#leads");
   render();
 }
@@ -499,13 +499,13 @@ function partnerGroupSubs(gid) {
   if (!gid) return;
   const fail = () => { toast("Can't reach your numbers. Check your connection.", 5000) };
   pGroupUnsubs.push(
-    onSnapshot(doc(db, "pgroups", gid), s => { pGroup = s.exists() ? { id: s.id, ...s.data() } : null; pGroupGone = !s.exists() && !s.metadata.fromCache; render() }, fail),
-    onSnapshot(query(collection(db, "pleads"), where("gid", "==", gid)), s => { pLeads = s.docs.map(d => ({ id: d.id, ...d.data() })); render() }, fail),
+    onSnapshot(doc(db, "pgroups", gid), s => { pGroup = s.exists() ? { id: s.id, ...s.data() } : null; pGroupGone = !s.exists() && !s.metadata.fromCache; renderSoon() }, fail),
+    onSnapshot(query(collection(db, "pleads"), where("gid", "==", gid)), s => { pLeads = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, fail),
     onSnapshot(query(collection(db, "pposts"), where("gid", "==", gid)), s => {
       const before = new Set(pPosts.map(p => p.id)), first = !pPosts.length;
       pPosts = s.docs.map(d => ({ id: d.id, ...d.data() }));
       if (!first) for (const p of pPosts) if (!before.has(p.id) && p.team && location.hash !== "#updates") toast(`${p.name || "Ardent Creative Studios"}: ${(p.text || "").slice(0, 60)}`);
-      render();
+      renderSoon();
     }, fail));
 }
 const partnerName = () => (pMe && pMe.name) || (myProfile && myProfile.name) || "Partner";
@@ -589,7 +589,7 @@ function pWatchDm(tid) {
   if (tid === pDmFor) return;
   if (pDmStop) { pDmStop(); pDmStop = null }
   pDmFor = tid; if (!tid) return;
-  pDmStop = onSnapshot(query(collection(db, "dms", tid, "msgs"), orderBy("at"), limitToLast(300)), q => { pDmMsgs[tid] = q.docs.map(d => ({ id: d.id, ...d.data() })); render() }, () => { pDmOff = true; render() });
+  pDmStop = onSnapshot(query(collection(db, "dms", tid, "msgs"), orderBy("at"), limitToLast(300)), q => { pDmMsgs[tid] = q.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, () => { pDmOff = true; renderSoon() });
 }
 function renderPartnerChat(box, dmWith) {
   const other = t => (t.members || []).find(x => x !== me) || me;

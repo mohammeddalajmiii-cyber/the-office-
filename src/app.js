@@ -10,6 +10,7 @@ const fbReady = (async () => {
   db = fsM.initializeFirestore(fb, { localCache: fsM.persistentLocalCache({ tabManager: fsM.persistentMultipleTabManager() }) });
   authM.onAuthStateChanged(auth, onAuth);
 })();
+const dayFmt = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" }), dateFmt = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }), fmtMemo = new Map();
 const remember = v => { try { v ? localStorage.setItem("signedIn", "1") : localStorage.removeItem("signedIn") } catch { } };
 
 /* ---------- content ---------- */
@@ -184,8 +185,8 @@ async function onAuth(u) {
         : `You signed in as ${u.email}, which isn't on the team list. Ask Mohammed to add exactly this email, or sign in with the account he added.`;
     } else status("Can't reach the board. Check your connection.", true);
   };
-  unsubs.push(onSnapshot(collection(db, "ideas"), s => { ideas = s.docs.map(d => ({ id: d.id, ...d.data() })); live = true; status(""); render() }, denied));
-  unsubs.push(onSnapshot(doc(db, "meta", "focus"), s => { const d = s.exists() ? s.data() : {}; focusId = d.projectId || null; activeMap = d.active || {}; render() }, () => {}));
+  unsubs.push(onSnapshot(collection(db, "ideas"), s => { ideas = s.docs.map(d => ({ id: d.id, ...d.data() })); live = true; status(""); renderSoon() }, denied));
+  unsubs.push(onSnapshot(doc(db, "meta", "focus"), s => { const d = s.exists() ? s.data() : {}; focusId = d.projectId || null; activeMap = d.active || {}; renderSoon() }, () => {}));
   unsubs.push(onSnapshot(query(collection(db, "chat"), orderBy("at"), limitToLast(300)), s => {
     const before = chat.length ? chat[chat.length - 1].at : 0;
     chat = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -193,9 +194,9 @@ async function onAuth(u) {
     const k0 = newest && newest.ch === "ideas" ? "ideas" : "team", lvl = notifyOf(k0), ment = mentionsMe(newest), heard = lvl === "all" || ment;
     if (before && newest && newest.at > before && newest.by !== me && heard) chime();
     if (before && newest && newest.at > before && newest.by !== me && heard && (chatKey() !== k0 || document.hidden)) ping({ key: "chat:" + newest.id, who: newest.by, title: realName(newest.by) || keyTitle(k0), sub: k0 === "ideas" ? "Ideas" : "Team chat", text: (ment ? "Mentioned you: " : "") + msgSummary(newest), go: chatHash(k0), at: newest.at });
-    render();
+    renderSoon();
   }, () => {}));
-  unsubs.push(onSnapshot(doc(db, "meta", "chat"), s => { chatMeta = { pins: {}, typing: {}, ...(s.exists() ? s.data() : {}) }; render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "chat"), s => { chatMeta = { pins: {}, typing: {}, ...(s.exists() ? s.data() : {}) }; renderSoon() }, () => {}));
   // private messages: the conversations I'm in
   unsubs.push(onSnapshot(query(collection(db, "dms"), where("members", "array-contains", me)), s => {
     const before = Object.fromEntries(dmThreads.map(t => [t.id, t.lastAt || 0]));
@@ -203,21 +204,21 @@ async function onAuth(u) {
     if (dmThreads.some(t => t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id])) chime();
     for (const t of dmThreads) if (t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id] && (route().dm !== otherOf(t) || document.hidden))
       ping({ key: "dm:" + t.id + ":" + t.lastAt, who: t.lastBy, title: realName(t.lastBy) || "Private message", sub: "Private", text: t.lastText || "", go: "dm-" + t.lastBy, at: t.lastAt });
-    render();
-  }, () => { dmOff = true; render() }));
-  unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); render() }, () => {}));
-  unsubs.push(onSnapshot(doc(db, "meta", "money"), s => { moneyRules = s.exists() ? s.data() : null; ensureMoneyRules(); render() }, () => {}));
-  unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; render() }, () => {}));
-  unsubs.push(onSnapshot(doc(db, "meta", "nicks"), s => { nicks = s.exists() ? Object.fromEntries(Object.entries(s.data()).filter(([, v]) => typeof v === "string" && v)) : {}; render() }, () => {}));
-  unsubs.push(onSnapshot(doc(db, "meta", "news"), s => { newsDoc = s.exists() ? s.data() : null; render() }, () => {}));
+    renderSoon();
+  }, () => { dmOff = true; renderSoon() }));
+  unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); renderSoon() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "money"), s => { moneyRules = s.exists() ? s.data() : null; ensureMoneyRules(); renderSoon() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; renderSoon() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "nicks"), s => { nicks = s.exists() ? Object.fromEntries(Object.entries(s.data()).filter(([, v]) => typeof v === "string" && v)) : {}; renderSoon() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "news"), s => { newsDoc = s.exists() ? s.data() : null; renderSoon() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "weekly"), s => { weeklyDoc = s.exists() ? s.data() : {}; maybeWeekly() }, () => {}));
   pushBaseline = null;
-  unsubs.push(onSnapshot(doc(db, "meta", "push"), s => { pushConfig(s.exists() ? s.data() : null); render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "push"), s => { pushConfig(s.exists() ? s.data() : null); renderSoon() }, () => {}));
   teamLoaded = false; teamDoc = null;
   unsubs.push(...partnerTeamSubs(), ...clientTeamSubs());
-  unsubs.push(onSnapshot(doc(db, "meta", "upgrades"), s => { upgradesDoc = s.exists() ? s.data() : null; render() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "upgrades"), s => { upgradesDoc = s.exists() ? s.data() : null; renderSoon() }, () => {}));
   // everyone on the team reads the team list (the rules allow it), so creators show up for all; only the admin changes it
-  unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); render() }, () => { teamLoaded = true; render() }));
+  unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); renderSoon() }, () => { teamLoaded = true; renderSoon() }));
   subscribePrivate();
   show();
 }
@@ -228,12 +229,12 @@ function subscribePrivate() {
     privErr = e.code === "permission-denied" ? "rules" : "network"; render();
     clearTimeout(privRetry); privRetry = setTimeout(() => { if (me) subscribePrivate() }, 15000);
   };
-  privUnsubs.push(onSnapshot(collection(db, "private", me, "tasks"), s => { privErr = false; personal = s.docs.map(d => ({ id: d.id, ...d.data() })); render() }, fail));
+  privUnsubs.push(onSnapshot(collection(db, "private", me, "tasks"), s => { privErr = false; personal = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, fail));
   privUnsubs.push(onSnapshot(collection(db, "private", me, "notes"), s => {
     privErr = false;
     myNotes = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at || 0) - (a.at || 0));
     // Don't redraw while typing in a note, so the cursor doesn't jump.
-    const a = document.activeElement; if (!(a && a.classList && a.classList.contains("pnote"))) render();
+    const a = document.activeElement; if (!(a && a.classList && a.classList.contains("pnote"))) renderSoon();
   }, fail));
 }
 
@@ -278,12 +279,19 @@ const av = id => el("img", { class: "av", src: photoOf(id), alt: name(id), title
 const tally = i => { let k = 0, d = 0; for (const v of Object.values(i.votes || {})) { if (v === "keep") k++; else if (v === "drop") d++ } return { k, d } };
 const voters = (i, kind) => Object.entries(i.votes || {}).filter(([, v]) => v === kind).map(([u]) => u);
 
+// A project's tasks, worked out once per version of the project (each database update brings a new project object)
+const tasksMemo = new WeakMap();
 function tasksOf(p) {
-  const out = [];
-  for (const [field, phaseDefault] of [["tasks", "build"], ["steps", "build"]]) {
-    for (const [id, t] of Object.entries(p[field] || {})) if (t && t.text) out.push({ id, field, ...t, phase: t.phase || phaseDefault, path: `${field}.${id}` });
+  let out = p && typeof p === "object" ? tasksMemo.get(p) : null;
+  if (!out) {
+    out = [];
+    for (const [field, phaseDefault] of [["tasks", "build"], ["steps", "build"]]) {
+      for (const [id, t] of Object.entries((p && p[field]) || {})) if (t && t.text) out.push({ id, field, ...t, phase: t.phase || phaseDefault, path: `${field}.${id}` });
+    }
+    out.sort((a, b) => (a.order || 0) - (b.order || 0));
+    if (p && typeof p === "object") tasksMemo.set(p, out);
   }
-  return out.sort((a, b) => (a.order || 0) - (b.order || 0));
+  return out.slice();
 }
 const progressOf = list => { const d = list.filter(t => t.done).length; return { total: list.length, done: d, pct: pctOf(d, list.length) } };
 // The team is only team members: anyone who is a partner or a client never counts, even if they have a profile
@@ -334,7 +342,10 @@ function keepInputs(fn) {
   if (actId) { const n = document.getElementById(actId); if (n && n !== document.activeElement) { n.focus(); try { if (sel) n.setSelectionRange(sel[0], sel[1]) } catch { } } }
 }
 
-function render() { if (!me) return; if (partnerMode) { renderPortal(); return } if (clientMode) { renderClient(); return } keepInputs(renderAll) }
+// Database updates often arrive several at once (especially at start): they share one redraw per screen frame
+let renderQ = 0;
+function renderSoon() { if (renderQ) return; renderQ = document.hidden ? setTimeout(() => { renderQ = 0; render() }, 30) : requestAnimationFrame(() => { renderQ = 0; render() }) }
+function render() { if (renderQ) { cancelAnimationFrame(renderQ); clearTimeout(renderQ); renderQ = 0 } if (!me) return; if (partnerMode) { renderPortal(); return } if (clientMode) { renderClient(); return } keepInputs(renderAll) }
 
 let earnSyncT = null;
 function syncPartnerEarnings() {
@@ -1197,7 +1208,7 @@ function renderCompleted(box, done) {
         el("button", { class: "btn", onclick: () => { location.hash = "plan-" + p.id } }, "See the plan and notes"))));
   }
 }
-function fmtDay(at) { return at ? new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "" }
+function fmtDay(at) { return at ? dayFmt.format(new Date(at)) : "" }
 
 let newCatFor = null;
 // Categories: a project can have as many as you like. Tap ✕ on one to remove it, pick from the list to add one.
@@ -2170,16 +2181,16 @@ function watchDm(u) {
   if (dmSubStop) { dmSubStop(); dmSubStop = null }
   dmSubFor = tid; if (!tid || !db) return;
   dmSubStop = onSnapshot(query(collection(db, "dms", tid, "msgs"), orderBy("at"), limitToLast(300)),
-    s => { dmMsgs[tid] = s.docs.map(d => ({ id: d.id, ...d.data() })); render() },
-    () => { dmOff = true; render() });
+    s => { dmMsgs[tid] = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() },
+    () => { dmOff = true; renderSoon() });
 }
 function watchPc(pid) {
   if (pid === pcSubFor) return;
   if (pcSubStop) { pcSubStop(); pcSubStop = null }
   pcSubFor = pid; if (!pid || !db) return;
   pcSubStop = onSnapshot(query(collection(db, "ideas", pid, "chat"), orderBy("at"), limitToLast(300)),
-    s => { pcMsgs[pid] = s.docs.map(d => ({ id: d.id, ...d.data() })); delete pcOff[pid]; render() },
-    () => { pcOff[pid] = true; render() });
+    s => { pcMsgs[pid] = s.docs.map(d => ({ id: d.id, ...d.data() })); delete pcOff[pid]; renderSoon() },
+    () => { pcOff[pid] = true; renderSoon() });
 }
 // after sending or deleting in a private chat, keep the conversation's summary up to date
 function touchThread(u, last) {
@@ -2640,17 +2651,23 @@ function renderPin(k) {
     el("button", { type: "button", class: "nc-ib sm", "aria-label": "Unpin", title: "Unpin", onclick: () => setPin(k, null) }, nIc("x")))] : []));
 }
 function ncJump(id) {
-  const n = document.getElementById("msg-" + id); if (!n) { toast("That message is too old to show here"); return }
-  n.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-  n.classList.remove("flash"); void n.offsetWidth; n.classList.add("flash");
+  const n = document.getElementById("msg-" + id);
+  if (!n) { const k = chatKey(); if (k && listOf(k).some(m => m.id === id)) { ncShow[k] = 1e9; ncFlash = id; render(); return } toast("That message is too old to show here"); return }
+  n.scrollIntoView({ block: "center" });   // instant: a smooth scroll gets cut short when new messages redraw the chat
+  n.classList.remove("flash"); void n.offsetWidth; n.classList.add("flash"); ncLit = { id, at: performance.now() };
 }
-let ncToBottom = false;
+let ncLit = null;   // the message just jumped to: its highlight carries on through redraws
+let ncToBottom = false, ncKeepFromBottom = null;
+const ncShow = {};   // how many of the newest messages each chat draws (more load with "Show earlier messages")
 function dayLabel(t) {
   const d = new Date(t), days = Math.round((new Date(new Date().toDateString()) - new Date(d.toDateString())) / 864e5);
   return days === 0 ? "Today" : days === 1 ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
 function renderLog(k, fresh) {
-  const log = $("#chatlog"), list = listOf(k), u = chatWith(), p = projOfKey(k);
+  const log = $("#chatlog"), all = listOf(k), u = chatWith(), p = projOfKey(k);
+  // only the newest messages are drawn, so a long chat opens instantly; searching or jumping to an old message loads the rest
+  if ((ncFindOpen && ncFind.trim()) || (ncFlash && !all.slice(-(ncShow[k] || 80)).some(m => m.id === ncFlash))) ncShow[k] = 1e9;   // the whole chat
+  const start = Math.max(0, all.length - (ncShow[k] || 80)), list = start ? all.slice(start) : all;
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80, prevTop = log.scrollTop;
   log.replaceChildren();
   const denied = (u && dmOff) || (p && pcOff[p.id]);
@@ -2660,9 +2677,10 @@ function renderLog(k, fresh) {
       : `${p ? "Project chats aren't" : "Private chats aren't"} switched on yet. Ask ${ADMIN_NAME} to update the database rules.`));
     return;
   }
+  if (start) log.append(el("button", { type: "button", class: "nc-more", onclick: () => { const l = $("#chatlog"); ncKeepFromBottom = l.scrollHeight - l.scrollTop; ncShow[k] = (ncShow[k] || 80) + 120; render() } }, `Show earlier messages (${start})`));
   if (!list.length) { log.append(el("div", { class: "nc-empty" }, k === "ideas" ? "No ideas yet. Tap Pitch to post the first one: the team votes on it right here." : u ? `No messages with ${firstOf(u)} yet. Say hi, only you two will see it.` : p ? `No messages yet. Everyone on ${p.title}'s team is in this chat.` : "No messages yet. Say hi to the team.")); return }
   const others = chatMembers(k).filter(x => x !== me);
-  const lastMine = [...list].reverse().find(m => m.by === me && !m.system && !m.sys && !m.idea);
+  const lastMine = [...all].reverse().find(m => m.by === me && !m.system && !m.sys && !m.idea);
   const term = ncFindOpen ? ncFind.trim().toLowerCase() : ""; let hits = 0, firstHit = null;
   let lastDay = "", lastBy = "", lastAt = 0, divided = false;
   const react = (m, e, on) => write(() => updateDoc(chatRef(k, m.id), { [`reacts.${emojiKey(e)}.${me}`]: on ? true : DEL() }));
@@ -2676,7 +2694,7 @@ function renderLog(k, fresh) {
     const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60e3 && !m.replyTo;
     if (!mine && !grouped && !u) log.append(el("div", { class: "nc-mname" }, chatName(m.by), isPartnerUid(m.by) ? el("span", { class: "nc-tag" }, "Partner") : null));
     const hit = !!term && (m.text || "").toLowerCase().includes(term); if (hit) { hits++; firstHit = firstHit || m.id }
-    const orig = m.replyTo ? list.find(x => x.id === m.replyTo) : null;
+    const orig = m.replyTo ? all.find(x => x.id === m.replyTo) : null;
     const rich = !!(m.poll || m.task || m.idea), voice = m.file && m.file.voice, emo = isEmojiOnly(m.text) && !m.file && !m.replyTo;
     const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     const seenAll = mine && others.length && others.every(x => seenOf(k, x) >= m.at);
@@ -2708,7 +2726,9 @@ function renderLog(k, fresh) {
   if (typers.length) log.append(el("div", { class: "nc-m" }, el("span", { class: "nc-avs" }, u ? null : ncAv(typers[0], "sm")), el("div", { class: "nc-typing", "aria-label": typingWord(k, typers) }, el("i"), el("i"), el("i"))));
   $("#nc-hits").textContent = term ? (hits ? `${hits} found` : "Not found") : "";
   // where to scroll: a message to show, the first new message, the bottom, or stay put
-  if (ncFlash && document.getElementById("msg-" + ncFlash)) { const id = ncFlash; ncFlash = null; requestAnimationFrame(() => ncJump(id)) }
+  if (ncLit) { const ms = performance.now() - ncLit.at, n = ms < 1400 && document.getElementById("msg-" + ncLit.id); if (n && !n.classList.contains("flash")) { n.classList.add("flash"); const b = n.querySelector(".nc-b"); if (b) b.style.animationDelay = -ms + "ms" } else if (ms >= 1400) ncLit = null }
+  if (ncKeepFromBottom != null) { log.scrollTop = log.scrollHeight - ncKeepFromBottom; ncKeepFromBottom = null }
+  else if (ncFlash && document.getElementById("msg-" + ncFlash)) { const id = ncFlash; ncFlash = null; requestAnimationFrame(() => ncJump(id)) }
   else if (term && firstHit && ncFindJump) { ncFindJump = false; const n = document.getElementById("msg-" + firstHit); if (n) n.scrollIntoView({ block: "center" }) }
   else if (fresh) { const dv = document.getElementById("nc-newdiv"); if (dv) dv.scrollIntoView({ block: "center" }); else log.scrollTop = log.scrollHeight }
   else if (atBottom || ncToBottom) log.scrollTop = log.scrollHeight;
@@ -3659,7 +3679,7 @@ function renderMe() {
       el("h1", {}, fullName.split(" ")[0] || "you"),
       el("div", { class: "row", style: "gap:6px;margin-top:8px" },
         tops.length ? tops.map(s => el("span", { class: "chip" }, SKILLS[s].name)) : el("button", { class: "linkbtn", onclick: () => { location.hash = "skills" } }, "Take the skills quiz \u2192")),
-      el("button", { class: "btn small brief-btn", style: "margin-top:10px", onclick: () => { asstOpen = true; alertsOpen = false; useTemplate(ASST_TEMPLATES[0], null) } }, "☀ Morning brief"))),
+      el("button", { class: "btn small brief-btn", style: "margin-top:10px", onclick: () => { asstOpen = true; alertsOpen = false; useTemplate(ASST_TEMPLATES[0], null) } }, "Morning brief"))),
     el("div", { class: "stats" },
       el("div", { class: "stat" }, el("b", {}, open.length), el("span", {}, "to do")),
       el("div", { class: "stat" + (overdue ? " late" : "") }, el("b", {}, overdue), el("span", {}, "overdue")),
@@ -6273,7 +6293,7 @@ function phaseBar(p, tasks) {
   }));
 }
 
-function fmtDate(d) { try { return new Date(d + "T00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }) } catch { return d } }
+function fmtDate(d) { let v = fmtMemo.get(d); if (v === undefined) { try { v = dateFmt.format(new Date(d + "T00:00")) } catch { v = d } if (fmtMemo.size > 2000) fmtMemo.clear(); fmtMemo.set(d, v) } return v }
 
 function line(pr, unit) {
   const t = el("div", { class: "track", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": pr.pct, "aria-label": "Progress" }, el("div", { class: "fill", style: `width:${pr.pct}%` }));
@@ -6350,7 +6370,12 @@ function searchResults(q) {
     for (const f of filesOf(p)) if (has(f.name)) push("File", f.name, p.title, "project-" + p.id);
     for (const l of linksOf(p)) if (has(l.label) || has(l.url)) push("Link", l.label || hostOf(l.url), p.title, "project-" + p.id);
   }
-  for (const m of chat) if (has(m.text)) push("Chat", m.text.slice(0, 90), (realName(m.by) || "") + " · " + ago(m.at), "chat", () => setTimeout(() => jumpTo(m.id), 300));
+  // chat messages open the right chat and scroll to the message
+  const inChat = (k, label, list) => { for (const m of list) if (m && !m.system && !m.sys && has(m.text)) push(label, m.text.slice(0, 90), (realName(m.by) || m.name || "") + " · " + ago(m.at), chatHash(k), () => { ncFlash = m.id; ncInfo = false }) };
+  inChat("team", "Team chat", teamMsgs());
+  inChat("ideas", "Ideas chat", ideaTalk());
+  for (const [pid, list] of Object.entries(pcMsgs)) { const p = ideas.find(x => x.id === pid); if (p) inChat("p:" + pid, "Project chat", list || []) }
+  for (const [tid, list] of Object.entries(dmMsgs)) { const u = tid.split("_").find(x => x !== me); if (u) inChat("dm:" + u, "Private chat", list || []) }
   for (const l of pLeads) if (has(l.name) || has(l.biz) || has(l.city) || (digits.length > 3 && leadDigits(l.phone).includes(digits))) push("Number", leadTitle(l), `${l.phone || ""} · ${groupName(l.gid)} · ${LEAD_NAME[l.status] || "New"}`, "pg-" + l.gid, () => { pgTab = "leads"; pQuery["t-" + l.gid] = q });
   for (const m of pMembers) if (has(m.name) || has(m.id)) push("Partner", m.name || m.id, groupName(m.gid), "pg-" + m.gid, () => { pgTab = "people" });
   for (const g of (fundDoc && fundDoc.goals ? Object.values(fundDoc.goals) : [])) if (g && (has(g.name) || has(g.details))) push("Goal", g.name, "Team fund goal", "money", () => { moneyTab = "fund" });
@@ -6358,14 +6383,25 @@ function searchResults(q) {
   for (const t of personal) if (has(t.text)) push("My task", t.text, "Just for me", "me", () => { meTab = "tasks" });
   return out;
 }
+function closeSearch() { searchOpen = false; const b = $("#search"); if (b) b.replaceChildren(); render() }
 function renderSearch() {
   const box = $("#search"); if (!box) return;
   box.hidden = !searchOpen; if (!searchOpen) return;
   if (!box.firstChild) {
     const inp = el("input", { id: "search-input", class: "noteinput", type: "search", placeholder: "Search tasks, projects, chat, numbers, notes…", autocomplete: "off", "aria-label": "Search" });
-    inp.addEventListener("input", () => { searchQ = inp.value; drawSearch() });
-    inp.addEventListener("keydown", e => { if (e.key === "Escape") { searchOpen = false; render() } if (e.key === "Enter") { const f = box.querySelector(".sres"); if (f) f.click() } });
-    box.append(el("div", { class: "row", style: "gap:8px;flex-wrap:nowrap" }, inp, el("button", { class: "x", "aria-label": "Close search", onclick: () => { searchOpen = false; render() } }, "✕")), el("div", { class: "sresults", id: "sresults" }));
+    let t = 0;
+    inp.addEventListener("input", () => { searchQ = inp.value; clearTimeout(t); t = setTimeout(drawSearch, 60) });   // waits for a pause in typing, so typing never stutters
+    inp.addEventListener("keydown", e => {
+      if (e.key === "Escape") { e.preventDefault(); closeSearch() }
+      if (e.key === "Enter") { e.preventDefault(); clearTimeout(t); drawSearch(); const f = box.querySelector(".sres"); if (f) f.click() }
+      if (e.key === "ArrowDown") { e.preventDefault(); const f = box.querySelector(".sres"); if (f) f.focus() }
+    });
+    box.addEventListener("keydown", e => {
+      const r = e.target.closest && e.target.closest(".sres"); if (!r) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const all = [...box.querySelectorAll(".sres")], i = all.indexOf(r) + (e.key === "ArrowDown" ? 1 : -1); (i < 0 ? inp : all[Math.min(i, all.length - 1)]).focus() }
+      if (e.key === "Escape") { e.preventDefault(); closeSearch(); $("#search-btn").focus() }
+    });
+    box.append(el("div", { class: "row", style: "gap:8px;flex-wrap:nowrap" }, inp, el("button", { class: "x", "aria-label": "Close search", onclick: closeSearch }, "✕")), el("div", { class: "sresults", id: "sresults" }));
     inp.value = searchQ; setTimeout(() => inp.focus(), 0);
   }
   drawSearch();
@@ -6375,11 +6411,11 @@ function drawSearch() {
   const res = searchResults(searchQ);
   host.replaceChildren(...(searchQ.trim().length < 2 ? [el("p", { class: "alert-empty" }, "Type at least 2 letters. Tip: Ctrl K or ⌘ K opens search from anywhere.")]
     : !res.length ? [el("p", { class: "alert-empty" }, "Nothing found for “" + searchQ.trim() + "”.")]
-    : res.map(r => el("button", { class: "sres", onclick: () => { searchOpen = false; if (r.then) r.then(); location.hash = r.go; render() } }, el("span", { class: "skind" }, r.kind), el("span", { class: "stext" }, el("b", {}, r.title), r.sub ? el("span", {}, r.sub) : null)))));
+    : res.map(r => el("button", { class: "sres", onclick: () => { searchOpen = false; $("#search").replaceChildren(); if (r.then) r.then(); if (location.hash === "#" + r.go) render(); else location.hash = r.go } }, el("span", { class: "skind" }, r.kind), el("span", { class: "stext" }, el("b", {}, r.title), r.sub ? el("span", {}, r.sub) : null)))));
 }
-$("#search-btn").onclick = e => { e.stopPropagation(); searchOpen = !searchOpen; alertsOpen = false; asstOpen = false; if (!searchOpen) $("#search").replaceChildren(); render() };
-document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && me && !partnerMode && !clientMode) { e.preventDefault(); searchOpen = true; alertsOpen = false; render() } });
-document.addEventListener("click", e => { if (searchOpen && !e.target.closest("#search") && !e.target.closest("#search-btn")) { searchOpen = false; $("#search").replaceChildren(); render() } });
+$("#search-btn").onclick = e => { e.stopPropagation(); alertsOpen = false; asstOpen = false; if (searchOpen) closeSearch(); else { searchOpen = true; render() } };
+document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && me && !partnerMode && !clientMode) { e.preventDefault(); if (searchOpen) { const i = $("#search-input"); if (i) { i.focus(); i.select() } return } searchOpen = true; alertsOpen = false; asstOpen = false; render() } });
+document.addEventListener("click", e => { if (searchOpen && e.target.isConnected && !e.target.closest("#search") && !e.target.closest("#search-btn")) closeSearch() });
 
 /* ----- getting started: a checklist for new team members ----- */
 function welcomeCard() {

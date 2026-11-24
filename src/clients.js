@@ -72,14 +72,14 @@ function cFeed(posts, { canDelete } = {}) {
 function clientTeamSubs() {
   const quiet = () => {};
   return [
-    onSnapshot(collection(db, "cprojects"), s => { cProjects = s.docs.map(d => ({ id: d.id, ...d.data() })); render() }, quiet),
+    onSnapshot(collection(db, "cprojects"), s => { cProjects = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, quiet),
     onSnapshot(collection(db, "cposts"), s => {
       const before = new Set(cPosts.map(p => p.id)), first = !cPosts.length;
       cPosts = s.docs.map(d => ({ id: d.id, ...d.data() }));
       if (!first) for (const p of cPosts) if (!before.has(p.id) && !p.team) toast(`${p.name || "A client"}: ${(p.text || "").slice(0, 60)}`);
-      render();
+      renderSoon();
     }, quiet),
-    onSnapshot(collection(db, "ptasks"), s => { cTasks = s.docs.map(d => ({ id: d.id, ...d.data() })); render() }, quiet),
+    onSnapshot(collection(db, "ptasks"), s => { cTasks = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, quiet),
   ];
 }
 function clientAlerts(add) {
@@ -266,9 +266,9 @@ function startClient(u, list) {
   cUnsubs.push(onSnapshot(query(collection(db, "cprojects"), where("clients", "array-contains", clientEmail)), s => {
     myCP = s.docs.map(d => ({ id: d.id, ...d.data() }));
     if (!myCP.length) { clientStop(); signOut(auth); $("#gate-msg").textContent = `${u.email} doesn't have a project to follow anymore. Message Ardent Creative Studios if that's a mistake.`; return }
-    for (const cp of myCP) if (!myCPosts[cp.id]) { myCPosts[cp.id] = []; cUnsubs.push(onSnapshot(query(collection(db, "cposts"), where("pid", "==", cp.id)), s2 => { myCPosts[cp.id] = s2.docs.map(d => ({ id: d.id, ...d.data() })); render() }, () => {})) }
+    for (const cp of myCP) if (!myCPosts[cp.id]) { myCPosts[cp.id] = []; cUnsubs.push(onSnapshot(query(collection(db, "cposts"), where("pid", "==", cp.id)), s2 => { myCPosts[cp.id] = s2.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, () => {})) }
     if (!myCP.find(c => c.id === cSel)) cSel = myCP[0].id;
-    render();
+    renderSoon();
   }, () => toast("Can't reach your project. Check your connection.", 5000)));
   render();
 }
@@ -302,10 +302,10 @@ function partnerProjectSubs(email) {
   pProjUnsubs.forEach(f => f()); pProjUnsubs = []; pProjects = []; myPTasks = []; pProjPosts = {};
   pProjUnsubs.push(onSnapshot(query(collection(db, "cprojects"), where("partners", "array-contains", email)), s => {
     pProjects = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    for (const cp of pProjects) if (!pProjPosts[cp.id]) { pProjPosts[cp.id] = []; pProjUnsubs.push(onSnapshot(query(collection(db, "cposts"), where("pid", "==", cp.id)), s2 => { pProjPosts[cp.id] = s2.docs.map(d => ({ id: d.id, ...d.data() })); render() }, () => {})) }
-    render();
+    for (const cp of pProjects) if (!pProjPosts[cp.id]) { pProjPosts[cp.id] = []; pProjUnsubs.push(onSnapshot(query(collection(db, "cposts"), where("pid", "==", cp.id)), s2 => { pProjPosts[cp.id] = s2.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, () => {})) }
+    renderSoon();
   }, () => {}));
-  pProjUnsubs.push(onSnapshot(query(collection(db, "ptasks"), where("email", "==", email)), s => { myPTasks = s.docs.map(d => ({ id: d.id, ...d.data() })); render() }, () => {}));
+  pProjUnsubs.push(onSnapshot(query(collection(db, "ptasks"), where("email", "==", email)), s => { myPTasks = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, () => {}));
 }
 function partnerProjectsStop() { pProjUnsubs.forEach(f => f()); pProjUnsubs = []; pProjects = []; myPTasks = [] }
 function renderPartnerProjects(box) {
