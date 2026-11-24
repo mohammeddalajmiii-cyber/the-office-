@@ -182,14 +182,14 @@ function partnerTeamSubs() {
   const fail = e => { pErr = e && e.code === "permission-denied" ? "rules" : "network"; pLoaded = true; render() };
   const ok = () => { pErr = null; pLoaded = true };
   return [
-    onSnapshot(collection(db, "pgroups"), s => { pGroups = s.docs.map(d => ({ id: d.id, ...d.data() })); ok(); renderSoon() }, fail),
-    onSnapshot(collection(db, "pmembers"), s => { pMembers = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, fail),
-    onSnapshot(collection(db, "pleads"), s => { pLeads = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, fail),
+    onSnapshot(collection(db, "pgroups"), s => { pGroups = s.docs.map(d => ({ id: d.id, ...d.data() })); ok(); renderSoon(QUIET) }, fail),
+    onSnapshot(collection(db, "pmembers"), s => { pMembers = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon(QUIET) }, fail),
+    onSnapshot(collection(db, "pleads"), s => { pLeads = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon(QUIET) }, fail),
     onSnapshot(collection(db, "pposts"), s => {
       const before = new Set(pPosts.map(p => p.id)), first = !pPosts.length;
       pPosts = s.docs.map(d => ({ id: d.id, ...d.data() }));
       if (!first) for (const p of pPosts) if (!before.has(p.id) && !p.team && route().gid !== p.gid) toast(`${p.name || "A partner"} (${groupName(p.gid)}): ${(p.text || "").slice(0, 60)}`);
-      renderSoon();
+      renderSoon(QUIET);
     }, fail),
   ];
 }

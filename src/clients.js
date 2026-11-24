@@ -72,14 +72,14 @@ function cFeed(posts, { canDelete } = {}) {
 function clientTeamSubs() {
   const quiet = () => {};
   return [
-    onSnapshot(collection(db, "cprojects"), s => { cProjects = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, quiet),
+    onSnapshot(collection(db, "cprojects"), s => { cProjects = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon(QUIET) }, quiet),
     onSnapshot(collection(db, "cposts"), s => {
       const before = new Set(cPosts.map(p => p.id)), first = !cPosts.length;
       cPosts = s.docs.map(d => ({ id: d.id, ...d.data() }));
       if (!first) for (const p of cPosts) if (!before.has(p.id) && !p.team) toast(`${p.name || "A client"}: ${(p.text || "").slice(0, 60)}`);
       renderSoon();
     }, quiet),
-    onSnapshot(collection(db, "ptasks"), s => { cTasks = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, quiet),
+    onSnapshot(collection(db, "ptasks"), s => { cTasks = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon(QUIET) }, quiet),
   ];
 }
 function clientAlerts(add) {
