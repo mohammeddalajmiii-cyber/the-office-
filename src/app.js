@@ -201,21 +201,24 @@ async function onAuth(u) {
   const metaSig = m => JSON.stringify({ ...m, typing: Object.fromEntries(Object.entries(m.typing || {}).map(([k, v]) => [k, Object.keys(v || {}).filter(u => u !== me).sort()])) });
   unsubs.push(onSnapshot(doc(db, "meta", "chat"), s => { const nm = { pins: {}, typing: {}, ...(s.exists() ? s.data() : {}) }, same = metaSig(nm) === metaSig(chatMeta); chatMeta = nm; if (!same) renderSoon() }, () => {}));
   // private messages: the conversations I'm in
+  // a partner can start a private chat too, so a brand-new conversation also chimes (just not the ones already there on load)
+  let dmFirst = true;
   unsubs.push(onSnapshot(query(collection(db, "dms"), where("members", "array-contains", me)), s => {
-    const before = Object.fromEntries(dmThreads.map(t => [t.id, t.lastAt || 0]));
+    const before = Object.fromEntries(dmThreads.map(t => [t.id, t.lastAt || 0])), first = dmFirst; dmFirst = false;
+    const isNew = t => t.lastBy && t.lastBy !== me && (before[t.id] !== undefined ? (t.lastAt || 0) > before[t.id] : !first);
     const dmSig = list => JSON.stringify(list.map(t => ({ ...t, typing: Object.keys(t.typing || {}).filter(u => u !== me).sort() })));
     const sigOld = dmSig(dmThreads);
     dmThreads = s.docs.map(d => ({ id: d.id, ...d.data() }));
     const quiet = dmSig(dmThreads) === sigOld;
-    if (dmThreads.some(t => t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id])) chime();
-    for (const t of dmThreads) if (t.lastBy && t.lastBy !== me && before[t.id] !== undefined && (t.lastAt || 0) > before[t.id] && (route().dm !== otherOf(t) || document.hidden))
-      ping({ key: "dm:" + t.id + ":" + t.lastAt, who: t.lastBy, title: realName(t.lastBy) || "Private message", sub: "Private", text: t.lastText || "", go: "dm-" + t.lastBy, at: t.lastAt });
+    if (dmThreads.some(isNew)) chime();
+    for (const t of dmThreads) if (isNew(t) && (route().dm !== otherOf(t) || document.hidden))
+      ping({ key: "dm:" + t.id + ":" + t.lastAt, who: t.lastBy, title: realName(t.lastBy) || (t.names || {})[t.lastBy] || "Private message", sub: "Private", text: t.lastText || "", go: "dm-" + t.lastBy, at: t.lastAt });
     if (!quiet) renderSoon();
   }, () => { dmOff = true; renderSoon() }));
-  unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); renderSoon() }, () => {}));
+  unsubs.push(onSnapshot(collection(db, "users"), s => { people = {}; s.docs.forEach(d => people[d.id] = d.data()); syncLookFromAccount(); crewSoon(); renderSoon() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "money"), s => { moneyRules = s.exists() ? s.data() : null; ensureMoneyRules(); renderSoon(QUIET) }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "fund"), s => { fundDoc = s.exists() ? s.data() : null; renderSoon(QUIET) }, () => {}));
-  unsubs.push(onSnapshot(doc(db, "meta", "nicks"), s => { nicks = s.exists() ? Object.fromEntries(Object.entries(s.data()).filter(([, v]) => typeof v === "string" && v)) : {}; renderSoon() }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "nicks"), s => { nicks = s.exists() ? Object.fromEntries(Object.entries(s.data()).filter(([, v]) => typeof v === "string" && v)) : {}; crewSoon(); renderSoon() }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "news"), s => { newsDoc = s.exists() ? s.data() : null; renderSoon(QUIET) }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "weekly"), s => { weeklyDoc = s.exists() ? s.data() : {}; maybeWeekly() }, () => {}));
   pushBaseline = null;
@@ -224,7 +227,7 @@ async function onAuth(u) {
   unsubs.push(...partnerTeamSubs(), ...clientTeamSubs());
   unsubs.push(onSnapshot(doc(db, "meta", "upgrades"), s => { upgradesDoc = s.exists() ? s.data() : null; renderSoon(QUIET) }, () => {}));
   // everyone on the team reads the team list (the rules allow it), so creators show up for all; only the admin changes it
-  unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); renderSoon() }, () => { teamLoaded = true; renderSoon() }));
+  unsubs.push(onSnapshot(doc(db, "meta", "team"), s => { teamDoc = s.exists() ? s.data() : null; teamLoaded = true; ensureTeamDoc(); crewSoon(); renderSoon() }, () => { teamLoaded = true; renderSoon() }));
   subscribePrivate();
   show();
 }

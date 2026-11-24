@@ -177,13 +177,29 @@ function leadList(leads, key, cardOpts) {
 
 /* ---------- team side: the Partners tab ---------- */
 
+// Who partners can message privately: the team members, kept on each country group as `crew`
+// (partners can only read their own group, never the team's own lists).
+let crewT = 0, pMembersLoaded = false;
+function crewSoon() { clearTimeout(crewT); crewT = setTimeout(syncCrew, 4000) }
+function crewNow() {
+  const team = new Set([...ADMINS, ...teamEmails()].map(e => String(e).toLowerCase()));
+  return Object.entries(people).filter(([u, p]) => team.has(String((p || {}).email || "").toLowerCase()) && !pMembers.some(m => m.uid === u))
+    .map(([u]) => { const ph = photoOf(u); return { u, n: realName(u) || "", p: /^https:\/\//.test(ph) && ph.length < 400 ? ph : "" } })
+    .sort((a, b) => a.n.localeCompare(b.n) || a.u.localeCompare(b.u));
+}
+function syncCrew() {
+  if (partnerMode || clientMode || !me || !teamLoaded || !pMembersLoaded || !pGroups.length || !Object.keys(people).length) return;
+  const crew = crewNow(); if (!crew.length) return;
+  const sig = c => JSON.stringify((Array.isArray(c) ? c : []).map(x => [x.u, x.n || "", x.p || ""]));
+  for (const g of pGroups) if (sig(g.crew) !== sig(crew)) updateDoc(doc(db, "pgroups", g.id), { crew }).catch(() => {});
+}
 function partnerTeamSubs() {
-  pErr = null;
+  pErr = null; pMembersLoaded = false;
   const fail = e => { pErr = e && e.code === "permission-denied" ? "rules" : "network"; pLoaded = true; render() };
   const ok = () => { pErr = null; pLoaded = true };
   return [
-    onSnapshot(collection(db, "pgroups"), s => { pGroups = s.docs.map(d => ({ id: d.id, ...d.data() })); ok(); renderSoon(QUIET) }, fail),
-    onSnapshot(collection(db, "pmembers"), s => { pMembers = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon(QUIET) }, fail),
+    onSnapshot(collection(db, "pgroups"), s => { pGroups = s.docs.map(d => ({ id: d.id, ...d.data() })); ok(); crewSoon(); renderSoon(QUIET) }, fail),
+    onSnapshot(collection(db, "pmembers"), s => { pMembers = s.docs.map(d => ({ id: d.id, ...d.data() })); pMembersLoaded = true; crewSoon(); renderSoon(QUIET) }, fail),
     onSnapshot(collection(db, "pleads"), s => { pLeads = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon(QUIET) }, fail),
     onSnapshot(collection(db, "pposts"), s => {
       const before = new Set(pPosts.map(p => p.id)), first = !pPosts.length;
@@ -461,7 +477,7 @@ function renderPortalNow() {
   const open = myPTasks.filter(t => !t.done).length, cpj = $("#pc-projects"); if (cpj) { cpj.hidden = !open; cpj.textContent = open }
   for (const b of document.querySelectorAll("#partner .tab")) b.setAttribute("aria-selected", b.dataset.pview === v);
   const seen = pGetSeen("p-updates");
-  const dmUnreadN = pDms.filter(t => t.lastBy && t.lastBy !== me && (t.lastAt || 0) > ((t.seen || {})[me] || 0)).length;
+  const dmUnreadN = pGroup ? pChatPeople().list.filter(x => pDmUnread(x.t)).length : 0;
   const unread = pPosts.filter(p => p.team && (p.at || 0) > seen).length + dmUnreadN;
   const cu = $("#pc-updates"); cu.hidden = !unread || v === "updates"; cu.textContent = unread;
   const callN = pLeads.filter(l => TO_CALL.includes(l.status || "new")).length;
@@ -920,37 +936,55 @@ function pWatchDm(tid) {
   pDmFor = tid; if (!tid) return;
   pDmStop = onSnapshot(query(collection(db, "dms", tid, "msgs"), orderBy("at"), limitToLast(300)), q => { pDmMsgs[tid] = q.docs.map(d => ({ id: d.id, ...d.data() })); renderSoon() }, () => { pDmOff = true; renderSoon() });
 }
+// A partner's chats: their country group, and a private chat with any one team member. Nothing else:
+// no team chat, and no conversation that isn't with someone on the team.
+const pOther = t => (t.members || []).find(x => x !== me) || me;
+const pDmUnread = t => !!(t && t.lastBy && t.lastBy !== me && (t.lastAt || 0) > ((t.seen || {})[me] || 0));
+function pChatPeople() {
+  const crew = pGroup && Array.isArray(pGroup.crew) ? pGroup.crew.filter(c => c && c.u && c.u !== me) : null;
+  const threadWith = u => pDms.find(x => pOther(x) === u);
+  const list = crew
+    ? crew.map(c => ({ u: c.u, n: c.n || ((threadWith(c.u) || {}).names || {})[c.u] || "", p: c.p || ((threadWith(c.u) || {}).photos || {})[c.u] || "", t: threadWith(c.u) }))
+    // until the team's site has saved the list: only chats that clearly are with a named team member
+    : pDms.filter(x => { const u = pOther(x); return u !== me && ((x.names || {})[u] || "") && (x.roles || {})[u] !== "partner" }).map(x => ({ u: pOther(x), n: x.names[pOther(x)], p: (x.photos || {})[pOther(x)] || "", t: x }));
+  return { ready: !!crew, list: list.sort((a, b) => ((b.t || {}).lastAt || 0) - ((a.t || {}).lastAt || 0) || (a.n || "~").localeCompare(b.n || "~")) };
+}
 function renderPartnerChat(box, dmWith) {
-  const other = t => (t.members || []).find(x => x !== me) || me;
-  const t = dmWith ? pDms.find(x => other(x) === dmWith) : null;
-  pWatchDm(t ? t.id : null);
+  const { ready, list } = pChatPeople();
+  let who = dmWith ? list.find(x => x.u === dmWith) : null;
+  if (dmWith && !who && ready) { history.replaceState(null, "", "#updates"); dmWith = null }
+  const t = who ? who.t : null, tid = who ? [me, who.u].sort().join("_") : null;
+  pWatchDm(tid);
   if (!dmWith) pSetSeen("p-updates");
-  if (t && t.lastBy !== me && (t.lastAt || 0) > ((t.seen || {})[me] || 0)) setDoc(doc(db, "dms", t.id), { seen: { [me]: Date.now() } }, { merge: true }).catch(() => {});
+  if (pDmUnread(t)) setDoc(doc(db, "dms", t.id), { seen: { [me]: Date.now() } }, { merge: true }).catch(() => {});
   const seenG = pGetSeen("p-updates"), gUnread = pPosts.filter(p => p.team && (p.at || 0) > seenG).length;
-  const threads = [...pDms].sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
   box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Chat"),
     el("div", { class: "pchips chat-people" },
       el("button", { class: "pchip", "aria-pressed": String(!dmWith), onclick: () => { location.hash = "updates" } }, el("span", { class: "teamdot" }, "#"), pGroup.name, gUnread && dmWith ? el("span", { class: "count" }, gUnread) : null),
-      threads.length ? el("span", { class: "chipsep" }, "Ardent Creative Studios") : null,
-      threads.map(x => { const u = other(x), n = x.lastBy && x.lastBy !== me && (x.lastAt || 0) > ((x.seen || {})[me] || 0) && dmWith !== u;
-        return el("button", { class: "pchip", "aria-pressed": String(dmWith === u), onclick: () => { location.hash = "pdm-" + u } }, postAv((x.photos || {})[u]), ((x.names || {})[u] || "Team").split(" ")[0], n ? el("span", { class: "count" }, "1") : null) })));
+      list.length ? el("span", { class: "chipsep" }, "Message privately") : null,
+      list.map(x => el("button", { class: "pchip", "aria-pressed": String(dmWith === x.u), title: x.n ? "Private chat with " + x.n : "Private chat", onclick: () => { location.hash = "pdm-" + x.u } },
+        postAv(x.p), fName(x.n) || "Ardent", pDmUnread(x.t) && dmWith !== x.u ? el("span", { class: "count" }, "1") : null))));
   if (!dmWith) {
     box.append(el("div", { class: "chat-who" }, el("span", { class: "teamdot big" }, "#"), el("span", { class: "who-n" }, el("b", {}, pGroup.name + " group"), el("span", { class: "label" }, "You, the other partners here and the Ardent Creative Studios team"))),
       chatView(groupChatItems(pGid, p => p.by === me), { onDelete: m => write(() => deleteDoc(doc(db, "pposts", m.id)), "Message deleted"), empty: "No messages yet. Tell the team how it's going: calls today, good leads, questions." }),
       chatComposer("p-msg", "Message the team and your group", txt => write(() => setDoc(doc(db, "pposts", uid()), { gid: pGid, by: me, name: partnerName(), photo: (myProfile && myProfile.photo) || "", team: false, text: txt, at: Date.now() }))),
-      ...(threads.length ? [] : [el("p", { class: "label", style: "margin:10px 2px 0;text-transform:none;letter-spacing:0" }, "When someone from the team messages you privately, it shows up here too.")]));
+      ...(list.length ? [el("p", { class: "label", style: "margin:10px 2px 0;text-transform:none;letter-spacing:0" }, "Tap a name above to message that person privately.")] : []));
     return;
   }
-  if (!t) { box.append(el("div", { class: "empty" }, pDmOff ? "Private messages aren't switched on yet. Ask the team to update the database rules." : "Loading…")); return }
-  const nm = (t.names || {})[dmWith] || "Ardent Creative Studios";
-  box.append(el("div", { class: "chat-who" }, postAv((t.photos || {})[dmWith]), el("span", { class: "who-n" }, el("b", {}, nm), el("span", { class: "rolebadge" }, "Ardent Creative Studios")), el("span", { class: "who-lock" }, "\u{1F512} only you two see this")));
-  const msgs = (pDmMsgs[t.id] || []).map(m => ({ id: m.id, by: m.by, name: m.by === me ? "You" : (t.names || {})[m.by] || nm, photo: (t.photos || {})[m.by], role: (t.roles || {})[m.by] || "team", text: m.text || "", at: m.at || 0, file: m.file }));
-  box.append(chatView(msgs, { empty: "No messages yet." }),
-    chatComposer("pdm-" + dmWith, "Message " + nm.split(" ")[0], txt => {
-      const at = Date.now();
+  if (!who) { box.append(el("div", { class: "empty" }, "Loading…")); return }
+  const nm = who.n || "Ardent Creative Studios", tt = t || {};
+  box.append(el("div", { class: "chat-who" }, postAv(who.p), el("span", { class: "who-n" }, el("b", {}, nm), el("span", { class: "rolebadge" }, "Ardent Creative Studios")), el("span", { class: "who-lock" }, "\u{1F512} only you two see this")));
+  if (pDmOff) box.append(el("p", { class: "label", style: "margin:0 2px 8px;text-transform:none;letter-spacing:0" }, "Private messages aren't switched on yet. Ask the team to update the database rules."));
+  const msgs = (pDmMsgs[tid] || []).map(m => ({ id: m.id, by: m.by, name: m.by === me ? "You" : (m.by === who.u ? nm : (tt.names || {})[m.by] || nm), photo: m.by === who.u ? who.p : (tt.photos || {})[m.by], role: (tt.roles || {})[m.by] || "team", text: m.text || "", at: m.at || 0, file: m.file }));
+  box.append(chatView(msgs, { empty: `No messages yet. Say hi to ${fName(nm)}: only the two of you see this chat.` }),
+    chatComposer("pdm-" + dmWith, "Message " + fName(nm), txt => {
+      const at = Date.now(), u = who.u;
       write(async () => {
-        await setDoc(doc(db, "dms", t.id, "msgs", uid()), { by: me, text: txt, at });
-        await setDoc(doc(db, "dms", t.id), { lastAt: at, lastBy: me, lastText: txt.slice(0, 120), seen: { [me]: at }, names: { [me]: partnerName() }, roles: { [me]: "partner" }, photos: { [me]: (myProfile && myProfile.photo && myProfile.photo.length < 400) ? myProfile.photo : "" } }, { merge: true });
+        await setDoc(doc(db, "dms", tid, "msgs", uid()), { by: me, text: txt, at });
+        // the first message starts the conversation, so it shows up in that team member's chats
+        await setDoc(doc(db, "dms", tid), { members: [me, u].sort(), gid: pGid, lastAt: at, lastBy: me, lastText: txt.slice(0, 120), seen: { [me]: at },
+          names: { [me]: partnerName(), ...(who.n ? { [u]: who.n } : {}) }, roles: { [me]: "partner", [u]: "team" },
+          photos: { [me]: (myProfile && myProfile.photo && myProfile.photo.length < 400) ? myProfile.photo : "" } }, { merge: true });
       });
     }));
 }
