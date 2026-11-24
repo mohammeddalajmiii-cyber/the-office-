@@ -1457,9 +1457,13 @@ const inCheck = t => !t.done && !!(t.checker && t.review && t.review.at);
 // Planners check tasks: "planners" means any of the project's planners; a named checker is one planner.
 // Any planner can confirm a task that's waiting for its check.
 const PLANNERS = "planners";
-const canCheck = (p, t) => inCheck(t) && inTeam(p) && (canPlan(p) || t.checker === me);
+// Nobody checks their own work: a planner's own task goes to the other planners. Only a project's single planner
+// (or a checker who picked themselves) can finish their own checked task in one tick.
+const otherPlanners = p => plannerIds(p).filter(u => u !== me);
+const canCheck = (p, t) => inCheck(t) && inTeam(p) && (canPlan(p) || t.checker === me) && (t.review.by !== me || t.checker === me || !otherPlanners(p).length);
 const isMyCheck = (p, t) => t.checker === me || (t.checker === PLANNERS && canPlan(p));
-const needsSend = (p, t) => !!t.checker && !isMyCheck(p, t);
+const needsSend = (p, t) => !!t.checker && t.checker !== me && !(t.checker === PLANNERS && canPlan(p) && !otherPlanners(p).length);
+const checkedByName = t => t.checked && t.checked.by ? (t.checked.by === me ? "you" : firstName(t.checked.by)) : "";
 const checkWho = t => t.checker === PLANNERS ? "a planner" : t.checker === me ? "you" : firstName(t.checker);
 const checkerFull = t => t.checker === PLANNERS ? "Any planner" : name(t.checker);
 let changesFor = null;   // "<where>:<taskId>" of the open "Needs changes" box
@@ -1491,14 +1495,14 @@ function takeBackCheck(p, t) {
 // The check line on a task card: waiting for a check, changes asked, or who checks it
 function checkChips(p, t, key) {
   if (!t.checker) return [];
-  if (t.done) return t.checked ? [el("span", { class: "label ok", title: `Checked by ${name(t.checked.by)} ${ago(t.checked.at)}` }, "✓ Checked")] : [];
+  if (t.done) return t.checked ? [el("span", { class: "checkedchip", title: `Checked by ${name(t.checked.by)} ${ago(t.checked.at)}` }, "✓ Checked by " + checkedByName(t))] : [];
   if (inCheck(t)) return canCheck(p, t)
     ? [el("span", { class: "checkchip mine" }, `🔍 ${t.review.by === me ? "Check it" : firstName(t.review.by) + " finished it. Check it"}`),
        el("button", { class: "btn small primary", onclick: () => approveCheck(p, t, key) }, "Looks good"),
        el("button", { class: "btn small", onclick: () => { changesFor = key; openTask = key; render(); setTimeout(() => { const n = document.getElementById("chg-" + key); if (n) n.focus() }, 0) } }, "Needs changes")]
-    : [el("span", { class: "checkchip" }, `🔍 Waiting for ${checkWho(t)} to check`)];
+    : [el("span", { class: "checkchip" }, `🔍 Waiting for ${t.checker === PLANNERS && t.review.by === me && canPlan(p) ? "another planner" : checkWho(t)} to check`)];
   if (t.changes && t.changes.text) return [el("span", { class: "changechip", title: t.changes.text }, `↩ ${firstName(t.changes.by)} asked for changes`)];
-  return [el("span", { class: "label", title: `${checkerFull(t)} checks this before it counts as done` }, "🔍 " + checkWho(t) + " checks")];
+  return [el("span", { class: "label", style: "text-transform:none;letter-spacing:0", title: `${checkerFull(t)} checks this before it counts as done` }, "🔍 Checked by " + (t.checker === PLANNERS ? "any planner" : checkWho(t)))];
 }
 // Inside an open task: who checks it, and the check itself
 function checkField(p, t, key, field, set) {
@@ -2709,8 +2713,8 @@ function myTasks() {
   const out = personal.map(t => ({ t, phase: "", personal: true, p: { id: "__personal", title: "Just for me", priority: t.priority || "medium" } }));
   for (const p of ideas.filter(i => i.status === "approved" || i.status === "completed")) {
     const phases = getPhases(p);
-    for (const t of tasksOf(p)) if (isAssignee(t, me) || (inCheck(t) && isMyCheck(p, t) && p.status === "approved")) { const held = p.status === "approved" && taskHeld(p, t);
-      out.push({ p, t, closed: p.status === "completed" || held, held, check: inCheck(t) && isMyCheck(p, t), phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" }) }
+    for (const t of tasksOf(p)) if (isAssignee(t, me) || (inCheck(t) && isMyCheck(p, t) && t.review.by !== me && p.status === "approved")) { const held = p.status === "approved" && taskHeld(p, t);
+      out.push({ p, t, closed: p.status === "completed" || held, held, check: inCheck(t) && isMyCheck(p, t) && t.review.by !== me, phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" }) }
   }
   return out;
 }
