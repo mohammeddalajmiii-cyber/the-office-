@@ -142,7 +142,7 @@ function pushAlertsFor(u) {
     if (pl && typeof pl === "object" && pl.by === me) add("planner:" + p.id, pl.at, `Made you a planner of ${p.title}`, "plan-" + p.id);
     if (p.status !== "approved") continue;
     for (const t of tasksOf(p)) {
-      if (inCheck(t) && t.checker === u && t.review.by === me) add("chk:" + t.id + ":" + t.review.at, t.review.at, `Finished "${t.text}". Please check it (${p.title})`, taskLink(p, t));
+      if (inCheck(t) && (t.checker === u || (t.checker === "planners" && uPlans(p))) && t.review.by === me) add("chk:" + t.id + ":" + t.review.at, t.review.at, `Finished "${t.text}". Please check it (${p.title})`, taskLink(p, t));
       if (isAssignee(t, u) && !t.done && !inCheck(t) && t.changes && t.changes.by === me) add("chg:" + t.id + ":" + t.changes.at, t.changes.at, `Asked for changes on "${t.text}": ${t.changes.text}`, taskLink(p, t));
       if (isAssignee(t, u) && t.done && t.checked && t.checked.by === me) add("ok:" + t.id + ":" + t.checked.at, t.checked.at, `Checked "${t.text}" ✓ (${p.title})`, taskLink(p, t));
       if (!isAssignee(t, u)) {

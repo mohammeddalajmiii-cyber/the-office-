@@ -1389,7 +1389,7 @@ function reviewCandidates(p) {
   const out = [], used = new Set();
   for (const r of all) {
     if (!isReviewText(r.text) || priced.has(r.id) || reviewSkip.has(r.id)) continue;
-    const who = r.owner || assignees(r)[0]; if (!who) continue;
+    const person = r.owner || assignees(r)[0], who = person && plannerIds(p).includes(person) ? person : PLANNERS;
     let x = null;
     const deps = waitIds(r).map(id => all.find(y => y.id === id)).filter(Boolean);
     if (deps.length === 1) x = deps[0];
@@ -1430,7 +1430,7 @@ function reviewFoldBox(p) {
       open ? null : el("button", { class: "linkbtn", onclick: () => { reviewFoldHide.add(p.id); render() } }, "Not now")));
   if (open) {
     for (const c of list) box.append(el("div", { class: "rf-row" },
-      el("span", {}, `“${c.r.text}” → ${c.who === me ? "you check" : firstName(c.who) + " checks"} “${c.x.text}”` + (c.back ? `. It goes back to waiting for ${c.who === me ? "your" : firstName(c.who) + "'s"} check` : c.r.done && c.x.done ? " (already checked)" : "")),
+      el("span", {}, `“${c.r.text}” → ${c.who === PLANNERS ? "a planner checks" : c.who === me ? "you check" : firstName(c.who) + " checks"} “${c.x.text}”` + (c.back ? `. It goes back to waiting for ${c.who === PLANNERS ? "a planner's" : c.who === me ? "your" : firstName(c.who) + "'s"} check` : c.r.done && c.x.done ? " (already checked)" : "")),
       el("span", { class: "spacer" }),
       el("button", { class: "x", "aria-label": "Keep " + c.r.text + " as a task", title: "Keep this one as a task", onclick: () => { reviewSkip.add(c.r.id); render() } }, "✕")));
     box.append(el("div", { class: "rf-row" }, el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "Their notes and files move to the task. Tasks that waited for the review now wait for the task. Tap ✕ to keep one as it is."),
@@ -1443,13 +1443,19 @@ function reviewFoldBox(p) {
 /* Checks: a task can have one person who checks it (instead of a separate "review" task).
    Ticking it sends it to them. It only counts as done (progress, the next task, task money) once they say it looks good. */
 const inCheck = t => !t.done && !!(t.checker && t.review && t.review.at);
-const canCheck = (p, t) => inCheck(t) && inTeam(p) && (t.checker === me || isAdmin);
-const checkWho = t => t.checker === me ? "you" : firstName(t.checker);
+// Planners check tasks: "planners" means any of the project's planners; a named checker is one planner.
+// Any planner can confirm a task that's waiting for its check.
+const PLANNERS = "planners";
+const canCheck = (p, t) => inCheck(t) && inTeam(p) && (canPlan(p) || t.checker === me);
+const isMyCheck = (p, t) => t.checker === me || (t.checker === PLANNERS && canPlan(p));
+const needsSend = (p, t) => !!t.checker && !isMyCheck(p, t);
+const checkWho = t => t.checker === PLANNERS ? "a planner" : t.checker === me ? "you" : firstName(t.checker);
+const checkerFull = t => t.checker === PLANNERS ? "Any planner" : name(t.checker);
 let changesFor = null;   // "<where>:<taskId>" of the open "Needs changes" box
 function sendForCheck(p, t, key) {
   openNote = "any:" + t.id; if (key) openTask = key;
   write(() => upd(p.id, { [t.path + ".review"]: { by: me, at: Date.now() }, [t.path + ".status"]: "doing", [t.path + ".changes"]: DEL() }))
-    .then(ok => { if (ok) toast(`Sent to ${firstName(t.checker)} to check. It counts as done once they say it looks good`, 4500) });
+    .then(ok => { if (ok) toast(`Sent to ${checkWho(t)} to check. It counts as done once they say it looks good`, 4500) });
 }
 function approveCheck(p, t, key) {
   if (!canCheck(p, t)) return;
@@ -1481,21 +1487,22 @@ function checkChips(p, t, key) {
        el("button", { class: "btn small", onclick: () => { changesFor = key; openTask = key; render(); setTimeout(() => { const n = document.getElementById("chg-" + key); if (n) n.focus() }, 0) } }, "Needs changes")]
     : [el("span", { class: "checkchip" }, `🔍 Waiting for ${checkWho(t)} to check`)];
   if (t.changes && t.changes.text) return [el("span", { class: "changechip", title: t.changes.text }, `↩ ${firstName(t.changes.by)} asked for changes`)];
-  return [el("span", { class: "label", title: `${name(t.checker)} checks this before it counts as done` }, "🔍 " + checkWho(t) + " checks")];
+  return [el("span", { class: "label", title: `${checkerFull(t)} checks this before it counts as done` }, "🔍 " + checkWho(t) + " checks")];
 }
 // Inside an open task: who checks it, and the check itself
 function checkField(p, t, key, field, set) {
   const planner = canPlan(p) && inTeam(p), can = canWork(p, t);
   const kids = [];
-  if (planner || can) {
+  if (planner) {
     const sel = el("select", { class: "mini", "aria-label": "Who checks it", onchange: e => {
       const u = e.target.value || null, d = { [t.path + ".checker"]: u, [t.path + ".checkerBy"]: me };
       if (!u && t.review) d[t.path + ".review"] = DEL();
-      set(d, u ? `${name(u)} checks this before it counts as done` : "No check needed. Tick it when it's done");
-    } }, el("option", { value: "" }, "No check needed"), teamPick(p, [t.checker]).map(u => el("option", { value: u }, name(u))));
+      set(d, u ? `${u === PLANNERS ? "A planner" : name(u)} checks this before it counts as done` : "No check needed. Tick it when it's done");
+    } }, el("option", { value: "" }, "No check needed"), el("option", { value: PLANNERS }, "Any planner"),
+      [...new Set([...plannerIds(p), ...(t.checker && t.checker !== PLANNERS ? [t.checker] : [])])].map(u => el("option", { value: u }, name(u) + (plannerIds(p).includes(u) ? " (planner)" : ""))));
     sel.value = t.checker || "";
     kids.push(sel);
-  } else kids.push(el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, t.checker ? name(t.checker) : "No check needed"));
+  } else kids.push(el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, t.checker ? checkerFull(t) : "No check needed"));
   if (inCheck(t)) {
     kids.push(el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, `Sent by ${t.review.by === me ? "you" : name(t.review.by)} ${ago(t.review.at)}`));
     if (canCheck(p, t)) {
@@ -1548,9 +1555,9 @@ function taskItem(p, t, where, opts = {}) {
   const toggle = () => { openTask = open ? null : key; delTask = null; waitPick = null; render() };
   const stepsDone = !t.done && !inCheck(t) && cl.length && cld === cl.length;
   const needed = t.done ? [] : waitingOn(p, t).filter(x => !x.done);
-  const checking = inCheck(t), tickable = can || canCheck(p, t), sendsToCheck = !!t.checker && t.checker !== me;
+  const checking = inCheck(t), tickable = can || canCheck(p, t), sendsToCheck = needsSend(p, t);
   return el("div", { class: "task" + (t.done ? " done" : " tp-" + (t.priority || "medium")) + (blocked ? " blocked" : "") + (checking ? " checking" : "") + (isAssignee(t, me) ? " mytask" : "") + (open ? " open" : "") },
-    el("input", { type: "checkbox", id: "c-" + key, checked: t.done || checking, disabled: !tickable, "aria-label": (checking ? "Waiting for a check: " : "Done: ") + t.text, title: canCheck(p, t) ? "Tick if it looks good" : checking ? `Waiting for ${checkWho(t)} to check it. Untick to take it back` : !can ? (!inTeam(p) ? "Only this project's team can tick tasks" : "Only the people on this task or a planner can tick it") : sendsToCheck ? `Ticking sends it to ${firstName(t.checker)} to check` : "", onchange: e => toggleDone(p, t, e.target.checked, key) }),
+    el("input", { type: "checkbox", id: "c-" + key, checked: t.done || checking, disabled: !tickable, "aria-label": (checking ? "Waiting for a check: " : "Done: ") + t.text, title: canCheck(p, t) ? "Tick if it looks good" : checking ? `Waiting for ${checkWho(t)} to check it. Untick to take it back` : !can ? (!inTeam(p) ? "Only this project's team can tick tasks" : "Only the people on this task or a planner can tick it") : sendsToCheck ? `Ticking sends it to ${checkWho(t)} to check` : "", onchange: e => toggleDone(p, t, e.target.checked, key) }),
     el("button", { class: "ttext", "aria-expanded": String(open), onclick: toggle }, t.text),
     el("button", { class: "chev", "aria-label": open ? "Close details" : "Open details", onclick: toggle }, open ? "–" : "…"),
     el("div", { class: "meta" },
@@ -1569,7 +1576,7 @@ function taskItem(p, t, where, opts = {}) {
       cl.length ? el("span", { class: "label" + (stepsDone ? " ok" : "") }, `${cld}/${cl.length} steps`) : null,
       ncount ? el("span", { class: "label" }, `${ncount} note${ncount > 1 ? "s" : ""}`) : null,
       fcount ? el("span", { class: "label", title: taskFilesOf(t).map(f => f.name).join("\n") }, `\u{1F4CE} ${fcount} file${fcount > 1 ? "s" : ""}`) : null,
-      stepsDone && can ? el("button", { class: "btn small primary", onclick: () => toggleDone(p, t, true, key) }, sendsToCheck ? `All steps done · Send to ${firstName(t.checker)} to check` : "All steps done · Mark done") : null),
+      stepsDone && can ? el("button", { class: "btn small primary", onclick: () => toggleDone(p, t, true, key) }, sendsToCheck ? `All steps done · Send to ${checkWho(t)} to check` : "All steps done · Mark done") : null),
     doneAnyway === key ? el("div", { class: "waitwarn" },
       el("span", {}, `Not done yet: ${w.open.map(d => `“${d.text}” (${ownerName(d)})`).join(", ")}. Mark this one done anyway?`),
       el("span", { class: "row", style: "gap:6px" }, el("button", { class: "btn small quiet", onclick: () => { doneAnyway = null; render() } }, "Not yet"),
@@ -1584,7 +1591,7 @@ function taskDetail(p, t, key) {
   const field = (label, ...kids) => el("div", { class: "tfield" }, el("span", { class: "tlabel" }, label), el("div", { class: "tval" }, ...kids));
 
   const cur = t.done || inCheck(t) ? "done" : t.status === "doing" ? "doing" : "todo";
-  const doneLabel = inCheck(t) ? "Waiting for check" : t.checker && t.checker !== me && !t.done ? "Send to check" : "Done";
+  const doneLabel = inCheck(t) ? "Waiting for check" : needsSend(p, t) && !t.done ? "Send to check" : "Done";
   box.append(field("Status", el("div", { class: "seg seg-sm", role: "group", "aria-label": "Status" },
     [["todo", "Not started"], ["doing", "In progress"], ["done", doneLabel]].map(([v, l]) => el("button", { "aria-pressed": String(cur === v), disabled: !(can || (v === "done" && canCheck(p, t))), onclick: () => setTaskStatus(p, t, v, key) }, l)))));
   box.append(checkField(p, t, key, field, set));
@@ -2051,7 +2058,7 @@ function toggleDone(p, t, done, key, force) {
   // Still waiting for someone else's task? Ask first, so nothing gets ticked by mistake.
   if (!force && waitInfo(p, t).open.length) { doneAnyway = key; render(); return }
   doneAnyway = null;
-  if (t.checker && t.checker !== me) return sendForCheck(p, t, key);
+  if (needsSend(p, t)) return sendForCheck(p, t, key);
   openNote = "any:" + t.id;
   if (key) openTask = key;
   const msg = doneMessage(p, t);
@@ -2683,8 +2690,8 @@ function myTasks() {
   const out = personal.map(t => ({ t, phase: "", personal: true, p: { id: "__personal", title: "Just for me", priority: t.priority || "medium" } }));
   for (const p of ideas.filter(i => i.status === "approved" || i.status === "completed")) {
     const phases = getPhases(p);
-    for (const t of tasksOf(p)) if (isAssignee(t, me) || (inCheck(t) && t.checker === me && p.status === "approved")) { const held = p.status === "approved" && taskHeld(p, t);
-      out.push({ p, t, closed: p.status === "completed" || held, held, check: inCheck(t) && t.checker === me, phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" }) }
+    for (const t of tasksOf(p)) if (isAssignee(t, me) || (inCheck(t) && isMyCheck(p, t) && p.status === "approved")) { const held = p.status === "approved" && taskHeld(p, t);
+      out.push({ p, t, closed: p.status === "completed" || held, held, check: inCheck(t) && isMyCheck(p, t), phase: (phases.find(ph => ph.id === t.phase) || {}).name || "" }) }
   }
   return out;
 }
@@ -2848,7 +2855,7 @@ function buildAlerts() {
     for (const t of tasksOf(p)) {
       const go = taskLink(p, t);
       // checks: something to check, changes asked on yours, or yours was checked
-      if (inCheck(t) && t.checker === me && t.review.by !== me) add("chk:" + t.id + ":" + t.review.at, t.review.at, t.review.by, `${name(t.review.by)} finished "${t.text}". Please check it (${p.title})`, go);
+      if (inCheck(t) && isMyCheck(p, t) && t.review.by !== me) add("chk:" + t.id + ":" + t.review.at, t.review.at, t.review.by, `${name(t.review.by)} finished "${t.text}". Please check it (${p.title})`, go);
       if (isAssignee(t, me) && !t.done && !inCheck(t) && t.changes && t.changes.by !== me) add("chg:" + t.id + ":" + t.changes.at, t.changes.at, t.changes.by, `${name(t.changes.by)} asked for changes on "${t.text}": ${t.changes.text}`, go);
       if (isAssignee(t, me) && t.done && t.checked && t.checked.by !== me) add("ok:" + t.id + ":" + t.checked.at, t.checked.at, t.checked.by, `${name(t.checked.by)} checked "${t.text}" ✓ (${p.title})`, go);
       if (!isAssignee(t, me)) {
@@ -3145,7 +3152,7 @@ function guidePage() {
       ["Tap someone's photo", "above a project's tasks to see only their tasks."],
       ["Take the skills quiz", "(Me › Skills and team, about 6 minutes). It finds your main role, other roles you fit and your hidden skill, so the right tasks come to you."],
       ["Done tasks fold away", "at the bottom of their phase under ✓ done. Tap it to review them; untick one to bring it back."],
-      ["Checks instead of review tasks:", "open a task and pick who checks it. Ticking it sends it to them; it only counts as done when they tap Looks good. Needs changes sends it back with a note. Things to check show in Me under To check. Planners see a tidy-up box that turns old review tasks into checks."]]),
+      ["Checks instead of review tasks:", "open a task and pick a planner to check it, or Any planner. Ticking it sends it to them; it only counts as done when a planner taps Looks good. Needs changes sends it back with a note. Things to check show in Me under To check. Planners see a tidy-up box that turns old review tasks into checks."]]),
     card("\u{1F4B5}", "Your money", [
       ["Task prices:", "when a project shares money by task prices, a task shows 💵 and what you get (≈). You earn it once the task is ticked done and the client has paid for it."],
       ["Not every task has a price.", "The part that isn't priced is shared by the team, by % or equally."],
@@ -3497,7 +3504,7 @@ function boardContext(p) {
   const pCode = proj => { for (const [k, v] of Object.entries(asstRefs)) if (v.pid === proj.id && !v.tid) return k; const k = "PRJ" + (++n); asstRefs[k] = { pid: proj.id }; return k };
   const code = (t, pid) => { for (const [k, v] of Object.entries(asstRefs)) if (v.tid === t.id && v.pid === pid) return k; const k = "T" + (++n); asstRefs[k] = { pid, tid: t.id }; return k };
   const short = (s, len = 110) => (s || "").replace(/\s+/g, " ").slice(0, len);
-  const tline = (t, proj, pid) => `- [${code(t, pid)}] ${short(t.text)}${proj ? " [" + proj + "]" : ""} | ${assignees(t).map(u => realName(u) || "someone").join(", ") || "unassigned"} | ${t.done ? "done" : inCheck(t) ? "finished, waiting for " + (realName(t.checker) || "someone") + " to check" : t.status === "doing" ? "in progress" : "not started"}${t.checker && !t.done && !inCheck(t) ? " | checked by " + (realName(t.checker) || "someone") + " before it counts as done" : ""}${t.due ? " | due " + t.due : ""}${t.priority && t.priority !== "medium" ? " | " + t.priority : ""}`;
+  const tline = (t, proj, pid) => `- [${code(t, pid)}] ${short(t.text)}${proj ? " [" + proj + "]" : ""} | ${assignees(t).map(u => realName(u) || "someone").join(", ") || "unassigned"} | ${t.done ? "done" : inCheck(t) ? "finished, waiting for " + (t.checker === PLANNERS ? "a planner" : realName(t.checker) || "someone") + " to check" : t.status === "doing" ? "in progress" : "not started"}${t.checker && !t.done && !inCheck(t) ? " | checked by " + (t.checker === PLANNERS ? "any planner" : realName(t.checker) || "someone") + " before it counts as done" : ""}${t.due ? " | due " + t.due : ""}${t.priority && t.priority !== "medium" ? " | " + t.priority : ""}`;
   const wline = (proj, t) => { const w = waitInfo(proj, t); return w.open.length ? ` | waiting for: ${w.open.map(d => short(d.text, 40)).join(", ")}` : "" };
   L.push(`Today is ${ymd(today)} (${today.toLocaleDateString("en", { weekday: "long" })}).`);
   L.push(`Current user: ${realName(me) || "a team member"} | Role: ${isAdmin ? "ADMIN (can change every project, idea, task, money and setting)" : "TEAM MEMBER (can only change projects and ideas marked ALLOWED_TO_MODIFY)"}.`);
@@ -3661,7 +3668,7 @@ How Pitch Room works:
 - Bugs and ideas (⋯ menu): anyone reports a bug or suggests what would make work easier; creators get an alert.
 - Projects: Building now, Up next (vote for what's next), Paused, Completed. A planner can also pause one phase (its tasks go on hold) and resume it later. Planners (the person who pitched it, the admin and added planners) change the plan and the money.
 - Project teams: each project has its own team. Planners are always on it. Others tap "Ask to join the team" and wait for a planner to accept, or a planner invites them and they accept. Someone not on the team can look and leave notes on tasks, but can't take, tick or change tasks, check in or add files. Only the team can be given tasks and get money from the project. Leaving or being taken off frees your open tasks.
-- Tasks: status (not started, in progress, done), priority, due date, steps (ticking the first step starts the task), notes for the team, "waiting for" (a task can't start until another is done; finishing one tells the next person), and "checked by" (one person checks the task: ticking it sends it to them, and it only counts as done once they tap Looks good; Needs changes sends it back with a note. Use this instead of separate review tasks). My tasks groups them into To check, Now, Next and Waiting on others.
+- Tasks: status (not started, in progress, done), priority, due date, steps (ticking the first step starts the task), notes for the team, "waiting for" (a task can't start until another is done; finishing one tells the next person), and "checked by" (project planners check tasks: a named planner or "any planner". Ticking it sends it for the check, and it only counts as done once a planner taps Looks good; Needs changes sends it back with a note. Use this instead of separate review tasks). My tasks groups them into To check, Now, Next and Waiting on others.
 - Money: for each deal, costs people paid are paid back first, then a partner's commission if a partner abroad brought the client, then the team fund % (40% now), then the finder's fee, then the shares. Deals can be in any currency; each payment saves its rate. Proposals have nothing due. One-time deals can have a payment plan (a deposit, then the rest), and each payment says which tasks it pays for. Every money change is in the project's change log. Everyone agrees to the money rules. Sharing the team's money: by % shares, or by task prices (one-time and paid-over-months deals): a task can have a price (its part of the client's price). Whoever does a priced task earns its share once the task is done and the payment that covers it is in; not every task needs a price, the unpriced part is shared by the % shares or equally by the project's team.
 - Team fund: pays subscriptions and saves for goals. Goals can be added without a price, researched, then priced. If someone pays for the team from their own pocket, the fund owes it back.
 - Partners: lead finders abroad in country groups. They call numbers, post updates, chat with the team and see their earnings. A number marked Client can become a project with their commission set.
@@ -5782,8 +5789,8 @@ async function doActions(m) {
   try {
     for (const a of m.actions.filter(x => !x.skip)) {
       const now = Date.now(), nid = uid();
-      if (a.kind === "done" && a.t.checker && a.t.checker !== me && !a.t.done) {
-        msgs.push(`Sent “${a.t.text}” to ${firstName(a.t.checker)} to check`);
+      if (a.kind === "done" && needsSend(a.p, a.t) && !a.t.done) {
+        msgs.push(`Sent “${a.t.text}” to ${checkWho(a.t)} to check`);
         await run(() => upd(a.p.id, { [a.t.path + ".review"]: { by: me, at: now }, [a.t.path + ".status"]: "doing", ...(a.text ? { [`${a.t.path}.notes.${nid}`]: { by: me, text: a.text, at: now } } : {}) }),
           () => upd(a.p.id, { [a.t.path + ".review"]: DEL(), ...(a.text ? { [`${a.t.path}.notes.${nid}`]: DEL() } : {}) }));
       } else if (a.kind === "done") {
