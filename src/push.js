@@ -136,7 +136,8 @@ function pushAlertsFor(u) {
   const uAdmin = ADMINS.includes(((people[u] || {}).email || "").toLowerCase());
   const uPlans = p => uAdmin || p.author === u || !!(p.planners || {})[u];
   for (const p of ideas) {
-    if (p.status === "voting" && p.author === me) add("idea:" + p.id, p.createdAt, `Pitched a new idea: ${p.title}`, "ideas");
+    if (p.status === "voting" && p.author === me) add("idea:" + p.id, p.createdAt, `Pitched a new idea: ${p.title}`, "chat-ideas");
+    if (p.status === "voting" && p.author === u && p.wonAt && p.wonBy === me) add("ideawon:" + p.id + ":" + p.wonAt, p.wonAt, `Voted Keep: “${p.title}” won the vote. Confirm it to Projects`, "chat-ideas");
     if (p.status === "completed" && p.completedBy === me) add("done:" + p.id, p.completedAt, `Marked ${p.title} as completed`, "projects-done");
     const pl = (p.planners || {})[u];
     if (pl && typeof pl === "object" && pl.by === me) add("planner:" + p.id, pl.at, `Made you a planner of ${p.title}`, "plan-" + p.id);
@@ -195,9 +196,9 @@ function pushAlertsFor(u) {
   for (const m of chat) {
     if (m.by !== me) continue;
     const o = m.replyTo && chat.find(x => x.id === m.replyTo);
-    const men = pinged(m.mentions);
-    if (o && o.by === u) add("reply:" + m.id, m.at, `Replied: ${msgSummary(m)}`, "chat-team");
-    else if (lvl("team") === "all" || men) add("chat:" + m.id, m.at, (men ? "Mentioned you: " : "") + msgSummary(m), "chat-team", `${meFull} · team chat`);
+    const men = pinged(m.mentions), ck = m.ch === "ideas" ? "ideas" : "team";
+    if (o && o.by === u) add("reply:" + m.id, m.at, `Replied: ${msgSummary(m)}`, chatHash(ck));
+    else if (lvl(ck) === "all" || men) add("chat:" + m.id, m.at, (men ? "Mentioned you: " : "") + msgSummary(m), chatHash(ck), `${meFull} · ${ck === "ideas" ? "Ideas" : "team chat"}`);
   }
   return out;
 }

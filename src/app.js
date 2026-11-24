@@ -88,6 +88,7 @@ function route(hash) {
   if (h.startsWith("dm-")) return { view: "chat", dm: h.slice(3), ch: "dm:" + h.slice(3) };
   if (h.startsWith("pc-")) return { view: "chat", ch: "p:" + h.slice(3) };
   if (h === "chat-team") return { view: "chat", ch: "team" };
+  if (h === "ideas" || h === "chat-ideas") return { view: "chat", ch: "ideas" };
   if (h.startsWith("pg-")) return { view: "partners", gid: h.slice(3) };
   return { view: VIEWS.includes(h) && h !== "project" ? h : "me" };
 }
@@ -189,9 +190,9 @@ async function onAuth(u) {
     const before = chat.length ? chat[chat.length - 1].at : 0;
     chat = s.docs.map(d => ({ id: d.id, ...d.data() }));
     const newest = chat.length ? chat[chat.length - 1] : null;
-    const lvl = notifyOf("team"), ment = mentionsMe(newest), heard = lvl === "all" || ment;
+    const k0 = newest && newest.ch === "ideas" ? "ideas" : "team", lvl = notifyOf(k0), ment = mentionsMe(newest), heard = lvl === "all" || ment;
     if (before && newest && newest.at > before && newest.by !== me && heard) chime();
-    if (before && newest && newest.at > before && newest.by !== me && heard && (chatKey() !== "team" || document.hidden)) ping({ key: "chat:" + newest.id, who: newest.by, title: realName(newest.by) || "Team chat", sub: "Team chat", text: (ment ? "Mentioned you: " : "") + msgSummary(newest), go: "chat-team", at: newest.at });
+    if (before && newest && newest.at > before && newest.by !== me && heard && (chatKey() !== k0 || document.hidden)) ping({ key: "chat:" + newest.id, who: newest.by, title: realName(newest.by) || keyTitle(k0), sub: k0 === "ideas" ? "Ideas" : "Team chat", text: (ment ? "Mentioned you: " : "") + msgSummary(newest), go: chatHash(k0), at: newest.at });
     render();
   }, () => {}));
   unsubs.push(onSnapshot(doc(db, "meta", "chat"), s => { chatMeta = { pins: {}, typing: {}, ...(s.exists() ? s.data() : {}) }; render() }, () => {}));
@@ -355,7 +356,7 @@ function renderAll() {
   const removed = ideas.filter(i => i.status === "removed");
   const projects = ideas.filter(i => i.status === "approved").sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0));
   fillComposeCats();
-  $("#c-ideas").textContent = voting.length; $("#c-projects").textContent = projects.length;
+  { const ci = $("#c-ideas"); if (ci) ci.textContent = voting.length } $("#c-projects").textContent = projects.length;
   const r = route();
   if (r.view === "ideas") renderIdeas(voting, removed);
   if (r.view === "projects") renderProjects(projects);
@@ -2157,10 +2158,10 @@ const wideChat = () => matchMedia("(min-width: 900px)").matches;
 const chatKey = () => { const r = route(); return r.view !== "chat" ? null : r.ch || (wideChat() ? "team" : null) };
 const chatWith = () => { const k = chatKey(); return k && k.startsWith("dm:") ? k.slice(3) : null };
 const projOfKey = k => k && k.startsWith("p:") ? ideas.find(i => i.id === k.slice(2)) || null : null;
-const chatHash = k => k === "team" ? "chat-team" : k.startsWith("dm:") ? "dm-" + k.slice(3) : "pc-" + k.slice(2);
-const listOf = k => !k ? [] : k === "team" ? chat : k.startsWith("dm:") ? (dmMsgs[dmId(k.slice(3))] || []) : (pcMsgs[k.slice(2)] || []);
+const chatHash = k => k === "team" ? "chat-team" : k === "ideas" ? "chat-ideas" : k.startsWith("dm:") ? "dm-" + k.slice(3) : "pc-" + k.slice(2);
+const listOf = k => !k ? [] : k === "team" ? teamMsgs() : k === "ideas" ? ideasTimeline() : k.startsWith("dm:") ? (dmMsgs[dmId(k.slice(3))] || []) : (pcMsgs[k.slice(2)] || []);
 const curList = () => listOf(chatKey() || "team");
-const chatRef = (k, id) => k === "team" ? doc(db, "chat", id) : k.startsWith("dm:") ? doc(db, "dms", dmId(k.slice(3)), "msgs", id) : doc(db, "ideas", k.slice(2), "chat", id);
+const chatRef = (k, id) => k === "team" || k === "ideas" ? doc(db, "chat", id) : k.startsWith("dm:") ? doc(db, "dms", dmId(k.slice(3)), "msgs", id) : doc(db, "ideas", k.slice(2), "chat", id);
 const msgRef = id => chatRef(chatKey() || "team", id);
 const threadOf = u => dmThreads.find(t => t.id === dmId(u));
 function watchDm(u) {
@@ -2191,6 +2192,73 @@ function touchThread(u, last) {
 }
 
 let chat = [];
+// Team chat messages and Ideas chat talk share the "chat" collection; Ideas talk has ch: "ideas"
+const teamMsgs = () => chat.filter(m => !m.ch);
+const ideaTalk = () => chat.filter(m => m.ch === "ideas");
+const voteTally = votes => { const v = Object.values(votes || {}); return { k: v.filter(x => x === "keep").length, d: v.filter(x => x === "drop").length } };
+const ideaNeed = () => Math.min(2, Math.max(1, teamIds().length));
+const ideaState = i => { const t = voteTally(i.votes), cast = t.k + t.d, enough = cast >= ideaNeed(); return { ...t, cast, enough, won: enough && t.k > t.d, lost: enough && t.d > t.k } };
+const fromVote = i => !!i.createdAt && (i.status === "voting" || i.status === "removed" || (isProj(i) && Object.keys(i.votes || {}).length > 0));
+// The Ideas chat's timeline: what people wrote, every idea as a card, and short lines saying what happened
+function ideasTimeline() {
+  const out = ideaTalk();
+  for (const i of ideas) {
+    if (!fromVote(i)) continue;
+    out.push({ id: "idea:" + i.id, by: i.author, at: i.createdAt, idea: i });
+    if (i.wonAt) out.push({ id: "won:" + i.id, at: i.wonAt, sys: [["b", i.title], i.status === "voting" ? (i.author === me ? " won the vote. You can confirm it now." : ` won the vote. Waiting for ${firstOf(i.author)} to confirm it.`) : " won the vote."], ic: "check" });
+    if (isProj(i) && i.approvedAt) { const j = Object.entries(i.joined || {}).filter(([, v]) => v && v.vote).map(([u]) => firstOf(u));
+      out.push({ id: "conf:" + i.id, at: i.approvedAt, sys: [["b", (i.movedBy || i.author) === me ? "You" : firstOf(i.movedBy || i.author)], " confirmed ", ["b", i.title], j.length ? `. It's in Projects now, and ${j.join(" and ")} joined its team.` : ". It's in Projects now."], ic: "arrow" }) }
+    if (i.status === "removed" && i.removedAt) out.push({ id: "rem:" + i.id, at: i.removedAt, sys: [["b", i.title], " was removed after the vote."], ic: "x" });
+    if (i.backAt) out.push({ id: "back:" + i.id, at: i.backAt, sys: [["b", i.title], " is back in the vote."], ic: "bulb" });
+  }
+  return out.sort((x, y) => x.at - y.at);
+}
+const openIdeas = () => ideas.filter(i => i.status === "voting" && i.createdAt).sort((x, y) => (!!(y.votes || {})[me] ? 0 : 1) - (!!(x.votes || {})[me] ? 0 : 1) || y.createdAt - x.createdAt);
+const needsMyVote = i => i.status === "voting" && !(i.votes || {})[me];
+function ideaVote(i, kind) {
+  const votes = { ...(i.votes || {}) }; if (votes[me] === kind) delete votes[me]; else votes[me] = kind;
+  const t = voteTally(votes), won = t.k + t.d >= ideaNeed() && t.k > t.d;
+  const data = { ["votes." + me]: votes[me] ? kind : DEL() };
+  if (won && !i.wonAt) { data.wonAt = Date.now(); data.wonBy = me } else if (!won && i.wonAt) { data.wonAt = DEL(); data.wonBy = DEL() }
+  write(() => upd(i.id, data));
+}
+const removeIdea = i => write(() => upd(i.id, { status: "removed", removedAt: Date.now(), removedBy: me }), "Idea removed");
+const bringBackIdea = i => write(() => upd(i.id, { status: "voting", votes: { [i.author]: "keep" }, wonAt: DEL(), wonBy: DEL(), removedAt: DEL(), removedBy: DEL(), backAt: Date.now() }), "Back in the vote");
+function ideaCardEl(item) {
+  const i = item.idea, s = ideaState(i), mine = (i.votes || {})[me], proj = isProj(i), gone = i.status === "removed", team = Math.max(1, teamIds().length);
+  const verdict = proj || gone ? "" : !s.enough ? `${s.cast} of ${team} voted · ${ideaNeed() - s.cast} more needed` : s.won ? "Keep wins" : s.lost ? "Drop wins" : "Tied";
+  const stop = fn => e => { e.stopPropagation(); fn() };
+  let act = null;
+  if (proj) act = [el("span", { class: "wait" }, `Confirmed by ${(i.movedBy || i.author) === me ? "you" : firstOf(i.movedBy || i.author)}`), el("span", { class: "spacer" }),
+    el("button", { type: "button", class: "btn small primary", onclick: stop(() => { location.hash = "project-" + i.id }) }, "Open project", nIc("arrow", "sm"))];
+  else if (gone) act = [el("span", { class: "wait" }, "Removed after the vote"), el("span", { class: "spacer" }), el("button", { type: "button", class: "btn small", onclick: stop(() => bringBackIdea(i)) }, "Bring back to vote")];
+  else if (s.won) act = i.author === me ? [el("span", { class: "wait" }, "Keep won. It's yours to confirm"), el("span", { class: "spacer" }), el("button", { type: "button", class: "btn small primary", onclick: stop(() => confirmIdea(i)) }, "Confirm to Projects", nIc("arrow", "sm"))]
+    : [el("span", { class: "wait" }, `Keep won. Waiting for ${firstOf(i.author)} to confirm`)];
+  else if (s.lost) act = [el("span", { class: "wait" }, "Drop won"), el("span", { class: "spacer" }), el("button", { type: "button", class: "btn small", onclick: stop(() => removeIdea(i)) }, "Remove it")];
+  const vb = (kind, label, n) => el("button", { type: "button", class: "nc-vb " + kind, "aria-pressed": String(mine === kind), onclick: stop(() => ideaVote(i, kind)) }, label, el("b", {}, String(n)));
+  return el("div", { class: "nc-idea" + (proj || gone ? " closed" : "") },
+    el("div", { class: "itop" }, proj ? el("span", { class: "itag proj" }, nIc("check"), "Now a project") : gone ? el("span", { class: "itag gone" }, "Removed") : el("span", { class: "itag" }, nIc("bulb"), "Idea"),
+      catsOf(i).slice(0, 2).map(c => el("span", { class: "icat" }, c)), needsMyVote(i) ? el("span", { class: "ineed" }, "Needs your vote") : null),
+    el("div", { class: "ititle", dir: "auto" }, i.title),
+    clientOf(i) ? el("div", { class: "iclient" }, "Client ", el("b", {}, clientOf(i))) : null,
+    i.pitch ? el("p", { class: "ipitch", dir: "auto", onclick: e => { e.stopPropagation(); e.currentTarget.classList.toggle("open") } }, i.pitch) : null,
+    proj ? null : el("div", { class: "ivote" }, vb("keep", "Keep", s.k), vb("drop", "Drop", s.d),
+      el("span", { class: "vst" }, Object.keys(i.votes || {}).slice(0, 6).map(u => ncAv(u, "xs", false))), el("span", { class: "iverd" + (s.won ? " win" : "") }, verdict)),
+    act ? el("div", { class: "iact" }, act) : null);
+}
+let ncPitchOpen = false;
+function openPitch(on) { ncPitchOpen = on; ncPlusOpen = false; renderPitch(); if (on) setTimeout(() => $("#f-title").focus(), 60) }
+function renderPitch() { const s = $("#nc-pitch"); s.hidden = !ncPitchOpen; if (ncPitchOpen) $("#nc-scrim").hidden = false; else if (!ncSheet) $("#nc-scrim").hidden = true }
+function renderTray(k) {
+  const t = $("#nc-tray");
+  if (k !== "ideas") { t.hidden = true; t.replaceChildren(); return }
+  const list = openIdeas(); t.hidden = false;
+  t.replaceChildren(el("span", { class: "tl" }, "Open ideas ", el("b", {}, String(list.length))),
+    ...(list.length ? list.map(i => { const s = ideaState(i), need = needsMyVote(i);
+      return el("button", { type: "button", class: "tcard" + (need ? " need" : s.won ? " won" : ""), onclick: () => ncJump("idea:" + i.id) }, el("b", { dir: "auto" }, i.title),
+        el("span", {}, need ? "Needs your vote" : s.won ? (i.author === me ? "Keep won · confirm it" : "Keep won") : s.lost ? "Drop won" : `Keep ${s.k} · Drop ${s.d}`)) })
+      : [el("span", { class: "tl quiet" }, "All decided. Tap Pitch to post the next one")]));
+}
 let chatSel = null, chatReply = null, chatEdit = null, chatDel = null, chatReactPick = null, chatEmojiOpen = false;
 let ncFilter = "all", ncInfo = false, ncInfoTab = "photos", ncFind = "", ncFindOpen = false, ncForm = null, ncPollN = 2, ncFwd = null, ncPlusOpen = false;
 let ncSheet = null, ncCur = null, ncDivider = 0, ncDividerSet = false, ncFlash = null;
@@ -2214,10 +2282,10 @@ function ncAv(u, cls = "", dot = true) {
     ph ? el("img", { src: ph, alt: "", referrerpolicy: "no-referrer" }) : initials(realName(u) || chatName(u)),
     dot && u !== me && isOnline(u) ? el("span", { class: "on" }) : null);
 }
-const keyAv = (k, cls = "") => k === "team" ? el("span", { class: "nc-av team" + (cls ? " " + cls : "") }, "#")
+const keyAv = (k, cls = "") => k === "ideas" ? el("span", { class: "nc-av ideas" + (cls ? " " + cls : "") }, nIc("bulb")) : k === "team" ? el("span", { class: "nc-av team" + (cls ? " " + cls : "") }, "#")
   : k.startsWith("dm:") ? ncAv(k.slice(3), cls) : el("span", { class: "nc-av sq" + (cls ? " " + cls : "") }, initials((projOfKey(k) || {}).title));
-const keyTitle = k => k === "team" ? "Everyone" : k.startsWith("dm:") ? chatName(k.slice(3)) : (projOfKey(k) || {}).title || "Project";
-const chatMembers = k => k === "team" ? teamIds() : k.startsWith("p:") ? (projOfKey(k) ? teamOf(projOfKey(k)) : []) : [me, k.slice(3)];
+const keyTitle = k => k === "ideas" ? "Ideas" : k === "team" ? "Everyone" : k.startsWith("dm:") ? chatName(k.slice(3)) : (projOfKey(k) || {}).title || "Project";
+const chatMembers = k => k === "team" || k === "ideas" ? teamIds() : k.startsWith("p:") ? (projOfKey(k) ? teamOf(projOfKey(k)) : []) : [me, k.slice(3)];
 
 /* seen, unread and read ticks: each person's last-seen time per chat is on their profile (users/{uid}.chatSeen) */
 const mySeenMap = () => ((people[me] || {}).chatSeen) || {};
@@ -2313,7 +2381,7 @@ function setPin(k, m) {
 let sending = false;
 const extraFor = k => { const u = k && k.startsWith("dm:") ? k.slice(3) : null, pm = u ? pmByUid(u) : null; return pm ? { gid: pm.gid } : {} };
 async function sendMsg(k, data) {
-  const full = { by: me, at: Date.now(), text: "", ...data };
+  const full = { by: me, at: Date.now(), text: "", ...(k === "ideas" ? { ch: "ideas" } : {}), ...data };
   const ok = await write(() => setDoc(chatRef(k, uid()), full));
   if (ok) afterSend(k, full);
   return ok;
@@ -2477,7 +2545,9 @@ function askAboutMsg(m) {
 /* the list of chats */
 function chatRows() {
   const rows = [];
-  const tl = chat.length ? chat[chat.length - 1] : null, tSeen = seenOf("team"), tNew = chat.filter(m => m.at > tSeen && m.by !== me);
+  const itl = ideasTimeline().filter(m => !m.sys), il = itl[itl.length - 1], iSeen = seenOf("ideas"), iNew = itl.filter(m => m.at > iSeen && m.by !== me);
+  rows.push({ k: "ideas", kind: "ideas", title: "Ideas", last: il ? { by: il.by, at: il.at, text: msgSummary(il) } : null, unread: iNew.length, mention: iNew.some(mentionsMe), pinned: true, needVote: ideas.filter(needsMyVote).length });
+  const tm = teamMsgs(), tl = tm.length ? tm[tm.length - 1] : null, tSeen = seenOf("team"), tNew = tm.filter(m => m.at > tSeen && m.by !== me);
   rows.push({ k: "team", kind: "team", title: "Everyone", last: tl ? { by: tl.by, at: tl.at, text: tl.system ? "Weekly summary" : msgSummary(tl) } : null, unread: tNew.length, mention: tNew.some(mentionsMe), pinned: true });
   for (const p of ideas) {
     if (p.status !== "approved" || !(isAdmin || projTeam(p).includes(me))) continue;
@@ -2499,8 +2569,8 @@ function whenShort(t) {
   const d = new Date(t), days = Math.round((new Date(new Date().toDateString()) - new Date(d.toDateString())) / 864e5);
   return days <= 0 ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : days === 1 ? "Yesterday" : days < 7 ? d.toLocaleDateString(undefined, { weekday: "short" }) : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
-const PREV_IC = [[/^Voice message/, "mic"], [/^Photo/, "image"], [/^File:/, "file"], [/^Poll:/, "poll"], [/^Task:/, "task"]];
-function rowAv(r) { return r.kind === "team" ? el("span", { class: "nc-av team" }, "#") : r.kind === "dm" ? ncAv(r.u) : el("span", { class: "nc-av sq" + (r.kind === "pgroup" ? " pg" : "") }, initials(r.title)) }
+const PREV_IC = [[/^Idea:/, "bulb"], [/^Voice message/, "mic"], [/^Photo/, "image"], [/^File:/, "file"], [/^Poll:/, "poll"], [/^Task:/, "task"]];
+function rowAv(r) { return r.kind === "ideas" ? keyAv("ideas") : r.kind === "team" ? el("span", { class: "nc-av team" }, "#") : r.kind === "dm" ? ncAv(r.u) : el("span", { class: "nc-av sq" + (r.kind === "pgroup" ? " pg" : "") }, initials(r.title)) }
 function previewEl(r) {
   if (r.typers.length) return el("span", { class: "nc-cprev typing" }, typingWord(r.k, r.typers));
   const l = r.last;
@@ -2527,7 +2597,7 @@ function renderChatList(cur, rows) {
   const pinned = list.filter(r => r.pinned), rest = list.filter(r => !r.pinned).sort((a, b) => (b.at || 0) - (a.at || 0) || a.title.localeCompare(b.title));
   const row = r => el("button", { type: "button", class: "nc-row", "aria-current": String(r.k === cur), onclick: () => openRow(r) }, rowAv(r),
     el("span", { class: "nc-rmain" }, el("span", { class: "nc-cname" }, el("span", { class: "t" }, r.title),
-      r.kind === "project" ? el("span", { class: "nc-tag proj" }, "Project") : r.partner ? el("span", { class: "nc-tag" }, r.kind === "pgroup" ? "Partners" : "Partner") : null), previewEl(r)),
+      r.kind === "ideas" && r.needVote ? el("span", { class: "nc-tag vote" }, `${r.needVote} to vote`) : r.kind === "project" ? el("span", { class: "nc-tag proj" }, "Project") : r.partner ? el("span", { class: "nc-tag" }, r.kind === "pgroup" ? "Partners" : "Partner") : null), previewEl(r)),
     el("span", { class: "nc-cmeta" + (r.unread && !r.muted ? " unread" : "") }, r.last ? whenShort(r.last.at) : "",
       el("span", { class: "nc-badges" }, r.muted ? nIc("mute") : null, r.pinned ? nIc("pin") : null, r.mention ? el("span", { class: "nc-at" }, "@") : null, r.unread ? el("span", { class: "nc-count" + (r.muted ? " muted" : "") }, String(r.unread)) : null)));
   const out = [];
@@ -2536,7 +2606,7 @@ function renderChatList(cur, rows) {
   if (q.length > 1) {
     const hits = [];
     const look = (k, list) => { for (const m of list) if (m.text && m.text.toLowerCase().includes(q)) hits.push({ k, m }) };
-    look("team", chat); for (const [pid, l] of Object.entries(pcMsgs)) look("p:" + pid, l); for (const [tid, l] of Object.entries(dmMsgs)) { const u = tid.split("_").find(x => x !== me); if (u) look("dm:" + u, l) }
+    look("team", teamMsgs()); look("ideas", ideaTalk()); for (const [pid, l] of Object.entries(pcMsgs)) look("p:" + pid, l); for (const [tid, l] of Object.entries(dmMsgs)) { const u = tid.split("_").find(x => x !== me); if (u) look("dm:" + u, l) }
     hits.sort((a, b) => b.m.at - a.m.at);
     if (hits.length) { out.push(el("div", { class: "nc-sect" }, "Messages"));
       out.push(...hits.slice(0, 8).map(({ k, m }) => el("button", { type: "button", class: "nc-row", onclick: () => openRow({ k, kind: "x" }, m.id) }, keyAv(k),
@@ -2550,7 +2620,7 @@ function renderChatList(cur, rows) {
 /* the open conversation */
 function renderHead(k) {
   const typers = typersIn(k), p = projOfKey(k), u = chatWith();
-  const sub = typers.length ? typingWord(k, typers) : u ? (isPartnerUid(u) ? "Partner · " : "") + (isOnline(u) ? "Online" : lastSeenText(u)) : k === "team" ? `Team chat · ${teamIds().length} team members` : `Project chat · ${p ? teamOf(p).length : 0} people on the team`;
+  const sub = typers.length ? typingWord(k, typers) : k === "ideas" ? `Pitch, vote and confirm · ${teamIds().length} team members` : u ? (isPartnerUid(u) ? "Partner · " : "") + (isOnline(u) ? "Online" : lastSeenText(u)) : k === "team" ? `Team chat · ${teamIds().length} team members` : `Project chat · ${p ? teamOf(p).length : 0} people on the team`;
   $("#chat-head").replaceChildren(
     el("button", { type: "button", class: "nc-ib nc-back", "aria-label": "Back to chats", onclick: () => { location.hash = "chat" } }, nIc("back")),
     keyAv(k),
@@ -2590,9 +2660,9 @@ function renderLog(k, fresh) {
       : `${p ? "Project chats aren't" : "Private chats aren't"} switched on yet. Ask ${ADMIN_NAME} to update the database rules.`));
     return;
   }
-  if (!list.length) { log.append(el("div", { class: "nc-empty" }, u ? `No messages with ${firstOf(u)} yet. Say hi, only you two will see it.` : p ? `No messages yet. Everyone on ${p.title}'s team is in this chat.` : "No messages yet. Say hi to the team.")); return }
+  if (!list.length) { log.append(el("div", { class: "nc-empty" }, k === "ideas" ? "No ideas yet. Tap Pitch to post the first one: the team votes on it right here." : u ? `No messages with ${firstOf(u)} yet. Say hi, only you two will see it.` : p ? `No messages yet. Everyone on ${p.title}'s team is in this chat.` : "No messages yet. Say hi to the team.")); return }
   const others = chatMembers(k).filter(x => x !== me);
-  const lastMine = [...list].reverse().find(m => m.by === me && !m.system);
+  const lastMine = [...list].reverse().find(m => m.by === me && !m.system && !m.sys && !m.idea);
   const term = ncFindOpen ? ncFind.trim().toLowerCase() : ""; let hits = 0, firstHit = null;
   let lastDay = "", lastBy = "", lastAt = 0, divided = false;
   const react = (m, e, on) => write(() => updateDoc(chatRef(k, m.id), { [`reacts.${emojiKey(e)}.${me}`]: on ? true : DEL() }));
@@ -2600,13 +2670,14 @@ function renderLog(k, fresh) {
     const day = new Date(m.at).toDateString();
     if (day !== lastDay) { log.append(el("div", { class: "nc-day" }, dayLabel(m.at))); lastBy = "" }
     lastDay = day;
+    if (m.sys) { log.append(el("div", { class: "nc-sys", id: "msg-" + m.id }, nIc(m.ic || "check"), el("span", {}, m.sys.map(x => Array.isArray(x) ? el("b", {}, x[1]) : x)))); lastBy = ""; continue }
     if (m.system === "weekly") { log.append(el("div", { class: "nc-weekly", id: "msg-" + m.id }, el("div", { class: "h" }, "Weekly summary"), el("div", { class: "pre" }, m.text))); lastBy = ""; continue }
     if (!divided && ncDivider && m.at > ncDivider && m.by !== me) { log.append(el("div", { class: "nc-newdiv", id: "nc-newdiv" }, "New messages")); divided = true; lastBy = "" }
     const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60e3 && !m.replyTo;
     if (!mine && !grouped && !u) log.append(el("div", { class: "nc-mname" }, chatName(m.by), isPartnerUid(m.by) ? el("span", { class: "nc-tag" }, "Partner") : null));
     const hit = !!term && (m.text || "").toLowerCase().includes(term); if (hit) { hits++; firstHit = firstHit || m.id }
     const orig = m.replyTo ? list.find(x => x.id === m.replyTo) : null;
-    const rich = !!(m.poll || m.task), voice = m.file && m.file.voice, emo = isEmojiOnly(m.text) && !m.file && !m.replyTo;
+    const rich = !!(m.poll || m.task || m.idea), voice = m.file && m.file.voice, emo = isEmojiOnly(m.text) && !m.file && !m.replyTo;
     const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     const seenAll = mine && others.length && others.every(x => seenOf(k, x) >= m.at);
     const b = el("div", { class: "nc-b" + (rich ? " rich" : "") + (hit ? " hl" : "") + (emo ? " emo" : ""), tabindex: "0", role: "button", "aria-label": "Message options",
@@ -2615,10 +2686,10 @@ function renderLog(k, fresh) {
       m.fwd ? el("span", { class: "nc-fwd" }, nIc("fwd"), "Forwarded") : null,
       m.replyTo ? el("button", { type: "button", class: "nc-quote", onclick: e => { e.stopPropagation(); if (orig) ncJump(orig.id) } }, el("b", {}, orig ? (orig.by === me ? "You" : firstOf(orig.by)) : "Message"), el("span", { dir: "auto" }, orig ? msgSummary(orig) : "This message was deleted")) : null,
       voice ? voiceEl(m.file) : m.file ? attachmentEl(m.file) : null,
-      m.poll ? pollEl(k, m) : null, m.task ? taskCardEl(k, m) : null,
+      m.idea ? ideaCardEl(m) : null, m.poll ? pollEl(k, m) : null, m.task ? taskCardEl(k, m) : null,
       m.text ? ncText(k, m.text) : null,
       m.text && chatLeadCount(m.text) ? el("button", { type: "button", class: "msg-leads", onclick: e => { e.stopPropagation(); openLeadPicker(m.text) } }, `Put ${chatLeadCount(m.text)} ${chatLeadCount(m.text) === 1 ? "number" : "numbers"} in a group`) : null,
-      el("span", { class: "nc-meta" }, m.edited ? "edited · " : "", time, mine ? el("span", { class: "nc-tick" + (seenAll ? " read" : "") }, nIc(seenAll ? "checks" : "check")) : null));
+      el("span", { class: "nc-meta" }, m.edited ? "edited · " : "", time, mine && !m.idea ? el("span", { class: "nc-tick" + (seenAll ? " read" : "") }, nIc(seenAll ? "checks" : "check")) : null));
     log.append(el("div", { class: "nc-m" + (mine ? " mine" : "") + (grouped ? " g" : ""), id: "msg-" + m.id, "data-m": m.id },
       mine ? null : el("span", { class: "nc-avs" }, grouped || u ? null : ncAv(m.by, "sm")),
       el("div", { class: "nc-bw" }, el("span", { class: "nc-swipe" }, nIc("reply")),
@@ -2626,7 +2697,7 @@ function renderLog(k, fresh) {
           el("button", { type: "button", "aria-label": "React", title: "React", onclick: e => { e.stopPropagation(); openSheet(m.id) } }, nIc("smile")),
           el("button", { type: "button", "aria-label": "Reply", title: "Reply", onclick: e => { e.stopPropagation(); startReply(m.id) } }, nIc("reply")),
           el("button", { type: "button", "aria-label": "More", title: "More", onclick: e => { e.stopPropagation(); openSheet(m.id) } }, nIc("more"))),
-        b, reactRow(m, (e, on) => react(m, e, on)))));
+        b, m.idea ? null : reactRow(m, (e, on) => react(m, e, on)))));
     if (m === lastMine && others.length) {
       const saw = others.filter(x => seenOf(k, x) >= m.at);
       if (saw.length) log.append(el("div", { class: "nc-seenby" }, u ? "Seen" : "Seen by " + (saw.length === others.length && others.length > 2 ? "everyone" : saw.map(firstOf).join(", ")), u ? null : el("span", { class: "avs" }, saw.slice(0, 5).map(x => ncAv(x, "xs", false)))));
@@ -2661,7 +2732,8 @@ function renderComposer(k) {
   $("#chatform").hidden = !canWrite || !!rec; $("#nc-rec").hidden = !rec;
   const ro = $("#nc-readonly"); ro.hidden = canWrite;
   if (!canWrite) ro.replaceChildren(el("span", {}, `Only ${p.title}'s team can write here. You can read along.`), (p.joinReqs || {})[me] ? el("span", { class: "nc-sub" }, "You asked to join") : el("button", { class: "btn small primary", onclick: () => askToJoin(p) }, "Ask to join the team"));
-  $("#chat-input").placeholder = u ? "Message " + firstOf(u) : "Message " + keyTitle(k);
+  $("#chat-input").placeholder = k === "ideas" ? "Talk about the ideas" : u ? "Message " + firstOf(u) : "Message " + keyTitle(k);
+  $("#nc-bulb").hidden = k !== "ideas"; renderTray(k); renderPitch();
   if (chatReply && !msgById(chatReply)) chatReply = null;
   if (chatEdit && !msgById(chatEdit)) chatEdit = null;
   const ctx = $("#chat-context"), ctxMsg = msgById(chatEdit || chatReply);
@@ -2677,6 +2749,7 @@ function renderPlus() {
   const touch = matchMedia("(hover: none)").matches;
   const it = (icon, label, sub, fn) => el("button", { type: "button", class: "nc-it", onclick: () => { ncPlusOpen = false; fn(); render() } }, el("span", { class: "ic" }, nIc(icon)), el("span", {}, label, sub ? el("small", {}, sub) : null));
   box.replaceChildren(...[
+    k === "ideas" ? it("bulb", "Pitch an idea", "The team votes on it here", () => openPitch(true)) : null,
     it("image", "Photos and videos", "Send several at once", () => $("#chat-photo").click()),
     touch ? it("camera", "Camera", null, () => $("#chat-camera").click()) : null,
     it("file", "File", "PDF, design files, anything up to 10 MB", () => $("#chat-file").click()),
@@ -2738,7 +2811,7 @@ function closeSheet() { ncSheet = null; chatDel = null; ncFwd = null; chatReactP
 function renderSheet(k) {
   const sh = $("#nc-sheet"), sc = $("#nc-scrim"), m = ncSheet ? listOf(k).find(x => x.id === ncSheet) : null;
   if (!m) ncSheet = null;
-  sh.hidden = sc.hidden = !m;
+  sh.hidden = !m; sc.hidden = !m && !ncPitchOpen;
   if (!m) { sh.replaceChildren(); return }
   const mine = m.by === me, p = projOfKey(k), has = e => !!(((m.reacts || {})[emojiKey(e)]) || {})[me];
   const react = (e, on) => { closeSheet(); write(() => updateDoc(chatRef(k, m.id), { [`reacts.${emojiKey(e)}.${me}`]: on ? true : DEL() })) };
@@ -2746,12 +2819,25 @@ function renderSheet(k) {
     const rows = chatRows().filter(r => r.kind !== "pgroup" && r.k !== k && (r.kind !== "project" || inTeam(projOfKey(r.k))));
     sh.replaceChildren(el("div", { class: "nc-grab" }), el("div", { class: "nc-sheeth" }, el("button", { type: "button", class: "nc-ib sm", "aria-label": "Back", onclick: () => { ncFwd = null; render() } }, nIc("back")), el("b", {}, "Forward to")),
       el("div", { class: "nc-fwdlist" }, rows.map(r => el("button", { type: "button", class: "nc-row", onclick: async () => {
-        const data = { fwd: true, ...(m.text ? { text: m.text } : {}), ...(m.file ? { file: m.file } : {}), ...(m.poll ? { text: "Poll: " + m.poll.q } : {}), ...(m.task ? { text: "Task: " + m.task.text } : {}) };
+        const data = { fwd: true, ...(m.idea ? { text: `Idea: ${m.idea.title}${m.idea.pitch ? "\n" + m.idea.pitch : ""}` } : {}), ...(m.text ? { text: m.text } : {}), ...(m.file ? { file: m.file } : {}), ...(m.poll ? { text: "Poll: " + m.poll.q } : {}), ...(m.task ? { text: "Task: " + m.task.text } : {}) };
         closeSheet(); if (await sendMsg(r.k, data)) toast("Forwarded to " + r.title);
       } }, rowAv(r), el("span", { class: "nc-rmain" }, el("span", { class: "nc-cname" }, el("span", { class: "t" }, r.title)))))));
     return;
   }
   const A = (icon, label, fn, sub, cls = "") => el("button", { type: "button", class: cls, onclick: fn }, nIc(icon), label, sub ? el("small", {}, sub) : null);
+  if (m.idea) {
+    const i = m.idea, own = isAdmin || i.author === me;
+    sh.replaceChildren(...[el("div", { class: "nc-grab" }), el("div", { class: "nc-sheeth" }, nIc("bulb"), el("b", { dir: "auto" }, i.title)), el("div", { class: "nc-acts" }, ...[
+      A("reply", "Talk about this idea", () => startReply(m.id), "your reply quotes it"),
+      canUseAssistant() ? A("sparkle", "Make it stronger", () => { closeSheet(); askAboutIdea(i) }, "with the assistant") : null,
+      A("fwd", "Share it in another chat", () => { ncFwd = m.id; render() }),
+      isProj(i) ? A("folder", "Open the project", () => { closeSheet(); location.hash = "project-" + i.id }) : null,
+      own && i.status !== "approved" && i.status !== "completed" ? el("div", { class: "quietline" }) : null,
+      own && i.status !== "approved" && i.status !== "completed" ? (chatDel === m.id
+        ? A("trash", "Tap again to delete the idea", () => { closeSheet(); write(() => deleteDoc(doc(db, "ideas", i.id)), "Idea deleted") }, null, "del sure")
+        : A("trash", i.author === me ? "Delete my idea" : "Delete the idea", () => { chatDel = m.id; render() }, null, "del")) : null].filter(Boolean))]);
+    return;
+  }
   const pinned = (pinOf(k) || {}).id === m.id;
   sh.replaceChildren(...[el("div", { class: "nc-grab" }),
     el("div", { class: "nc-emorow" }, QUICK_REACTS.map(e => el("button", { type: "button", class: has(e) ? "on" : "", "aria-label": "React " + e, onclick: () => react(e, !has(e)) }, e)),
@@ -2776,7 +2862,7 @@ function renderInfo(k) {
   const box = $("#nc-info");
   if (!ncInfo || !k) { box.replaceChildren(); return }
   const p = projOfKey(k), u = chatWith(), list = listOf(k), members = chatMembers(k), level = notifyOf(k);
-  const desc = p ? "Everyone on this project's team is in this chat automatically. When someone joins or leaves the team, they join or leave the chat."
+  const desc = k === "ideas" ? "The whole team. Pitch ideas here, vote Keep or Drop on each card, and the person who pitched a winning idea confirms it to Projects." : p ? "Everyone on this project's team is in this chat automatically. When someone joins or leaves the team, they join or leave the chat."
     : u ? `Only you and ${firstOf(u)} see this chat.` : "The whole team. Partners and clients never see it.";
   const levels = u ? [["all", "Every message", "Your phone rings for each new message"], ["off", "Off", "Still shows the unread count"]]
     : [["all", "Every message", "Your phone rings for each new message"], ["mentions", "Only when someone @mentions me", "And private messages, always"], ["off", "Off", "Still shows the unread count"]];
@@ -2885,16 +2971,20 @@ chatboxEl.addEventListener("dragover", e => { if ([...e.dataTransfer.types].incl
 chatboxEl.addEventListener("dragleave", e => { if (!chatboxEl.contains(e.relatedTarget)) chatboxEl.classList.remove("dropping") });
 chatboxEl.addEventListener("drop", e => { e.preventDefault(); chatboxEl.classList.remove("dropping"); addFiles([...e.dataTransfer.files]); updateSendBtn() });
 $("#nc-q").addEventListener("input", () => render());
+$("#nc-bulb").onclick = () => openPitch(true);
+$("#nc-pitch-x").onclick = () => openPitch(false);
+$("#compose").addEventListener("submit", () => setTimeout(() => { if (!$("#f-title").value) { openPitch(false); ncToBottom = true; render() } }, 0));
+$("#f-help").addEventListener("click", () => openPitch(false));
 $("#nc-new").onclick = () => { ncFilter = "dm"; $("#nc-q").value = ""; render(); toast("Pick someone to message") };
 $("#nc-fq").addEventListener("input", e => { ncFind = e.target.value; ncFindJump = true; render() });
 $("#nc-fq").addEventListener("keydown", e => { if (e.key === "Escape") toggleFind(false) });
 $("#nc-fx").onclick = () => toggleFind(false);
 $("#nc-jump").onclick = () => { const l = $("#chatlog"); l.scrollTo({ top: l.scrollHeight, behavior: "smooth" }) };
 $("#chatlog").addEventListener("scroll", () => { const l = $("#chatlog"); $("#nc-jump").hidden = l.scrollHeight - l.scrollTop - l.clientHeight < 160 });
-$("#nc-scrim").onclick = closeSheet;
+$("#nc-scrim").onclick = () => { if (ncPitchOpen) openPitch(false); else closeSheet() };
 $("#nc-rec-x").onclick = () => stopRec(false);
 $("#nc-rec-send").onclick = () => stopRec(true);
-document.addEventListener("keydown", e => { if (e.key === "Escape" && route().view === "chat") { if (ncSheet) closeSheet(); else if (ncInfo) { ncInfo = false; render() } } });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && route().view === "chat") { if (ncPitchOpen) openPitch(false); else if (ncSheet) closeSheet(); else if (ncInfo) { ncInfo = false; render() } } });
 // swipe a message to the right to reply, like WhatsApp
 (() => {
   const log = $("#chatlog"); let sw = null;
@@ -2919,6 +3009,8 @@ let pending = [];                     // files waiting to be sent: {f, key, url}
 const fmtSize = n => n < 1024 ? n + " B" : n < 1048576 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(1) + " MB";
 const extOf = name => ((name || "").split(".").pop() || "file").slice(0, 4).toUpperCase();
 function msgSummary(m) {
+  if (m.idea) return "Idea: " + m.idea.title;
+  if (m.sys) return m.sys.map(x => Array.isArray(x) ? x[1] : x).join("");
   if (m.poll) return "Poll: " + m.poll.q;
   if (m.task) return "Task: " + m.task.text;
   if (m.file && m.file.voice) return "Voice message " + fmtSecs(m.file.voice);
@@ -3435,7 +3527,9 @@ function buildAlerts() {
     add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, last.doneBy || null, `You can start "${t.text}": ${last.doneBy ? name(last.doneBy).split(" ")[0] : "someone"} finished "${last.text}"`, taskLink(p, t));
   }
   for (const p of ideas) {
-    if (p.status === "voting" && p.author !== me) add("idea:" + p.id, p.createdAt, p.author, `${name(p.author)} pitched a new idea: ${p.title}`, "ideas");
+    if (p.status === "voting" && p.author !== me) add("idea:" + p.id, p.createdAt, p.author, `${name(p.author)} pitched a new idea: ${p.title}`, "chat-ideas");
+    if (p.status === "voting" && p.author === me && p.wonAt && ideaState(p).won) add("ideawon:" + p.id + ":" + p.wonAt, p.wonAt, p.wonBy || null, `“${p.title}” won the vote. Confirm it to Projects`, "chat-ideas");
+    if (p.status === "voting" && p.author !== me && !(p.votes || {})[me] && p.createdAt && Date.now() - p.createdAt > 2 * 864e5) add("ideanudge:" + p.id, p.createdAt + 2 * 864e5, p.author, `Still waiting for your vote: ${p.title}`, "chat-ideas");
     if (p.status === "completed" && p.completedBy !== me) add("done:" + p.id, p.completedAt, p.completedBy, `${p.title} is completed`, "projects-done");
     const pl = (p.planners || {})[me];
     if (pl && typeof pl === "object" && pl.by !== me) add("planner:" + p.id, pl.at, pl.by, `${name(pl.by)} made you a planner of ${p.title}`, "plan-" + p.id);
@@ -3496,8 +3590,8 @@ function buildAlerts() {
   if (isAdmin && (people[me] || {}).rulesPublished !== RULES_VERSION) add("rulesdb:" + RULES_VERSION, dayStart(), null, "New database rules are ready. Copy and publish them in Settings \u203a Database rules", "settings-rules");
   if (isAdmin && live && Date.now() - ((people[me] || {}).lastBackup || 0) > 30 * 864e5) add("backup:" + thisMonth(), dayStart(), null, "Time for this month's backup: Settings \u203a Backup", "settings-backup");
   for (const t of dmThreads) if (dmUnread(t)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, people[t.lastBy] ? t.lastBy : null, `${chatName(t.lastBy)}${isPartnerUid(t.lastBy) ? " (partner)" : ""} sent you a private message: ${(t.lastText || "").slice(0, 60)}`, "dm-" + t.lastBy);
-  for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat-team") }
-  for (const m of chat) if (mentionsMe(m)) add("chat:" + m.id, m.at, m.by, `${name(m.by)} mentioned you in the team chat: ${msgSummary(m)}`, "chat-team");
+  for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, m.ch === "ideas" ? "chat-ideas" : "chat-team") }
+  for (const m of chat) if (mentionsMe(m)) add("chat:" + m.id, m.at, m.by, `${name(m.by)} mentioned you in ${m.ch === "ideas" ? "Ideas" : "the team chat"}: ${msgSummary(m)}`, m.ch === "ideas" ? "chat-ideas" : "chat-team");
   for (const p of ideas) { const l = p.status === "approved" && p.chat && p.chat.last; if (l && l.by !== me && Array.isArray(l.mentions) && (l.mentions.includes(me) || l.mentions.includes("all"))) add("pc:" + p.id + ":" + l.at, l.at, l.by, `${name(l.by)} mentioned you in ${p.title}: ${l.text || ""}`, "pc-" + p.id) }
   return out.sort((a, b) => b.at - a.at).slice(0, 50);
 }
@@ -4260,7 +4354,7 @@ Only use team members' real first names. Due dates must be after today and reali
 EXPLAINING
 If they ask what something means (a word, a business or tech idea, or how a part of Pitch Room works), explain it simply in a few lines with a small example from their own work when you can.
 How Pitch Room works:
-- Ideas: anyone pitches; an idea moves to Projects or gets removed once at least 2 people voted (the pitcher's own Keep counts, so 1 more vote is enough). Keep ahead: only the person who pitched it can confirm it to Projects, and everyone who voted Keep joins the project's team automatically; Drop ahead: it can be removed.
+- Ideas: there is no Ideas page any more; ideas live in the Ideas chat (pinned at the top of Chat). Anyone pitches there with the Pitch button, each idea is a card the team votes Keep or Drop on and talks about by replying to it; an idea moves to Projects or gets removed once at least 2 people voted (the pitcher's own Keep counts, so 1 more vote is enough). Keep ahead: only the person who pitched it can confirm it to Projects, and everyone who voted Keep joins the project's team automatically; Drop ahead: it can be removed.
 - Bugs and ideas (⋯ menu): anyone reports a bug or suggests what would make work easier; creators get an alert.
 - Projects: Building now, Up next (vote for what's next), Paused, Completed. A planner can also pause one phase (its tasks go on hold) and resume it later. Planners (the person who pitched it, the admin and added planners) change the plan and the money.
 - Project teams: each project has its own team. Planners are always on it. Others tap "Ask to join the team" and wait for a planner to accept, or a planner invites them and they accept. Someone not on the team can look and leave notes on tasks, but can't take, tick or change tasks, check in or add files. Only the team can be given tasks and get money from the project. Leaving or being taken off frees your open tasks.
@@ -4386,7 +4480,7 @@ function detectCurrentScreenProblem() {
           context: `Late payment on "${lp.title}"${(lp.money || {}).client ? " (client: " + lp.money.client + ")" : ""} for "${ls.label}": ${fmtEGP(ls.expected - ls.received)} still owed. Write a polite but firm WhatsApp follow-up for the client and suggest next steps.` } }
     } catch { }
   }
-  if (r.view === "ideas") {
+  if (r.view === "chat" && r.ch === "ideas") {
     const mine = ideas.find(i => i.status === "voting" && i.author === me);
     if (mine) return { key: "idea:" + mine.id, badge: "Your idea is in the vote", label: `Make “${short48(mine.title)}” stronger?`,
       context: `My idea in the vote: "${mine.title}"\nPitch: "${mine.pitch || "no pitch yet"}"\nHelp make the pitch stronger, suggest a small first version we could build fast, and say who pays.` };
@@ -4439,7 +4533,7 @@ function parseIdeas(text) {
 }
 // Put an idea from the assistant into the "Pitch an idea" form, so you can edit it and add it to the vote.
 function useIdea(x) {
-  asstOpen = false; if (location.hash !== "#ideas") location.hash = "ideas"; else render();
+  asstOpen = false; if (location.hash !== "#chat-ideas") location.hash = "chat-ideas"; else render();
   setTimeout(() => {
     $("#f-title").value = x.title; $("#f-pitch").value = x.pitch;
     const sel = $("#f-cat"), cat = cleanCat(x.category || ""), known = allCats().find(c => c.toLowerCase() === cat.toLowerCase());
@@ -6247,7 +6341,7 @@ function searchResults(q) {
   const has = t => String(t || "").toLowerCase().includes(n), digits = n.replace(/\D/g, ""), out = [];
   const push = (kind, title, sub, go, then) => out.length < 60 && out.push({ kind, title, sub, go, then });
   for (const p of ideas) {
-    if (has(p.title) || has(p.pitch) || has(clientOf(p))) push(p.status === "voting" ? "Idea" : "Project", p.title, clientOf(p) || p.pitch || "", p.status === "voting" ? "ideas" : "project-" + p.id);
+    if (has(p.title) || has(p.pitch) || has(clientOf(p))) push(p.status === "voting" ? "Idea" : "Project", p.title, clientOf(p) || p.pitch || "", p.status === "voting" ? "chat-ideas" : "project-" + p.id);
     for (const t of tasksOf(p)) {
       if (has(t.text)) push("Task", t.text, p.title + (t.owner ? " · " + name(t.owner) : ""), taskLink(p, t));
       for (const x of Object.values(t.notes || {})) if (x && has(x.text)) push("Task note", x.text.slice(0, 90), `${t.text} · ${p.title}`, taskLink(p, t));

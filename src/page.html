@@ -1429,7 +1429,7 @@ input,select,textarea{background-color:var(--field)}
 .nc-ctx{display:flex;align-items:center;gap:10px;padding:0 6px}
 .nc-ctx .nc-quote{flex:1;background:var(--field)!important}
 .nc-bar{display:flex;align-items:flex-end;gap:6px;margin:0}
-.nc #chat-input{flex:1;resize:none;border:0;background:var(--field);border-radius:20px;padding:10px 14px;font:inherit;line-height:1.35;max-height:140px;outline:0;min-height:42px;color:var(--ink);width:auto}
+.nc #chat-input{min-width:0;flex:1;resize:none;border:0;background:var(--field);border-radius:20px;padding:10px 14px;font:inherit;line-height:1.35;max-height:140px;outline:0;min-height:42px;color:var(--ink);width:auto}
 .nc-bar .nc-ib{border-radius:50%;width:42px;height:42px}
 .nc-send{background:var(--t)!important;color:var(--on-accent)!important}
 .nc-send:hover{background:color-mix(in srgb,var(--t) 85%,#000)!important}
@@ -1510,6 +1510,67 @@ input,select,textarea{background-color:var(--field)}
 .nc-filecard .fmain{min-width:0;display:grid}
 .nc-filecard .fn{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nc-filecard .fs{font-size:12px;color:var(--muted)}
+/* Ideas chat */
+.nc-av.ideas{border-radius:14px;background:linear-gradient(150deg,var(--fill),color-mix(in srgb,var(--fill) 65%,#fff));color:var(--on-accent)}
+.nc-av.ideas .nic{width:24px;height:24px}
+.nc-head .nc-av.ideas .nic{width:21px;height:21px}
+.nc-av.lg.ideas .nic{width:40px;height:40px}
+.nc-tag.vote{background:var(--graphite);color:#fff}
+.nc-sys{align-self:center;max-width:86%;text-align:center;font-size:12.5px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px 12px;margin:8px 0;display:flex;gap:6px;align-items:center;justify-content:center}
+.nc-sys .nic{width:15px;height:15px;color:var(--t)}
+.nc-sys b{color:var(--ink)}
+.nc-bw:has(.nc-idea){width:min(78%,360px)}
+.nc-bw:has(.nc-idea) .nc-b{width:100%}
+.nc-idea{display:grid;gap:9px;cursor:default;white-space:normal}
+.nc-idea .itop{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.nc-idea .itag{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 7px;border-radius:6px;background:var(--soft);color:var(--t);display:inline-flex;gap:4px;align-items:center}
+.nc-idea .itag .nic{width:13px;height:13px}
+.nc-idea .itag.proj{background:var(--t);color:var(--on-accent)}
+.nc-idea .itag.gone{background:var(--field);color:var(--muted)}
+.nc-idea .icat{font-size:12px;font-weight:600;color:var(--muted);background:var(--field);border-radius:999px;padding:2px 8px}
+.nc-idea .ineed{font-size:11px;font-weight:700;background:var(--graphite);color:#fff;border-radius:999px;padding:2px 8px;margin-left:auto}
+.nc-idea .ititle{font:800 18px/1.2 var(--display)}
+.nc-idea .iclient{font-size:13px;color:var(--muted)}
+.nc-idea .iclient b{color:var(--ink);font-weight:600}
+.nc-idea .ipitch{margin:0;font-size:14px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+.nc-idea .ipitch.open{-webkit-line-clamp:unset}
+.nc-idea .ivote{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.nc-vb{display:inline-flex!important;align-items:center;gap:6px;height:36px;padding:0 12px!important;border-radius:10px;border:1px solid var(--line)!important;font-weight:700;font-size:14px;background:var(--surface)!important}
+.nc-vb b{font-size:13px;color:var(--muted)}
+.nc-vb[aria-pressed=true].keep{background:var(--t)!important;border-color:var(--t)!important;color:var(--on-accent)}
+.nc-vb[aria-pressed=true].drop{background:var(--graphite)!important;border-color:var(--graphite)!important;color:#fff}
+.nc-vb[aria-pressed=true] b{color:inherit}
+.nc-idea .vst{display:inline-flex}
+.nc-idea .vst .nc-av.xs{margin-left:-5px}
+.nc-idea .iverd{font-size:12.5px;font-weight:700;color:var(--muted);margin-left:auto}
+.nc-idea .iverd.win{color:var(--t)}
+.nc-idea .iact{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:9px}
+.nc-idea .wait{font-size:12.5px;color:var(--muted)}
+.nc-idea .btn .nic{width:15px;height:15px}
+.nc-idea.closed .ivote{opacity:.6;pointer-events:none}
+.nc-av.xs{white-space:nowrap;overflow:hidden;font-size:7.5px}
+.nc-tray{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line);align-items:stretch;flex:none}
+.nc-tray[hidden]{display:none}
+.nc-tray .tl{flex:none;display:grid;align-content:center;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);max-width:60px;line-height:1.3}
+.nc-tray .tl b{color:var(--ink)}
+.nc-tray .tl.quiet{text-transform:none;letter-spacing:0;font-weight:500;max-width:none}
+.nc-tray .tcard{flex:none;display:grid!important;gap:2px;text-align:left;border:1px solid var(--line)!important;border-radius:12px;padding:7px 10px!important;max-width:220px;background:var(--surface)!important}
+.nc-tray .tcard:hover{border-color:var(--t)!important}
+.nc-tray .tcard b{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nc-tray .tcard span{font-size:12px;color:var(--muted);white-space:nowrap}
+.nc-tray .tcard.need{border-color:var(--graphite)!important}
+.nc-tray .tcard.need span{color:var(--graphite);font-weight:700}
+.nc-tray .tcard.won span{color:var(--t);font-weight:700}
+.nc-bulb{width:auto!important;padding:0 14px!important;gap:6px;border-radius:21px!important;background:var(--soft)!important;color:var(--t)!important;font-weight:700;font-size:14px;display:flex!important;white-space:nowrap}
+.nc-bulb[hidden]{display:none!important}
+.nc-bulb .nic{width:18px;height:18px}
+.nc-pitch{box-sizing:border-box;position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:min(480px,100%);max-height:92%;overflow-y:auto;background:var(--surface);border-radius:22px 22px 0 0;z-index:22;padding:12px 16px 16px;animation:ncup 220ms var(--ez)}
+@media (min-width:900px){.nc-pitch{bottom:auto;top:50%;transform:translate(-50%,-50%);border-radius:22px;border:1px solid var(--line);animation:ncpop 220ms var(--ez)}}
+.nc-pitch .compose{border:0;padding:0;background:none;box-shadow:none;margin:0;display:grid;gap:10px}
+.nc-pitchh{display:flex;align-items:center;gap:8px}
+.nc-pitchh h3{font:800 20px/1.1 var(--display);margin:0;display:flex;align-items:center;gap:8px}
+.nc-pitchh h3::before{content:"";width:4px;height:18px;border-radius:2px;background:var(--t)}
+.nc-pitch input,.nc-pitch select,.nc-pitch textarea{width:100%;box-sizing:border-box}
 /* phones: one screen at a time (list, chat, info); a chat fills the whole screen like WhatsApp */
 @media (max-width:899px){
   .nc,.nc.info-open,.nc:not(.has-chat){grid-template-columns:1fr}
@@ -1522,6 +1583,8 @@ input,select,textarea{background-color:var(--field)}
   html.nc-full .nc{position:fixed;inset:0;z-index:40;border:0;border-radius:0;height:auto!important;min-height:0;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);background:var(--surface)}
   html.nc-full body{overflow:hidden}
   .nc-bw{max-width:84%}
+  .nc-bulb .lbl{display:none}
+  .nc-bulb{padding:0!important;width:42px!important;justify-content:center}
 }
 @media (prefers-reduced-motion:reduce){.nc *,.nc *::before,.nc *::after{animation:none!important;transition:none!important}}
 </style>
@@ -1648,7 +1711,6 @@ input,select,textarea{background-color:var(--field)}
   <div class="asst" id="asst" hidden role="dialog" aria-label="Assistant"></div>
   <nav class="nav" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" data-view="me"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="4"/></svg></span>Me <span class="count" id="c-mine" hidden>0</span></button>
-    <button class="tab" role="tab" data-view="ideas"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg></span>Ideas <span class="count" id="c-ideas" hidden>0</span></button>
     <button class="tab" role="tab" data-view="projects"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h6"/></svg></span>Projects <span class="count" id="c-projects" hidden>0</span></button>
     <button class="tab" role="tab" data-view="chat"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Chat <span class="count" id="c-chat" hidden>0</span></button>
     <button class="tab" role="tab" data-view="money"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/></svg></span>Money <span class="count" id="c-money" hidden>0</span></button>
@@ -1661,15 +1723,6 @@ input,select,textarea{background-color:var(--field)}
   <section id="view-project" hidden><div id="project"></div></section>
 
   <section id="view-ideas" hidden>
-    <form class="compose" id="compose">
-      <h3>Pitch an idea</h3>
-      <input id="f-title" maxlength="80" placeholder="Name it — e.g. Shared expense tracker for trips" required>
-      <select id="f-cat" class="mini" style="padding:9px 10px;font-size:14px" aria-label="Category" required><option value="">Pick a category…</option></select>
-      <input id="f-newcat" maxlength="30" placeholder="Type the new category name" hidden>
-      <input id="f-client" maxlength="80" placeholder="Client, brand or company (optional)" autocomplete="off">
-      <textarea id="f-pitch" maxlength="600" placeholder="What is it, who's it for, why would it be fun to build?"></textarea>
-      <div class="row"><button type="button" class="btn quiet" id="f-help">✦ Help me think</button><span class="spacer"></span><button class="btn primary" id="f-submit">Add to the vote</button></div>
-    </form>
     <div class="catbar" id="cat-ideas"></div>
     <div class="list" id="ideas"></div>
     <div id="removed"></div>
@@ -1702,6 +1755,7 @@ input,select,textarea{background-color:var(--field)}
         <div class="nc-head" id="chat-head"></div>
         <div class="nc-find" id="nc-find" hidden><span class="nic"><svg aria-hidden="true"><use href="#ni-search"/></svg></span><input id="nc-fq" placeholder="Search this chat" aria-label="Search this chat"><span class="nc-hits" id="nc-hits"></span><button type="button" class="nc-ib sm" id="nc-fx" aria-label="Close search"><span class="nic"><svg aria-hidden="true"><use href="#ni-x"/></svg></span></button></div>
         <div id="nc-pin"></div>
+        <div class="nc-tray" id="nc-tray" hidden></div>
         <div class="nc-log" id="chatlog" aria-live="polite"></div>
         <button type="button" class="nc-jump" id="nc-jump" hidden aria-label="Go to the newest message"><span class="nic"><svg aria-hidden="true"><use href="#ni-down"/></svg></span></button>
         <div class="nc-compose" id="nc-compose">
@@ -1719,6 +1773,7 @@ input,select,textarea{background-color:var(--field)}
             <input type="file" id="chat-photo" accept="image/*,video/*" multiple hidden>
             <input type="file" id="chat-camera" accept="image/*" capture="environment" hidden>
             <button type="button" class="nc-ib nc-emo" id="chat-emoji" aria-label="Emoji" title="Emoji"><span class="nic"><svg aria-hidden="true"><use href="#ni-smile"/></svg></span></button>
+            <button type="button" class="nc-ib nc-bulb" id="nc-bulb" hidden title="Pitch an idea"><span class="nic"><svg aria-hidden="true"><use href="#ni-bulb"/></svg></span><span class="lbl">Pitch</span></button>
             <textarea id="chat-input" rows="1" maxlength="6000" placeholder="Message" aria-label="Message" dir="auto"></textarea>
             <button type="submit" class="nc-ib nc-send" id="chat-send" aria-label="Record a voice message"><span class="nic"><svg aria-hidden="true"><use href="#ni-mic"/></svg></span></button>
           </form>
@@ -1731,6 +1786,17 @@ input,select,textarea{background-color:var(--field)}
         </div>
         <div class="nc-scrim" id="nc-scrim" hidden></div>
         <div class="nc-sheet" id="nc-sheet" role="dialog" aria-label="Message options" hidden></div>
+        <div class="nc-pitch" id="nc-pitch" role="dialog" aria-label="Pitch an idea" hidden>
+    <form class="compose" id="compose">
+      <div class="nc-pitchh"><h3>Pitch an idea</h3><span class="spacer"></span><button type="button" class="nc-ib sm" id="nc-pitch-x" aria-label="Close"><span class="nic"><svg aria-hidden="true"><use href="#ni-x"/></svg></span></button></div>
+      <input id="f-title" maxlength="80" placeholder="Name it — e.g. Shared expense tracker for trips" required>
+      <select id="f-cat" class="mini" style="padding:9px 10px;font-size:14px" aria-label="Category" required><option value="">Pick a category…</option></select>
+      <input id="f-newcat" maxlength="30" placeholder="Type the new category name" hidden>
+      <input id="f-client" maxlength="80" placeholder="Client, brand or company (optional)" autocomplete="off">
+      <textarea id="f-pitch" maxlength="600" placeholder="What is it, who's it for, why would it be fun to build?"></textarea>
+      <div class="row"><button type="button" class="btn quiet" id="f-help">✦ Help me think</button><span class="spacer"></span><button class="btn primary" id="f-submit">Post to the vote</button></div>
+    </form>
+        </div>
       </section>
       <aside class="nc-info" id="nc-info" aria-label="Chat info"></aside>
     </div>
@@ -1798,6 +1864,8 @@ input,select,textarea{background-color:var(--field)}
       <symbol id="ni-sparkle" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></symbol>
       <symbol id="ni-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
       <symbol id="ni-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></symbol>
+      <symbol id="ni-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.1 2.2h5c0-.8.4-1.6 1.1-2.2A6 6 0 0 0 12 3Z"/></symbol>
+      <symbol id="ni-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
       <symbol id="ni-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/></symbol>
     </svg>
 </body>
