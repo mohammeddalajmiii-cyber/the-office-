@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261124131514">
+<meta name="build" content="20261124160140">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -1443,7 +1443,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261124131514";
+const BUILD_ID = "20261124160140";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -4731,8 +4731,8 @@ function renderIdeas(all, removed) {
     const { k, d } = tally(i); const mine = (i.votes || {})[me];
     const vote = kind => write(() => upd(i.id, { ["votes." + me]: mine === kind ? DEL() : kind }));
     const vb = (kind, label, count) => el("button", { class: "v " + kind, "aria-pressed": String(mine === kind), onclick: () => vote(kind) }, label, el("b", {}, count), el("span", { class: "stack" }, voters(i, kind).slice(0, 5).map(av)));
-    // fair: an idea only moves once at least half the team has voted, so nobody can push one through alone
-    const team = Math.max(1, teamIds().length), need = Math.ceil(team / 2), cast = k + d, enough = cast >= need;
+    // an idea can move once 2 people have voted: the person who pitched it plus one more, so nobody can push one through alone
+    const team = Math.max(1, teamIds().length), need = Math.min(2, team), cast = k + d, enough = cast >= need;
     const verdict = el("span", { class: "verdict" + (enough ? (k > d ? " keep" : d > k ? " drop" : "") : "") },
       `${cast} of ${team} voted` + (!enough ? ` \u00b7 needs ${need - cast} more` : k > d ? " \u00b7 keep wins" : d > k ? " \u00b7 drop wins" : " \u00b7 tied"));
     box.append(el("article", { class: "idea" },
@@ -4758,12 +4758,12 @@ function renderIdeas(all, removed) {
   }
 }
 
-// The person who pitched an idea can make it a project once at least 2 other people voted Keep (and Keep is ahead).
+// The person who pitched an idea can make it a project once at least 1 other person voted Keep (and Keep is ahead).
 function ownerMove(i, k, d, enough) {
   if (i.author !== me || (enough && k > d)) return null;
-  const others = voters(i, "keep").filter(u => u !== i.author).length, ok = others >= 2 && k > d;
+  const others = voters(i, "keep").filter(u => u !== i.author).length, ok = others >= 1 && k > d;
   return ok ? el("button", { class: "btn primary", title: `${others} people voted Keep`, onclick: () => write(() => upd(i.id, { status: "approved", approvedAt: Date.now(), movedBy: me }), "It's a project now. Plan it in Projects") }, `Make it a project (${others} want it)`)
-    : el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, `${others}/2 Keep votes from others: then you can make it a project yourself`);
+    : el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, `Needs 1 Keep vote from someone else: then you can make it a project yourself`);
 }
 
 // The person who pitched an idea, and the admin, can delete it (asks once to be sure).
@@ -7004,7 +7004,7 @@ function guidePage() {
       ["Alerts on your phone:", "Settings › Alerts. Install the site as an app from Settings › Install the app."],
       ["Something looks old?", "Settings › Help and fixes › Reload."],
       ["Found a bug, or an idea to make work easier?", "⋯ › Bugs and ideas. Write what happened and the creators get an alert; you hear back when it's fixed."],
-      ["Your idea got 2 Keep votes?", "If you pitched it, you can make it a project yourself from the Ideas tab, once Keep is ahead."]]));
+      ["Your idea got 1 more Keep vote?", "If you pitched it, you can make it a project yourself from the Ideas tab, once Keep is ahead."]]));
   if (tab === "planners") wrap.append(
     card("\u{1F9ED}", "Your job as a planner", [
       "You're always on the project's team. You shape the plan, the tasks and the money, and you decide who joins.",
@@ -7500,7 +7500,7 @@ Only use team members' real first names. Due dates must be after today and reali
 EXPLAINING
 If they ask what something means (a word, a business or tech idea, or how a part of Pitch Room works), explain it simply in a few lines with a small example from their own work when you can.
 How Pitch Room works:
-- Ideas: anyone pitches; an idea moves to Projects or gets removed only after at least half the team voted. The person who pitched an idea can also make it a project once at least 2 others voted Keep and Keep is ahead.
+- Ideas: anyone pitches; an idea moves to Projects or gets removed once at least 2 people voted (the pitcher's own Keep counts, so 1 more vote is enough). Keep ahead: anyone can confirm it to Projects; Drop ahead: it can be removed.
 - Bugs and ideas (⋯ menu): anyone reports a bug or suggests what would make work easier; creators get an alert.
 - Projects: Building now, Up next (vote for what's next), Paused, Completed. A planner can also pause one phase (its tasks go on hold) and resume it later. Planners (the person who pitched it, the admin and added planners) change the plan and the money.
 - Project teams: each project has its own team. Planners are always on it. Others tap "Ask to join the team" and wait for a planner to accept, or a planner invites them and they accept. Someone not on the team can look and leave notes on tasks, but can't take, tick or change tasks, check in or add files. Only the team can be given tasks and get money from the project. Leaving or being taken off frees your open tasks.
@@ -7854,7 +7854,7 @@ const WHATS_NEW = [
   { id: "f-rules-v3", date: "2026-11-16", icon: "\u{1F4DC}", title: "New money rules: please read and agree",
     text: "The money rules were rewritten to match how money works now: project teams, task prices, phases, keeping money in the fund, papers on payments and the fund's own money. The numbers are the same. Money › Rules.", go: "money-rules" },
   { id: "f-bugs-ideas-1", date: "2026-11-16", icon: "\u{1F41E}", title: "Bugs and ideas, straight to the creators",
-    text: "Found something broken, or know what would make work easier? ⋯ › Bugs and ideas. Creators get an alert, and you hear back when it's fixed. Also new: if you pitched an idea and 2 others voted Keep, you can make it a project yourself.", go: "settings-feedback" },
+    text: "Found something broken, or know what would make work easier? ⋯ › Bugs and ideas. Creators get an alert, and you hear back when it's fixed. Also new: if you pitched an idea and 1 other person voted Keep, you can make it a project yourself.", go: "settings-feedback" },
   { id: "f-client-live-1", date: "2026-11-16", icon: "\u{1F441}", title: "See exactly what the client sees",
     text: "A project's Client tab › Client page shows the client's page live, next to three setup steps and simple on/off switches for each part. The project name, progress, stages and payments update by themselves from the project.", go: "projects" },
   { id: "f-quiz2-1", date: "2026-11-16", icon: "\u2B50", title: "A new skills quiz that finds your roles",
