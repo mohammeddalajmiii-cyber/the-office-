@@ -2545,16 +2545,48 @@ async function toggleVoice(f) {
   catch { if (ncAudio.id === f.id) { ncAudio.id = null; ncAudio.loading = null; voiceUi(); toast("That voice message didn't load. Check your connection and tap play again") } return }
   try {
     if (ncAudio.id !== f.id) return;
+    let why = [];
     try { await go(url) }
     catch (e) {
       if (ncAudio.id !== f.id || (e && e.name === "AbortError")) return;
-      // this phone can't play the format it was recorded in: turn it into a plain sound file and play that
-      ncAudio.alt[f.id] = await toWav(url); if (ncAudio.id !== f.id) return;
-      await go(ncAudio.alt[f.id]);
+      why.push("play " + (e && e.name || "?"));
+      // 1. the label on the file may be wrong (Safari goes by the label): read the real format from its first bytes
+      const buf = await (await fetch(url)).arrayBuffer(), real = soundType(new Uint8Array(buf, 0, Math.min(64, buf.byteLength)));
+      why.push("is " + (real || "unknown"));
+      let done = false;
+      if (real && real !== (f.type || "").split(";")[0]) {
+        try { const u2 = URL.createObjectURL(new Blob([buf], { type: real })); await go(u2); ncAudio.alt[f.id] = u2; done = true }
+        catch (e2) { if (e2 && e2.name === "AbortError") return; why.push("relabel " + (e2 && e2.name || "?")) }
+      }
+      // 2. still no: turn it into a plain sound file and play that
+      if (!done) {
+        if (ncAudio.id !== f.id) return;
+        try { ncAudio.alt[f.id] = await toWav(url) } catch (e3) { why.push("convert " + (e3 && e3.name || "?")); throw Object.assign(new Error("format"), { why }) }
+        if (ncAudio.id !== f.id) return;
+        await go(ncAudio.alt[f.id]);
+      }
     }
     ncAudio.loading = null; voiceUi();
-  } catch (e) { if (ncAudio.id === f.id) { ncAudio.id = null; ncAudio.loading = null; voiceUi(); toast(e && e.name === "NotAllowedError" ? "Tap play again to listen" : "This older voice message was recorded in a format this browser can't play. Open it on the phone that sent it. New voice messages play everywhere.", 6000) } }
+  } catch (e) {
+    if (ncAudio.id !== f.id) return;
+    ncAudio.id = null; ncAudio.loading = null; voiceUi();
+    if (e && e.name === "NotAllowedError") { toast("Tap play again to listen"); return }
+    const info = [(f.type || "no type"), f.size ? Math.round(f.size / 1024) + " KB" : "", ...((e && e.why) || [e && e.name || "?"]), sndBrowser()].filter(Boolean).join(" · ");
+    toast(`This voice message won't play in this browser. Try it on another phone or computer. (${info})`, 9000);
+  }
 }
+// what a sound file really is, from its first bytes
+function soundType(b) {
+  const s = (o, t) => [...t].every((c, i) => b[o + i] === c.charCodeAt(0));
+  if (b[0] === 0x1A && b[1] === 0x45 && b[2] === 0xDF && b[3] === 0xA3) return "audio/webm";
+  if (s(4, "ftyp") || s(4, "moof") || s(4, "styp")) return "audio/mp4";
+  if (s(0, "RIFF") && s(8, "WAVE")) return "audio/wav";
+  if (s(0, "OggS")) return "audio/ogg";
+  if (s(0, "ID3") || (b[0] === 0xFF && (b[1] & 0xE0) === 0xE0)) return "audio/mpeg";
+  if (s(0, "caff")) return "audio/x-caf";
+  return "";
+}
+function sndBrowser() { const u = navigator.userAgent; return /Edg\//.test(u) ? "Edge" : /CriOS|Chrome\//.test(u) ? "Chrome" : /Firefox|FxiOS/.test(u) ? "Firefox" : /Safari\//.test(u) ? (/iPhone|iPad/.test(u) ? "iPhone Safari" : "Safari") : "browser" }
 async function decodeSound(buf) {
   const AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
   try { return await new Promise((ok, no) => { const p = ac.decodeAudioData(buf, ok, no); if (p && p.then) p.then(ok, no) }) }
