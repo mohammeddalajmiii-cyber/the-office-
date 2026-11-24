@@ -86,6 +86,7 @@ function route(hash) {
   if (h.startsWith("task-")) { const [id, task] = h.slice(5).split("-"); return { view: "project", id, task } }
   for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
   if (h === "projects-done" || h === "current") return { view: "projects" };
+  if (h === "new-project") return { view: "projects", sub: "new" };
   if (h === "mine" || h === "notes") return { view: "me" };
   if (h.startsWith("dm-")) return { view: "chat", dm: h.slice(3), ch: "dm:" + h.slice(3) };
   if (h.startsWith("pc-")) return { view: "chat", ch: "p:" + h.slice(3) };
@@ -101,7 +102,7 @@ function show() {
   for (const b of document.querySelectorAll("#app .tab")) b.setAttribute("aria-selected", b.dataset.view === tabView);
   for (const k of VIEWS) $("#view-" + k).hidden = r.view !== k;
   if (r.tab) moneyTab = r.tab;
-  if (r.task) { projTab = "tasks"; taskFilter[r.id] = null; openTask = "p:" + r.task; showTaskAt = r.task }
+  if (r.task) { projTab = "tasks"; taskFilter[r.id] = null; onlyMine = false; openTask = "p:" + r.task; showTaskAt = r.task }
   render();
   if (showTaskAt) { const id = showTaskAt; showTaskAt = null; setTimeout(() => { const c = document.getElementById("c-p:" + id); if (c) { const row = c.closest(".task"); scrollTo({ top: row.getBoundingClientRect().top + scrollY - 96, behavior: "smooth" }); row.classList.add("flash") } }, 80) }
 }
@@ -128,6 +129,7 @@ addEventListener("hashchange", () => {
 // Escape closes whatever is open on the page
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape" || e.defaultPrevented || moreOpen || alertsOpen || searchOpen || asstOpen || document.querySelector("#lightbox:not([hidden]), dialog[open]")) return;
+  if (openTask) { e.preventDefault(); closeTaskSheet(); return }
   const anyOpen = showSettings || moneyForm || editDeal || payPlanEdit || phaseDraft || priceEdit || holdDecide || newMeeting || editMeeting || editGoal || planEdit || addingLink || confirmDone || confirmDelProject || fundForm || goalEdit || subEdit || Object.keys(cvOpen).some(k => cvOpen[k]);
   if (!anyOpen) return;
   closeForms(); showSettings = null; render();
@@ -374,6 +376,7 @@ function syncPartnerEarnings() {
   }, 2000);
 }
 function renderAll() {
+  sheetUsed = false;
   syncPartnerEarnings(); if (live) { syncClientPay(); fixOldTeams() } renderSearch(); renderMore(); maybeWeekly();
   const voting = ideas.filter(i => i.status === "voting").sort((a, b) => b.createdAt - a.createdAt);
   const removed = ideas.filter(i => i.status === "removed");
@@ -399,6 +402,7 @@ function renderAll() {
   renderAssistant();
   renderUniversalProblemPop();
   const meAv = $("#me-av"); const src = (people[me] || {}).pic || (myProfile && myProfile.photo) || (people[me] || {}).photo || AV; if (meAv.getAttribute("src") !== src) meAv.src = src;
+  sheetCleanup();
   saveCache();
   renderChat();
 }
@@ -413,65 +417,148 @@ const teamOf = p => projTeam(p).sort((a, b) => a === me ? -1 : b === me ? 1 : na
 let projTab = "tasks", showSettings = null, planEdit = null;
 const taskFilter = {};   // project id -> person id whose tasks to show
 
+// A project's page, top to bottom: what it is and how it's doing, its stages, what to do now, then the work.
+const stageOpen = new Set();   // "<project>:<stage>" stages opened by a tap (finished and later stages start folded)
+let onlyMine = false;
 function renderProjectPage(p) {
   const box = $("#project"); box.replaceChildren();
-  box.append(el("button", { class: "back", onclick: () => { location.hash = p && p.status === "completed" ? "projects-done" : "projects" } }, "\u2190 Projects"));
-  if (!p) { box.append(el("div", { class: "empty" }, "This project isn't on the board anymore.")); return }
+  const back = el("button", { class: "pp-back", onclick: () => { location.hash = p && p.status === "completed" ? "projects-done" : "projects" } }, nIc("back"), "Projects");
+  if (!p) { box.append(el("div", { class: "pp-top" }, back), el("div", { class: "empty" }, "This project isn't on the board anymore.")); return }
   const tasks = tasksOf(p), team = teamOf(p), joined = team.includes(me), planner = canPlan(p);
-  const done = p.status === "completed", goal = (p.goals || {})[weekKey()];
-  const mineLeft = tasks.filter(t => isAssignee(t, me) && !t.done).length;
+  const done = p.status === "completed", st = stageMap(p), h = projHealth(p, st);
   const settingsOpen = showSettings === p.id;
-
-  const head = el("section", { class: "focus" },
-    el("div", { class: "row", style: "gap:6px" },
-      done ? el("span", { class: "done-badge" }, "\u2713 Completed " + fmtDay(p.completedAt)) : el("span", { class: "pill" + (isPaused(p) ? " pill-paused" : "") }, isPaused(p) ? "\u23f8 Paused" : isActive(p) ? "Building now" : "Up next"),
-      prioChip(p), catsOf(p).length ? catChip(p) : null),
-    el("div", { class: "row", style: "align-items:flex-start;flex-wrap:nowrap" }, el("h2", { style: "flex:1;min-width:0" }, p.title),
-      p.status === "approved" ? el("button", { class: "btn small", title: "This project's chat", onclick: () => { location.hash = "pc-" + p.id } }, "Chat") : null,
-      planner || joined ? el("button", { class: "btn small", "aria-expanded": String(settingsOpen), onclick: () => { showSettings = settingsOpen ? null : p.id; render() } }, settingsOpen ? "Close" : "Settings") : null),
-    isPaused(p) ? el("div", { class: "paused-line" }, el("span", {}, `\u23f8 Paused by ${p.paused.by === me ? "you" : name(p.paused.by)} ${ago(p.paused.at)}. Its tasks are on hold.`), el("span", { class: "spacer" }), planner ? el("button", { class: "btn primary small", onclick: () => resumeProject(p) }, "Resume") : null) : null,
-    whoseLine(p),
-    clientOf(p) ? clientLine(clientOf(p)) : null,
-    p.pitch ? el("p", { class: "pitch" }, p.pitch) : null,
-    !done && goal && goal.text ? el("div", { class: "goal-line" + (goal.reached ? " reached" : "") }, el("span", { class: "tlabel" }, goal.reached ? "This week's goal \u2713 reached" : "This week's goal"), el("span", {}, goal.text)) : null,
-    tasks.length ? line(progressOf(tasks), "tasks") : null,
-    mineLeft ? el("div", { class: "now-sub" }, `${mineLeft} of these are yours`) : null,
-    linksBlock(p));
-  const actions = el("div", { class: "row", style: "gap:8px" });
-  if (!done && !isActive(p) && !isPaused(p)) actions.append(voteButton(p));
   const asked = !!(p.joinReqs || {})[me], invited = (p.invites || {})[me];
-  if (!done && !joined && !invited) actions.append(asked
-    ? el("button", { class: "btn quiet", onclick: () => cancelAsk(p) }, "Asked to join · take it back")
-    : el("button", { class: "btn", onclick: () => askToJoin(p) }, planner ? "Join the team" : "Ask to join the team"));
-  actions.append(el("span", { class: "spacer" }));
-  const pick = isPaused(p) ? null : pickButton(p); if (pick) actions.append(pick);
-  if (actions.childNodes.length > 1) head.append(actions);
-  box.append(head);
-  box.append(...teamNotices(p, { joined, planner, done, asked, invited }));
 
+  box.append(el("div", { class: "pp-top" }, back, el("span", { class: "spacer" }),
+    p.status === "approved" ? el("button", { class: "pp-ic", title: "Project chat", "aria-label": "Project chat", onclick: () => { location.hash = "pc-" + p.id } }, nIc("chat")) : null,
+    planner || joined ? el("button", { class: "pp-ic", title: settingsOpen ? "Close settings" : "Project settings", "aria-label": settingsOpen ? "Close settings" : "Project settings", "aria-expanded": String(settingsOpen), onclick: () => { showSettings = settingsOpen ? null : p.id; render() } }, nIc(settingsOpen ? "x" : "more")) : null));
+  const client = clientOf(p);
+  box.append(el("header", { class: "pp-head" },
+    el("div", { class: "pp-chips" }, typeChip(p), healthChip(h), p.priority === "urgent" || p.priority === "high" ? prioChip(p) : null),
+    el("h1", { class: "pp-title" }, p.title),
+    client && !String(p.title || "").toLowerCase().includes(client.toLowerCase()) ? el("div", { class: "pp-client" }, "Client · ", el("b", {}, client)) : null,
+    p.pitch ? el("p", { class: "pp-pitch" }, p.pitch) : null,
+    h.why ? el("p", { class: "pp-why" }, h.why) : null));
+  if (done) box.append(el("div", { class: "paused-line pp-line" }, el("span", {}, `Completed ${fmtDay(p.completedAt)}.`), el("span", { class: "spacer" }), planner ? el("button", { class: "btn small", onclick: () => reopenProject(p) }, "Reopen") : null));
+  if (isPaused(p)) box.append(el("div", { class: "paused-line pp-line" }, el("span", {}, `On hold since ${fmtDay(p.paused.at)}. Its tasks wait until it's resumed.`), el("span", { class: "spacer" }), planner ? el("button", { class: "btn primary small", onclick: () => resumeProject(p) }, "Resume") : null));
   if (settingsOpen) box.append(projectSettings(p, { planner, joined, done }));
+  box.append(...teamNotices(p, { joined, planner, done, asked, invited }));
+  if (!done && !joined && !invited) box.append(el("div", { class: "row", style: "margin:0 0 14px" }, el("span", { class: "spacer" }), asked
+    ? el("button", { class: "btn quiet", onclick: () => cancelAsk(p) }, "Asked to join · take it back")
+    : el("button", { class: "btn primary", onclick: () => askToJoin(p) }, planner ? "Join the team" : "Ask to join the team")));
+
+  const sp = stepper(p, st); if (sp) box.append(sp);
+  const now = nowCard(p, st); if (now) box.append(now);
 
   const meetings = Object.values(p.meetings || {}).filter(Boolean).length;
-  box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin:4px 0 14px" },
-    el("button", { "aria-pressed": String(projTab === "tasks"), onclick: () => { if (projTab !== "tasks") closeForms(); projTab = "tasks"; render() } }, "Tasks"),
-    el("button", { "aria-pressed": String(projTab === "week"), onclick: () => { if (projTab !== "week") closeForms(); projTab = "week"; render() } }, "Week"),
-    el("button", { "aria-pressed": String(projTab === "meet"), onclick: () => { if (projTab !== "meet") closeForms(); projTab = "meet"; render() } }, "Meetings" + (meetings ? " " + meetings : "")),
-    el("button", { "aria-pressed": String(projTab === "money"), onclick: () => { if (projTab !== "money") closeForms(); projTab = "money"; render() } }, "Money"),
-    el("button", { "aria-pressed": String(projTab === "share"), onclick: () => { if (projTab !== "share") closeForms(); projTab = "share"; render() } }, "Client" + countNew(p.id))));
+  const tab = (id, label) => el("button", { "aria-pressed": String(projTab === id), onclick: () => { if (projTab !== id) closeForms(); projTab = id; render() } }, label);
+  box.append(el("div", { class: "seg seg-wide pp-tabs", role: "group", "aria-label": "Show" },
+    tab("tasks", "Tasks"), tab("money", "Money"), tab("share", "Client" + countNew(p.id)), tab("meet", "Notes" + (meetings ? " " + meetings : ""))));
   if (projTab === "share") { if (!inTeam(p)) { box.append(el("div", { class: "empty" }, "The client view is run by this project's team.")); return } return renderShare(box, p) }
   if (projTab === "week") return renderWeek(box, p, team);
   if (projTab === "meet") return renderMeetings(box, p);
   if (projTab === "money") return renderMoney(box, p);
 
-  // people chips: tap someone to see only their tasks
-  const f = taskFilter[p.id] || null;
-  if (team.length && tasks.length) {
-    const chip = (u, label, count) => el("button", { class: "pchip", "aria-pressed": String(f === u), onclick: () => { taskFilter[p.id] = u; render() } }, u ? av(u) : null, label, count != null ? el("span", { class: "pcount" }, count) : null);
-    box.append(el("div", { class: "pchips" }, chip(null, "Everyone"),
-      ...team.map(u => { const list = tasks.filter(t => isAssignee(t, u)); return chip(u, u === me ? "You" : name(u).split(" ")[0], `${list.filter(t => t.done).length}/${list.length}`) })));
+  const mineCan = joined && tasks.some(t => isAssignee(t, me));
+  box.append(planBody(p, { filter: onlyMine && mineCan ? me : null, st, canFilter: mineCan }));
+  box.append(el("div", { class: "pp-links" }, linksBlock(p)));
+  box.append(teamRow(p, team));
+}
+const typeChip = p => el("span", { class: "tchip" }, clientOf(p) ? "Client work" : "Our own");
+const healthChip = h => el("span", { class: "hchip h-" + h.id }, h.label);
+const listNames = us => { const n = us.map(u => u === me ? "you" : cap(firstName(u))); return n.length > 2 ? n.slice(0, -1).join(", ") + " and " + n[n.length - 1] : n.join(" and ") };
+function teamRow(p, team) {
+  const pls = plannerIds(p).filter(u => people[u] || u === me);
+  return el("div", { class: "pp-team" }, el("span", { class: "stack" }, team.slice(0, 6).map(av)),
+    el("span", { class: "txt" }, `${team.length} on the team` + (pls.length ? ` · planned by ${listNames(pls)}` : "")),
+    canPlan(p) || team.includes(me) ? el("button", { class: "linkbtn", onclick: () => { showSettings = p.id; render(); scrollTo({ top: 0, behavior: "smooth" }) } }, "Team") : null);
+}
+
+// Where each stage stands: done (all its tasks done), now (the first one with work left), next (the ones after it)
+function stageMap(p) {
+  const tasks = tasksOf(p);
+  const list = getPhases(p).map((ph, i) => { const ts = tasks.filter(t => t.phase === ph.id); return { ph, i, tasks: ts, total: ts.length, open: ts.filter(t => !t.done).length } });
+  const lastWithTasks = list.reduce((m, s) => s.total ? s.i : m, -1);
+  const cur = list.find(s => s.open > 0) || list.find(s => !s.total && s.i > lastWithTasks) || null;
+  for (const s of list) s.state = !cur || s.i < cur.i ? (s.total ? "done" : "skip") : s === cur ? "now" : "next";
+  return { list, cur };
+}
+// How a project is doing, in one word, and why
+function projHealth(p, st = stageMap(p)) {
+  if (p.status === "completed") return { id: "done", label: "Completed" };
+  if (isPaused(p)) return { id: "hold", label: "On hold" };
+  if (!st.list.length) return { id: "new", label: "No plan yet" };
+  const today = todayStr(), now = Date.now(), open = tasksOf(p).filter(t => !t.done && !taskHeld(p, t));
+  const stale = open.filter(t => inCheck(t) && now - (t.review.at || now) > 2 * 864e5).sort((a, b) => a.review.at - b.review.at)[0];
+  if (stale) return { id: "stuck", label: "Stuck", why: `“${stale.text}” has waited ${Math.floor((now - stale.review.at) / 864e5)} days for a check.` };
+  const late = open.filter(t => t.due && t.due < today && !inCheck(t));
+  if (late.length >= 3) return { id: "stuck", label: "Stuck", why: `${late.length} tasks are late.` };
+  if (late.length) return { id: "attn", label: "Needs attention", why: late.length > 1 ? `${late.length} tasks are late.` : `“${late[0].text}” is late.` };
+  const cur = st.cur;
+  if (cur && cur.ph.due && cur.ph.due < today && cur.open) return { id: "attn", label: "Needs attention", why: `${cur.ph.name} was due ${fmtDate(cur.ph.due)}.` };
+  const nobody = cur ? cur.tasks.filter(t => !t.done && !assignees(t).length).length : 0;
+  if (nobody) return { id: "attn", label: "Needs attention", why: `${nobody} task${nobody > 1 ? "s" : ""} in ${cur.ph.name} ${nobody > 1 ? "have" : "has"} nobody yet.` };
+  if (!cur) return { id: "ok", label: "Ready to deliver" };
+  return { id: "ok", label: "On track" };
+}
+// The next task for someone: theirs, not waiting for anything, earliest stage first
+function nextFor(p, u = me) {
+  const order = Object.fromEntries(getPhases(p).map((ph, i) => [ph.id, i]));
+  return tasksOf(p).filter(t => !t.done && isAssignee(t, u) && !inCheck(t) && !isBlocked(p, t) && !taskHeld(p, t))
+    .sort((a, b) => (order[a.phase] ?? 99) - (order[b.phase] ?? 99) || taskPrioRank(a) - taskPrioRank(b) || (a.due || "9999").localeCompare(b.due || "9999") || (a.order || 0) - (b.order || 0))[0] || null;
+}
+const checksFor = p => tasksOf(p).filter(t => canCheck(p, t) && t.review.by !== me).sort((a, b) => a.review.at - b.review.at);
+
+function stepper(p, st) {
+  if (!st.list.length) return null;
+  return el("nav", { class: "stepper", "aria-label": "Stages" }, st.list.map(s => el("button", { class: "step " + s.state, "aria-current": s.state === "now" ? "step" : null, title: s.ph.name, onclick: () => openStage(p, s) },
+    el("span", { class: "dot" }, s.state === "done" ? nIc("check", "sm") : String(s.i + 1)), el("span", { class: "sl" }, s.ph.name))));
+}
+function openStage(p, s) {
+  if (s.state !== "now") stageOpen.add(p.id + ":" + s.ph.id);
+  if (projTab !== "tasks") { closeForms(); projTab = "tasks" }
+  onlyMine = false; render();
+  setTimeout(() => { const n = document.getElementById("stage-" + s.ph.id); if (n) n.scrollIntoView({ behavior: "smooth", block: "start" }) }, 60);
+}
+
+// The Now card: your next task, who's waiting for it, and the checks waiting for you
+function nowCard(p, st) {
+  if (p.status !== "approved" || isPaused(p) || !inTeam(p) || !st.list.length) return null;
+  const t = nextFor(p), checks = checksFor(p), cur = st.cur;
+  const card = el("section", { class: "pnow", "aria-label": "Now" },
+    el("div", { class: "pnow-h" }, el("span", { class: "pnow-k" }, "Now"), el("span", { class: "spacer" }),
+      el("span", { class: "pnow-s" }, cur ? cur.ph.name + (cur.ph.due ? " · due " + fmtDate(cur.ph.due) : "") : "All stages done")));
+  if (t) {
+    const key = "p:" + t.id;
+    const waiters = [...new Set(waitingOn(p, t).filter(x => !x.done).flatMap(assignees))].filter(u => u !== me);
+    const inStage = st.list.find(s => s.ph.id === t.phase);
+    const sub = waiters.length ? `${listNames(waiters)} ${waiters.length > 1 ? "are" : "is"} waiting for this` : t.due ? dueText(t.due, false) : inStage && inStage !== cur ? "In " + inStage.ph.name : "";
+    card.append(el("div", { class: "pnow-main" }, el("span", { class: "pnow-l" }, "Your next task"), el("span", { class: "pnow-t" }, t.text), sub ? el("span", { class: "pnow-l" }, sub) : null),
+      el("div", { class: "pnow-acts" },
+        el("button", { class: "b1", onclick: () => { openTask = key; delTask = null; waitPick = null; render() } }, "Open task"),
+        el("button", { class: "b2", onclick: () => toggleDone(p, t, true, key) }, needsSend(p, t) ? "Done · send for a check" : "Mark done")));
+  } else {
+    const mineWaiting = tasksOf(p).find(x => !x.done && isAssignee(x, me) && !taskHeld(p, x) && (inCheck(x) || isBlocked(p, x)));
+    let head = cur ? "Nothing waiting on you here" : "Every stage is done", sub = "";
+    if (mineWaiting) {
+      head = "Waiting for others";
+      sub = inCheck(mineWaiting) ? `“${mineWaiting.text}” is waiting for ${checkWho(mineWaiting)} to check it` : `“${mineWaiting.text}” waits for ${ownerName(waitInfo(p, mineWaiting).open[0])}`;
+    } else if (cur) {
+      const busy = cur.tasks.find(x => !x.done && assignees(x).some(u => u !== me));
+      const nobody = cur.tasks.filter(x => !x.done && !assignees(x).length).length;
+      sub = busy ? `${listNames(assignees(busy).filter(u => u !== me))} ${assignees(busy).filter(u => u !== me).length > 1 ? "are" : "is"} on “${busy.text}”` : nobody ? `${nobody} task${nobody > 1 ? "s" : ""} in ${cur.ph.name} ${nobody > 1 ? "have" : "has"} nobody yet` : "";
+    } else if (canPlan(p)) sub = "When it's delivered, mark the project completed in its settings.";
+    card.append(el("div", { class: "pnow-main" }, el("span", { class: "pnow-t small" }, head), sub ? el("span", { class: "pnow-l" }, sub) : null));
   }
-  if (!f) { const ms = moneyPhaseStrip(p); if (ms) box.append(ms) }
-  box.append(planBody(p, { filter: f }));
+  if (checks.length) {
+    const c = checks[0], key = "p:" + c.id;
+    card.append(el("div", { class: "pnow-hr" }),
+      el("div", { class: "pnow-chk" }, av(c.review.by), el("div", {}, el("b", {}, c.text), el("span", {}, `${cap(firstName(c.review.by))} finished it. It's yours to check` + (checks.length > 1 ? ` · ${checks.length - 1} more after this` : "")))),
+      el("div", { class: "pnow-acts" },
+        el("button", { class: "b1", onclick: () => approveCheck(p, c, key) }, "Looks good"),
+        el("button", { class: "b2", onclick: () => { changesFor = key; openTask = key; render(); setTimeout(() => { const n = document.getElementById("chg-" + key); if (n) n.focus() }, 80) } }, "Needs changes")));
+  }
+  return card;
 }
 
 // The lines at the top of a project about its team: an invite for you, your request, or people asking to join.
@@ -976,35 +1063,119 @@ function ideaDeleteBtn(i) {
 /* ----- projects list ----- */
 
 let projShow = "active";
+// What needs you today across all projects: checks waiting for you, and your tasks due today or late
+function needsMe() {
+  let checks = 0, due = 0; const today = todayStr();
+  for (const p of ideas) {
+    if (p.status !== "approved" || isPaused(p)) continue;
+    for (const t of tasksOf(p)) {
+      if (t.done || taskHeld(p, t)) continue;
+      if (inCheck(t)) { if (canCheck(p, t) && t.review.by !== me) checks++ }
+      else if (isAssignee(t, me) && t.due && t.due <= today) due++;
+    }
+  }
+  return { checks, due };
+}
+const HEALTH_ORDER = { stuck: 0, attn: 1, new: 2, ok: 3, hold: 4, done: 5 };
 function renderProjects(all) {
   const box = $("#projects"); box.replaceChildren();
+  if (route().sub === "new") { catEls.projects.replaceChildren(); renderNewProject(box); return }
   if (location.hash === "#projects-done") projShow = "done";
   const done = ideas.filter(i => i.status === "completed").sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
-  box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin-bottom:14px" },
-    el("button", { "aria-pressed": String(projShow === "active"), onclick: () => { projShow = "active"; if (location.hash === "#projects-done") location.hash = "projects"; render() } }, `Projects ${all.length}`),
-    el("button", { "aria-pressed": String(projShow === "done"), onclick: () => { projShow = "done"; render() } }, `Completed ${done.length}`)));
+  const live = all.filter(p => !isPaused(p)), held = all.filter(isPaused);
+  const nm = needsMe(), n = nm.checks + nm.due;
+  const segBtn = (id, label) => el("button", { "aria-pressed": String(projShow === id), onclick: () => { projShow = id; if (location.hash === "#projects-done" && id !== "done") location.hash = "projects"; else render() } }, label);
+  box.append(el("div", { class: "pl-head" },
+    el("div", { class: "pl-acts" },
+      el("button", { class: "btn primary", onclick: () => { location.hash = "new-project" } }, nIc("plus"), "New client project"),
+      el("button", { class: "btn", onclick: () => { location.hash = "chat-ideas" } }, nIc("bulb"), "Pitch an idea")),
+    n ? el("button", { class: "needs", onclick: () => { location.hash = "me" } }, nIc("clock"),
+      el("span", {}, el("b", {}, "Needs you today"), el("span", { class: "nd" }, [nm.checks ? `${nm.checks} check${nm.checks > 1 ? "s" : ""} waiting` : "", nm.due ? `${nm.due} task${nm.due > 1 ? "s" : ""} due` : ""].filter(Boolean).join(" · "))), nIc("arrow")) : null,
+    el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show" }, segBtn("active", `Building ${live.length}`), segBtn("hold", `On hold ${held.length}`), segBtn("done", `Done ${done.length}`))));
   if (projShow === "done") { renderCompleted(box, done); catEls.projects.replaceChildren(); return }
+  if (projShow === "hold") {
+    catEls.projects.replaceChildren();
+    if (!held.length) box.append(el("div", { class: "empty" }, "Nothing on hold. A planner can put a project on hold from its settings."));
+    else box.append(el("div", { class: "list pl-list" }, held.map(p => projCard(p))));
+    return;
+  }
   box.append(catEls.projects);
-  const ranked = byVotes(all);
-  const rank = Object.fromEntries(ranked.map((p, n) => [p.id, n + 1]));
-  const projects = catBar("projects", ranked);
-  if (all.length && !projects.length) { box.append(el("div", { class: "empty" }, "No projects in this category.")); return }
-  if (!projects.length) { box.append(el("div", { class: "empty" }, "No projects yet. Ideas land here once the team votes to keep them.")); return }
-  const building = projects.filter(isActive).sort((a, b) => prioRank(a) - prioRank(b));
-  const next = projects.filter(p => !isActive(p) && !isPaused(p)), paused = projects.filter(isPaused);
-  if (building.length) {
-    box.append(el("h2", { class: "sec-h" }, "Building now"));
-    box.append(el("div", { class: "list", style: "margin-top:0" }, building.map(p => projCard(p))));
-  }
-  if (next.length) {
-    box.append(el("div", { class: "sec-h row" }, el("h2", {}, "Up next"), el("span", { class: "spacer" }), el("span", { class: "label" }, isAdmin ? "Vote, then start the ones you pick" : `Vote for what we build next`)));
-    box.append(el("div", { class: "list", style: "margin-top:0" }, next.map(p => projCard(p, rank[p.id]))));
-  }
-  if (paused.length) {
-    box.append(el("div", { class: "sec-h row" }, el("h2", {}, "Paused"), el("span", { class: "spacer" }), el("span", { class: "label" }, "On hold. Open one to resume it")));
-    box.append(el("div", { class: "list", style: "margin-top:0" }, paused.map(p => projCard(p))));
-  }
+  const sorted = live.map(p => ({ p, h: projHealth(p) })).sort((a, b) => prioRank(a.p) - prioRank(b.p) || HEALTH_ORDER[a.h.id] - HEALTH_ORDER[b.h.id] || (b.p.approvedAt || 0) - (a.p.approvedAt || 0)).map(x => x.p);
+  const shown = catBar("projects", sorted);
+  if (live.length && !shown.length) { box.append(el("div", { class: "empty" }, "No projects in this category.")); return }
+  if (!shown.length) { box.append(el("div", { class: "empty" }, "No projects yet. Start a client project, or pitch an idea in the Ideas chat.")); return }
+  box.append(el("div", { class: "list pl-list" }, shown.map(p => projCard(p))));
 }
+
+/* ----- a new client project: no vote (the client already said yes), a ready-made plan, and the team ----- */
+const PROJECT_PLANS = [
+  { id: "brand", name: "Brand identity · company profile", short: "Company profile", stages: [
+    ["Brief", ["Collect the company's info, logo and photos", "Agree on the sections of the profile", ["Moodboard and references", 1]]],
+    ["Design", [["Colour palette and fonts", 1], ["Cover page layout", 1], "Inside pages grid", "Icons and graphics"]],
+    ["Content", ["Write the texts", "Choose and edit the photos", ["Proofread everything", 1]]],
+    ["Print & deliver", ["Client review and changes", ["Final print PDF", 1], "Web PDF for WhatsApp and email", "Send the files to the client"]]] },
+  { id: "web", name: "Website for a client", short: "Website", stages: [
+    ["Brief", ["Collect the logo, photos and texts", "Agree on the pages", "List 3 websites they like"]],
+    ["Design", [["Home page design", 1], ["Inner pages design", 1], "Phone version"]],
+    ["Build", ["Build the pages", "Contact form and WhatsApp button", "Speed and Google basics", ["Test on phones and computers", 1]]],
+    ["Launch", ["Connect the domain", "Client review and fixes", ["Go live", 1], "Show the client how to use it"]]] },
+  { id: "ads", name: "Google Ads", short: "Google Ads", note: "Set up once, then the monthly routine", stages: [
+    ["Setup", ["Get access to the client's Google Ads", ["Conversion tracking", 1], "Keywords and negative keywords", ["Write the ads", 1], "Set the budget and go live"]],
+    ["This month", ["Check spend and leads every week", "Add negative keywords", "Test a new ad", ["Monthly report", 1], "Send the report to the client"]]] },
+  { id: "social", name: "Social media month", short: "Social media", stages: [
+    ["Plan", [["Content calendar for the month", 1], "Collect photos and info from the client"]],
+    ["Make", [["Design the posts", 1], "Write the captions", "Make the reels"]],
+    ["Post", ["Schedule the posts", "Reply to comments and messages", "Month results for the client"]]] },
+  { id: "empty", name: "Start empty", short: "Project", stages: [] },
+];
+let npPlan = "brand", npTeam = new Set(), npBusy = false;
+function renderNewProject(box) {
+  const plan = PROJECT_PLANS.find(x => x.id === npPlan) || PROJECT_PLANS[0];
+  const others = teamIds().filter(u => u !== me && people[u]);
+  const client = el("input", { id: "np-client", maxlength: "80", placeholder: "Company or person", autocomplete: "off" });
+  const title = el("input", { id: "np-title", maxlength: "80", placeholder: `e.g. ${plan.short}`, autocomplete: "off" });
+  client.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); title.focus() } });
+  box.append(el("div", { class: "np" },
+    el("div", { class: "pp-top" }, el("button", { class: "pp-back", onclick: () => { location.hash = "projects" } }, nIc("back"), "Projects")),
+    el("div", { class: "np-intro" }, el("h1", {}, "New client project"), el("p", {}, "The client already said yes, so there's no vote. Pick a plan, and change anything after.")),
+    el("div", { class: "np-f" }, el("label", { for: "np-client" }, "Client"), client),
+    el("div", { class: "np-f" }, el("label", { for: "np-title" }, "Project name (optional)"), title),
+    el("div", { class: "np-f" }, el("span", { class: "np-k", id: "np-plan-l" }, "Ready-made plan"),
+      el("div", { class: "np-plans", role: "radiogroup", "aria-labelledby": "np-plan-l" }, PROJECT_PLANS.map(x => el("button", { class: "np-plan", role: "radio", "aria-checked": String(x.id === plan.id), onclick: () => { npPlan = x.id; render() } },
+        el("span", { class: "rd", "aria-hidden": "true" }),
+        el("span", {}, el("b", {}, x.name), el("span", { class: "s" }, x.stages.length ? x.stages.map(s => s[0]).join(" → ") : "No stages yet. Build your own plan"),
+          x.note ? el("span", { class: "s" }, x.note) : null,
+          x.id === plan.id && x.stages.length ? el("span", { class: "s ok" }, `${x.stages.reduce((a, s) => a + s[1].length, 0)} tasks ready, with checks on the key ones`) : null))))),
+    el("div", { class: "np-f" }, el("span", { class: "np-k" }, "Team"),
+      el("div", { class: "np-team" }, el("span", { class: "np-who on" }, av(me), "You"),
+        others.map(u => el("button", { class: "np-who", "aria-pressed": String(npTeam.has(u)), onclick: () => { if (npTeam.has(u)) npTeam.delete(u); else npTeam.add(u); render() } }, av(u), cap(firstName(u)))))),
+    el("button", { class: "btn primary np-go", disabled: npBusy, onclick: () => createClientProject(client.value, title.value, plan) }, npBusy ? "Creating…" : "Create project")));
+}
+function createClientProject(clientRaw, titleRaw, plan) {
+  const client = String(clientRaw || "").trim().replace(/\s+/g, " ");
+  if (!client) { toast("Type the client's name first"); const n = $("#np-client"); if (n) n.focus(); return }
+  const title = String(titleRaw || "").trim().replace(/\s+/g, " ") || `${client} · ${plan.short}`;
+  const now = Date.now(), id = uid(), team = [me, ...[...npTeam].filter(u => u !== me && isTeamUid(u))];
+  const data = { title, pitch: "", client, category: "Client work", categories: ["Client work"], author: me, createdAt: now, status: "approved", approvedAt: now, movedBy: me, teamV: 1,
+    votes: { [me]: "keep" }, backers: {}, tasks: {}, phases: {}, members: {}, joined: {} };
+  for (const u of team) { data.members[u] = true; data.joined[u] = { by: me, at: now } }
+  plan.stages.forEach(([nm, list], i) => {
+    const phid = uid() + i; data.phases[phid] = { name: nm, order: i + 1, due: null };
+    list.forEach((x, j) => {
+      const [text, chk] = Array.isArray(x) ? x : [x, 0];
+      data.tasks[uid() + i + "x" + j] = { text, phase: phid, skill: null, owner: null, assignedBy: me, assignedAt: now, done: false, order: now + i * 100 + j, due: null, ...(chk ? { checker: PLANNERS, checkerBy: me } : {}) };
+    });
+  });
+  npBusy = true; render();
+  write(() => setDoc(doc(db, "ideas", id), data), plan.stages.length ? "Project created. Now give each task to someone" : "Project created. Add its first stage").then(ok => {
+    npBusy = false;
+    if (!ok) { render(); return }
+    npTeam = new Set(); projTab = "tasks"; pendingTab = "tasks";
+    for (const sel of ["#np-client", "#np-title"]) { const n = $(sel); if (n) n.value = "" }
+    location.hash = "project-" + id;
+  });
+}
+
 /* ----- project links (website, socials, files…) ----- */
 
 let addingLink = null, delLink = null;
@@ -1111,20 +1282,21 @@ function whoseLine(p, small) {
     p.author ? el("span", {}, av(p.author), "Idea by ", el("b", {}, p.author === me ? "you" : name(p.author))) : null,
     pls.length ? el("span", {}, el("span", { class: "stack" }, pls.slice(0, 4).map(av)), "Planned by ", el("b", {}, names(pls))) : null);
 }
-function projCard(p, n) {
-  const tasks = tasksOf(p), team = teamOf(p), left = tasks.filter(t => isAssignee(t, me) && !t.done).length;
-  const open = () => { location.hash = "project-" + p.id };
-  return el("article", { class: "idea projcard" },
-    el("button", { class: "cardlink", onclick: open, "aria-label": "Open " + p.title },
-      el("div", { class: "row", style: "gap:8px" }, n ? el("span", { class: "rank" }, "#" + n) : null, el("h3", { style: "flex:1 1 auto;min-width:0" }, p.title), p.priority === "urgent" || p.priority === "high" ? prioChip(p) : null),
-      whoseLine(p, true),
-      tasks.length ? line(progressOf(tasks), "tasks") : el("span", { class: "label" }, canPlan(p) ? "No plan yet. Tap to make one" : "No plan yet")),
-    linksOf(p).length || filesOf(p).length ? el("div", { class: "links" }, linksOf(p).slice(0, 3).map(l => linkChip(p, l, false)),
-      filesOf(p).length ? el("span", { class: "label" }, `${filesOf(p).length} file${filesOf(p).length > 1 ? "s" : ""}`) : null) : null,
-    isPaused(p) ? el("div", { class: "row" }, el("span", { class: "pill pill-paused" }, "\u23f8 Paused"), el("span", { class: "spacer" }), el("span", { class: "label" }, "since " + fmtDay(p.paused.at)))
-    : isActive(p)
-      ? el("div", { class: "row" }, el("span", { class: "stack" }, team.slice(0, 6).map(av)), el("span", { class: "spacer" }), el("span", { class: "now-sub" }, left ? `${left} of your tasks left` : ""))
-      : el("div", { class: "row" }, voteButton(p), el("span", { class: "spacer" }), pickButton(p)));
+// A project on the list: what kind it is, how it's doing, which stage it's on, and your next task in it
+function projCard(p) {
+  const st = stageMap(p), h = projHealth(p, st), team = teamOf(p), cur = st.cur, n = st.list.length;
+  const mine = p.status === "approved" && !isPaused(p) && inTeam(p) ? nextFor(p) : null;
+  const foot = isPaused(p) ? el("span", { class: "txt" }, `On hold since ${fmtDay(p.paused.at)}`)
+    : (h.id === "stuck" || h.id === "attn") && h.why ? el("span", { class: "txt" }, h.why)
+    : mine ? el("span", { class: "txt" }, el("span", { class: "mut" }, "Your next: "), el("b", {}, mine.text))
+    : el("span", { class: "txt mut" }, `${team.length} on the team`);
+  return el("button", { class: "pcard", onclick: () => { location.hash = "project-" + p.id } },
+    el("span", { class: "pc-top" }, typeChip(p), p.priority === "urgent" || p.priority === "high" ? prioChip(p) : null, healthChip(h)),
+    el("span", { class: "pc-title" }, p.title),
+    n ? el("span", { class: "pc-bars", "aria-hidden": "true" }, st.list.map(s => el("span", { class: s.state }))) : null,
+    el("span", { class: "pc-line" }, !n ? (canPlan(p) ? "No plan yet · open it to make one" : "No plan yet")
+      : cur ? [`Stage ${cur.i + 1} of ${n} · `, el("b", {}, cur.ph.name), cur.ph.due ? " · due " + fmtDate(cur.ph.due) : ""] : "All stages done"),
+    el("span", { class: "pc-foot" }, foot, el("span", { class: "stack" }, team.slice(0, 4).map(av))));
 }
 
 /* ----- project votes ----- */
@@ -1246,60 +1418,71 @@ function catSelect(p) {
 }
 
 function planBody(p, opts = {}) {
-  const tasks = tasksOf(p), phases = getPhases(p), planner = canPlan(p);
-  const wrap = el("div", { style: "display:grid;gap:14px;margin-top:14px" });
+  const tasks = tasksOf(p), phases = getPhases(p), planner = canPlan(p), st = opts.st || stageMap(p);
+  const wrap = el("div", { class: "pstages" });
 
   if (!phases.length) {
     if (!planner) {
       wrap.append(el("div", { class: "empty" }, el("h3", {}, "No plan yet"),
-        el("p", { style: "margin:6px auto 0;max-width:46ch" }, `${name(p.author)} and the planners will add the phases and tasks here.`)));
+        el("p", { style: "margin:6px auto 0;max-width:46ch" }, `${name(p.author)} and the planners will add the stages and tasks here.`)));
       return wrap;
     }
     const suggested = templateFor(p.category);
     const card = el("section", { class: "idea", style: "gap:14px" },
       el("h3", {}, "Build the plan"),
-      el("p", {}, "Split the project into phases, the big stages it goes through. Then add tasks inside each phase and give each one to someone. Start from scratch, or use one of these as a starting point and change anything:"),
+      el("p", {}, "Split the project into stages, the big steps it goes through. Then add tasks inside each stage and give each one to someone. Start from scratch, or start from one of these and change anything:"),
       el("div", { class: "row", style: "gap:8px" }, PLAN_TEMPLATES.map(tp => el("button", { class: "btn" + (tp === suggested ? " primary" : ""), title: tp.phases.join(" → "), onclick: () => usePlanTemplate(p, tp) }, tp.name))),
-      el("p", { style: "font-size:13px" }, "Each one only adds phase names, like " + suggested.phases.join(" → ") + ". You add the tasks."),
-      clientSeesNote(p, "plan"),
-      addPhaseRow(p, phases, "Or type your first phase, e.g. Brainstorm"),
+      el("p", { style: "font-size:13px" }, "Each one only adds stage names, like " + suggested.phases.join(" → ") + ". You add the tasks."),
+      addPhaseRow(p, phases, "Or type your first stage, e.g. Brainstorm"),
       el("div", { class: "row", style: "gap:8px" }, el("span", { class: "label" }, "Planned it with Claude or the assistant?"), el("button", { class: "btn small", onclick: () => openImport(p) }, "Import a plan")));
     if ((importState[p.id] || {}).open) wrap.append(importPanel(p));
     wrap.append(card);
     return wrap;
   }
 
-  const unassigned = tasks.filter(t => !t.owner && !t.done).length;
   const editing = planner && planEdit === p.id;
-  if (planner && !opts.filter) wrap.append(el("div", { class: "row", style: "gap:8px" },
-    unassigned ? el("span", { style: "color:var(--muted);font-size:14px" }, `${unassigned} not assigned`) : null,
-    el("span", { class: "spacer" }),
-    unassigned ? el("button", { class: "btn small", onclick: () => runSuggest(p) }, "Suggest who does what") : null,
-    el("button", { class: "btn small", onclick: () => openImport(p) }, "Import plan"),
-    el("button", { class: "btn small" + (editing ? " primary" : ""), onclick: () => { planEdit = editing ? null : p.id; render() } }, editing ? "Done editing" : "Edit phases")));
+  wrap.append(el("div", { class: "st-bar" }, el("h2", {}, "Stages"), el("span", { class: "spacer" }),
+    opts.canFilter && !editing ? el("button", { class: "btn small" + (opts.filter ? " primary" : ""), "aria-pressed": String(!!opts.filter), onclick: () => { onlyMine = !onlyMine; render() } }, "Only mine") : null,
+    planner && !opts.filter && !editing ? el("button", { class: "btn small", onclick: () => openImport(p) }, "Import") : null,
+    planner && !opts.filter ? el("button", { class: "btn small" + (editing ? " primary" : ""), onclick: () => { planEdit = editing ? null : p.id; render() } }, editing ? "Done editing" : "Edit stages") : null));
   if (planner && (importState[p.id] || {}).open) wrap.append(importPanel(p));
   if (suggestions[p.id]) wrap.append(suggestPanel(p));
-  if (planner && !opts.filter) { const cs = clientSeesNote(p, "plan"); if (cs) wrap.append(cs) }
   if (planner && !opts.filter) { const rf = reviewFoldBox(p); if (rf) wrap.append(rf) }
 
   const show = t => !opts.filter || isAssignee(t, opts.filter);
-  const known = new Set(phases.map(ph => ph.id));
-  const loose = tasks.filter(t => !known.has(t.phase) && show(t));
-  let shown = 0;
-  phases.forEach((ph, n) => {
-    const list = tasks.filter(t => t.phase === ph.id && show(t));
-    if (opts.filter && !list.length) return;
+  let fold = null, shown = 0;
+  const flush = () => { if (fold) { wrap.append(fold); fold = null } };
+  for (const s of st.list) {
+    const list = s.tasks.filter(show);
+    if (opts.filter && !list.length) continue;
     shown++;
-    wrap.append(phaseCard(p, ph, n, phases, list, { editing, filtered: !!opts.filter }));
-  });
-  if (loose.length) wrap.append(phaseCard(p, { id: "__loose", name: "Not in a phase" }, -1, phases, loose, { editing, filtered: !!opts.filter }));
-  if (opts.filter && !shown && !loose.length) wrap.append(el("div", { class: "empty" }, (opts.filter === me ? "You don't" : name(opts.filter) + " doesn't") + " have any tasks in this project yet."));
-  if (editing) wrap.append(el("section", { class: "idea addphase" }, el("h3", {}, "Add a phase"), clientLiveFor(p) ? el("span", { class: "label clientsees-mini" }, nIc("eye"), "The client sees phase names live") : null, addPhaseRow(p, phases, "Phase name, e.g. Filming")));
+    const k = p.id + ":" + s.ph.id, expanded = editing || !!opts.filter || s.state === "now" || stageOpen.has(k);
+    if (expanded) { flush(); wrap.append(phaseCard(p, s.ph, s.i, phases, list, { editing, filtered: !!opts.filter, state: s.state, foldKey: !editing && !opts.filter && s.state !== "now" ? k : null })); continue }
+    if (!fold) fold = el("div", { class: "sf" });
+    fold.append(stageRow(p, s, k));
+  }
+  flush();
+  const known = new Set(phases.map(ph => ph.id)), loose = tasks.filter(t => !known.has(t.phase) && show(t));
+  if (loose.length) wrap.append(phaseCard(p, { id: "__loose", name: "Not in a stage" }, -1, phases, loose, { editing, filtered: !!opts.filter }));
+  if (opts.filter && !shown && !loose.length) wrap.append(el("div", { class: "empty" }, "You don't have any tasks in this project yet."));
+  if (editing) wrap.append(el("section", { class: "idea addphase" }, el("h3", {}, "Add a stage"), addPhaseRow(p, phases, "Stage name, e.g. Filming")));
   return wrap;
+}
+// A folded stage: one line, tap to open it
+function stageRow(p, s, k) {
+  const mp = moneyPhaseFor(p, s.ph.id);
+  const bits = s.state === "done" ? [`${s.total} task${s.total > 1 ? "s" : ""} done`] : s.state === "skip" ? ["No tasks"]
+    : [s.total ? `${s.total} task${s.total > 1 ? "s" : ""}` : "No tasks yet", s.ph.due ? "due " + fmtDate(s.ph.due) : ""];
+  if (mp) bits.push("pays " + mp.name);
+  if (s.ph.paused) bits.push("on hold");
+  return el("button", { class: "sf-row " + s.state, id: "stage-" + s.ph.id, "aria-expanded": "false", onclick: () => { stageOpen.add(k); render() } },
+    el("span", { class: "sd" }, s.state === "done" ? nIc("check", "sm") : String(s.i + 1)),
+    el("span", { class: "sm" }, el("b", {}, s.ph.name), el("span", {}, " · " + bits.filter(Boolean).join(" · "))),
+    nIc("down"));
 }
 
 function phaseCard(p, ph, n, phases, list, mode = {}) {
-  const planner = canPlan(p), pr = progressOf(list), loose = ph.id === "__loose";
+  const planner = canPlan(p), pr = progressOf(list), loose = ph.id === "__loose", isNow = mode.state === "now";
   const head = el("div", { class: "phase-h" });
   if (renamingPhase === p.id + ph.id) {
     const inp = el("input", { id: "rename-" + ph.id, class: "mini", value: ph.name, maxlength: "40", style: "font-size:15px;padding:6px 8px;flex:1 1 160px" });
@@ -1309,42 +1492,43 @@ function phaseCard(p, ph, n, phases, list, mode = {}) {
     head.append(inp, el("button", { class: "btn", onclick: save }, "Save"), el("button", { class: "btn quiet", onclick: () => { renamingPhase = null; render() } }, "Cancel"));
   } else {
     head.append(...[
-      loose ? null : el("span", { class: "phase-n" }, `${n + 1}/${phases.length}`),
-      el("h3", {}, ph.name),
-      ph.paused ? el("span", { class: "pill pill-paused" }, "⏸ Paused") : null,
-      ph.due ? el("span", { class: "chip" }, "By " + fmtDate(ph.due)) : null,
-      (() => { const mp = loose ? null : moneyPhaseFor(p, ph.id); return mp ? el("span", { class: "mpchip", title: "Finishing this phase's tasks finishes the money phase " + mp.name }, "\u{1F4B0} " + mp.name) : null })(),
+      el("h3", {}, loose ? ph.name : `${n + 1} · ${ph.name}`),
+      isNow && !mode.filtered ? el("span", { class: "nowtag" }, "Now") : null,
+      ph.paused ? el("span", { class: "pill pill-paused" }, "On hold") : null,
+      ph.due ? el("span", { class: "chip" }, "Due " + fmtDate(ph.due)) : null,
       el("span", { class: "spacer" }),
-      list.length ? el("span", { class: "label" }, `${pr.done}/${pr.total} done`) : null].filter(Boolean));
+      list.length ? el("span", { class: "label" }, `${pr.done} of ${pr.total} done`) : null,
+      mode.foldKey ? el("button", { class: "linkbtn", onclick: () => { stageOpen.delete(mode.foldKey); render() } }, "Fold") : null].filter(Boolean));
   }
-  const sec = el("section", { class: "idea phase" + (ph.paused && !loose ? " phase-paused" : "") }, head);
+  const sec = el("section", { class: "idea phase" + (isNow && !mode.filtered ? " now" : "") + (ph.paused && !loose ? " phase-paused" : ""), id: loose ? null : "stage-" + ph.id }, head);
+  if (list.length && !mode.filtered) sec.append(el("div", { class: "ph-bar", "aria-hidden": "true" }, el("span", { style: `width:${pr.pct}%` })));
+  const mp = loose ? null : moneyPhaseFor(p, ph.id);
+  if (mp && !mode.filtered) sec.append(el("div", { class: "ph-pay" }, `Finishing this stage completes “${mp.name}” in Money.`));
   if (ph.paused && !loose) sec.append(el("div", { class: "paused-line" },
-    el("span", {}, `⏸ Paused by ${ph.paused.by === me ? "you" : name(ph.paused.by)} ${ago(ph.paused.at)}. Its tasks are on hold until a planner resumes it.`),
+    el("span", {}, `On hold since ${ago(ph.paused.at)}. Its tasks wait until a planner resumes it.`),
     el("span", { class: "spacer" }),
     planner ? el("button", { class: "btn primary small", onclick: () => resumePhase(p, ph) }, "Resume") : null));
   if (planner && mode.editing && !loose && renamingPhase !== p.id + ph.id) {
-    const due = el("input", { type: "date", class: "mini", "aria-label": "Finish this phase by", value: ph.due || "", onchange: e => write(() => phaseWrite(p, { [`phases.${ph.id}.due`]: e.target.value || null })) });
+    const due = el("input", { type: "date", class: "mini", "aria-label": "Finish this stage by", value: ph.due || "", onchange: e => write(() => phaseWrite(p, { [`phases.${ph.id}.due`]: e.target.value || null })) });
     const mph = isPhased(p.money) && canMoney(p) ? (() => { const cur = moneyPhaseFor(p, ph.id);
-      const sel = el("select", { class: "mini", "aria-label": "Money phase this finishes", onchange: e => setMoneyPhase(p, ph.id, e.target.value) }, el("option", { value: "" }, "No money phase"), (p.money.phases || []).filter(Boolean).map(x => el("option", { value: x.id }, x.name || "Phase")));
-      sel.value = cur ? cur.id : ""; return el("label", { class: "row", style: "gap:6px" }, "\u{1F4B0} Finishes", sel) })() : null;
+      const sel = el("select", { class: "mini", "aria-label": "Payment this stage completes", onchange: e => setMoneyPhase(p, ph.id, e.target.value) }, el("option", { value: "" }, "No payment"), (p.money.phases || []).filter(Boolean).map(x => el("option", { value: x.id }, x.name || "Payment")));
+      sel.value = cur ? cur.id : ""; return el("label", { class: "row", style: "gap:6px" }, "Completes", sel) })() : null;
     const tools = el("div", { class: "phase-tools" },
       el("label", { class: "row", style: "gap:6px" }, "Finish by", due), mph,
       el("span", { class: "spacer" }),
-      n > 0 ? el("button", { class: "linkbtn", "aria-label": "Move phase up", onclick: () => movePhase(p, phases, n, -1) }, "↑ Up") : null,
-      n < phases.length - 1 ? el("button", { class: "linkbtn", "aria-label": "Move phase down", onclick: () => movePhase(p, phases, n, 1) }, "↓ Down") : null,
+      n > 0 ? el("button", { class: "linkbtn", "aria-label": "Move stage up", onclick: () => movePhase(p, phases, n, -1) }, "↑ Up") : null,
+      n < phases.length - 1 ? el("button", { class: "linkbtn", "aria-label": "Move stage down", onclick: () => movePhase(p, phases, n, 1) }, "↓ Down") : null,
       el("button", { class: "linkbtn", onclick: () => { renamingPhase = p.id + ph.id; render() } }, "Rename"),
-      ph.paused ? el("button", { class: "linkbtn", onclick: () => resumePhase(p, ph) }, "▶ Resume")
-        : el("button", { class: "linkbtn", title: "Put this phase's tasks on hold until a planner resumes it", onclick: () => pausePhase(p, ph) }, "⏸ Pause"),
+      ph.paused ? el("button", { class: "linkbtn", onclick: () => resumePhase(p, ph) }, "Resume")
+        : el("button", { class: "linkbtn", title: "Put this stage's tasks on hold until a planner resumes it", onclick: () => pausePhase(p, ph) }, "Put on hold"),
       delPhase === p.id + ph.id
-        ? el("button", { class: "linkbtn danger", onclick: () => deletePhase(p, ph, list) }, list.length ? `Delete phase and its ${list.length} task${list.length > 1 ? "s" : ""}` : "Tap again to delete")
+        ? el("button", { class: "linkbtn danger", onclick: () => deletePhase(p, ph, list) }, list.length ? `Delete the stage and its ${list.length} task${list.length > 1 ? "s" : ""}` : "Tap again to delete")
         : el("button", { class: "linkbtn danger", onclick: () => { delPhase = p.id + ph.id; render() } }, "Delete"));
     sec.append(tools);
   }
   if (!list.length) sec.append(el("p", { style: "font-size:14px" }, planner ? "No tasks yet. Add the first one below." : "No tasks yet."));
-  // Most important first: urgent, high, medium, low. Done tasks go to the bottom.
-  // Most important first: urgent, high, medium, low. Tasks still waiting for others come after the ones you can start. Done tasks go to the bottom.
-  // open tasks first; done ones fold away under "✓ N done" and come back with a tap (untick one to reopen it)
-  const sorted = [...list].sort((a, b) => (isBlocked(p, a) - isBlocked(p, b)) || taskPrioRank(a) - taskPrioRank(b));
+  // Open tasks first (most important first; ones you can start before ones still waiting). Done ones fold away under "N done".
+  const sorted = [...list].sort((a, b) => (isBlocked(p, a) - isBlocked(p, b)) || taskPrioRank(a) - taskPrioRank(b) || (a.order || 0) - (b.order || 0));
   for (const t of sorted.filter(t => !t.done)) sec.append(taskItem(p, t, "p", { people: "always" }));
   const doneList = sorted.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)), dk = p.id + ":" + ph.id;
   if (doneList.length) {
@@ -1359,7 +1543,7 @@ function phaseCard(p, ph, n, phases, list, mode = {}) {
 
 function addTaskRow(p, ph) {
   const tid = `add-${p.id}-${ph.id}`;
-  const inp = el("input", { id: tid, placeholder: "+ Add a task", maxlength: "140" });
+  const inp = el("input", { id: tid, placeholder: "Add a task to " + ph.name, maxlength: "140", "aria-label": "Add a task to " + ph.name });
   const who = el("select", { class: "mini", id: tid + "-who", "aria-label": "Who does it" }, el("option", { value: "" }, "Who?"), teamOf(p).map(u => el("option", { value: u }, name(u))));
   const add = () => {
     const text = inp.value.trim(); if (!text) return; inp.value = "";
@@ -1499,7 +1683,7 @@ const checkWho = t => t.checker === PLANNERS ? "a planner" : t.checker === me ? 
 const checkerFull = t => t.checker === PLANNERS ? "Any planner" : name(t.checker);
 let changesFor = null;   // "<where>:<taskId>" of the open "Needs changes" box
 function sendForCheck(p, t, key) {
-  openNote = "any:" + t.id; if (key) openTask = key;
+  if (key && openTask === key) openNote = "any:" + t.id;
   write(() => upd(p.id, { [t.path + ".review"]: { by: me, at: Date.now() }, [t.path + ".status"]: "doing", [t.path + ".changes"]: DEL() }))
     .then(ok => { if (ok) toast(`Sent to ${checkWho(t)} to check. It counts as done once they say it looks good`, 4500) });
 }
@@ -1591,43 +1775,65 @@ function priceChip(p, t) {
   return el("span", { class: "pricechip" + (info && info.status === "earned" ? " earned" : ""), title: tip }, "\u{1F4B5} " + fmtCur(toP(v), m.currency) + (mine && info && info.est ? " · you ≈ " + fmtN(Math.floor((info.status === "earned" ? info.share : info.est) / n)) : ""));
 }
 function payChip(p, t) { const s = p && p.money ? planOf(p.money, p).find(x => (x.tasks || []).includes(t.id)) : null; return s ? el("span", { class: "paychip", title: "This task is paid for by: " + s.label }, "\u{1F4B0} " + s.label) : null }
+// One task row, the same everywhere: tick it, see who and when, and one line about where it stands. Tap it to open it.
 function taskItem(p, t, where, opts = {}) {
   const key = where + ":" + t.id, open = openTask === key;
   const can = canWork(p, t);
-  const cl = checkList(t), cld = cl.filter(c => c.done).length;
-  const ncount = Object.values(t.notes || {}).filter(n => n && n.text).length, fcount = taskFilesOf(t).length;
   const people = assignees(t), w = t.done ? null : waitInfo(p, t), blocked = !!(w && w.open.length);
   const showPeople = opts.people === "always" || (opts.people !== "never" && (opts.people !== "multi" || people.length > 1));
-  const toggle = () => { openTask = open ? null : key; delTask = null; waitPick = null; render() };
-  const stepsDone = !t.done && !inCheck(t) && cl.length && cld === cl.length;
-  const needed = t.done ? [] : waitingOn(p, t).filter(x => !x.done);
+  const toggle = () => { openTask = open ? null : key; delTask = null; waitPick = null; changesFor = null; render() };
   const checking = inCheck(t), tickable = can || canCheck(p, t), sendsToCheck = needsSend(p, t);
-  return el("div", { class: "task" + (t.done ? " done" : " tp-" + (t.priority || "medium")) + (blocked ? " blocked" : "") + (checking ? " checking" : "") + (isAssignee(t, me) ? " mytask" : "") + (open ? " open" : "") },
+  const late = !t.done && t.due && t.due < todayStr();
+  const bit = (text, cls) => el("span", { class: "tbit" + (cls ? " " + cls : "") }, text);
+  let status = null;
+  if (checking) status = canCheck(p, t) ? bit("Needs your check", "strong") : bit(`Waiting for ${t.checker === PLANNERS && t.review.by === me && canPlan(p) ? "another planner" : checkWho(t)} to check`);
+  else if (!t.done && t.changes && t.changes.text) status = bit(`${cap(firstName(t.changes.by))} asked for changes`, "strong");
+  else if (blocked) status = bit(w.open.length > 1 ? `Waiting for ${w.open.length} tasks` : `Waiting for ${ownerName(w.open[0])}`);
+  else if (!t.done && t.status === "doing") status = bit("In progress");
+  else if (t.done && t.checked) status = bit("Checked by " + checkedByName(t));
+  if (open) mountSheet(p, t, key);
+  return el("div", { class: "task" + (t.done ? " done" : "") + (blocked ? " blocked" : "") + (checking ? " checking" : "") + (isAssignee(t, me) ? " mytask" : "") + (open ? " open" : "") },
     el("input", { type: "checkbox", id: "c-" + key, checked: t.done || checking, disabled: !tickable, "aria-label": (checking ? "Waiting for a check: " : "Done: ") + t.text, title: canCheck(p, t) ? "Tick if it looks good" : checking ? `Waiting for ${checkWho(t)} to check it. Untick to take it back` : !can ? (!inTeam(p) ? "Only this project's team can tick tasks" : "Only the people on this task or a planner can tick it") : sendsToCheck ? `Ticking sends it to ${checkWho(t)} to check` : "", onchange: e => toggleDone(p, t, e.target.checked, key) }),
-    el("button", { class: "ttext", "aria-expanded": String(open), onclick: toggle }, t.text),
-    el("button", { class: "chev", "aria-label": open ? "Close details" : "Open details", onclick: toggle }, open ? "–" : "…"),
+    el("button", { class: "ttext", "aria-haspopup": "dialog", onclick: toggle }, t.text),
+    el("button", { class: "chev", "aria-label": "Open " + t.text, onclick: toggle }, "›"),
     el("div", { class: "meta" },
       opts.project ? el("button", { class: "linkbtn", onclick: () => { location.hash = taskLink(p, t) } }, p.title) : null,
-      opts.phase ? el("span", { class: "label" }, opts.phase) : null,
-      showPeople ? (people.length ? el("span", { class: "stack", title: people.map(name).join(", ") }, people.slice(0, 4).map(av)) : el("span", { class: "label" }, "Not assigned")) : null,
-      ...checkChips(p, t, key),
-      !t.done && !checking && t.status === "doing" ? el("span", { class: "doing" }, "In progress" + (t.startedBy && t.startedBy !== me ? " \u00b7 " + name(t.startedBy).split(" ")[0] : "")) : null,
-      w && w.deps.length ? (blocked ? el("span", { class: "waitchip", title: w.open.map(d => `${d.text} (${ownerName(d)})`).join("\n") }, "⏳ " + (w.open.length > 1 ? `Waiting for ${w.open.length} tasks` : ownerName(w.open[0]) === "you" ? `Waiting for your “${w.open[0].text}”` : `Waiting for ${ownerName(w.open[0])}: ${w.open[0].text}`))
-        : el("span", { class: "readychip" }, "✓ Ready to start")) : null,
-      needed.length ? el("span", { class: "needchip", title: needed.map(x => `${x.text} (${ownerName(x)})`).join("\n") }, needed.length > 1 ? `${needed.length} tasks need this` : ownerName(needed[0]) === "nobody yet" ? "Another task needs this" : `${cap(ownerName(needed[0]))} ${ownerName(needed[0]) === "you" ? "need" : "needs"} this next`) : null,
-      t.priority && t.priority !== "medium" ? el("span", { class: "prio prio-" + t.priority }, PRIORITIES.find(x => x.id === t.priority).name) : null,
-      dueChip(t),
-      payChip(p, t),
-      priceChip(p, t),
-      cl.length ? el("span", { class: "label" + (stepsDone ? " ok" : "") }, `${cld}/${cl.length} steps`) : null,
-      ncount ? el("span", { class: "label" }, `${ncount} note${ncount > 1 ? "s" : ""}`) : null,
-      fcount ? el("span", { class: "label", title: taskFilesOf(t).map(f => f.name).join("\n") }, `\u{1F4CE} ${fcount} file${fcount > 1 ? "s" : ""}`) : null,
-      stepsDone && can ? el("button", { class: "btn small primary", onclick: () => toggleDone(p, t, true, key) }, sendsToCheck ? `All steps done · Send to ${checkWho(t)} to check` : "All steps done · Mark done") : null),
+      opts.phase ? bit(opts.phase) : null,
+      showPeople ? (people.length ? el("span", { class: "tbit tpeople", title: people.map(name).join(", ") }, el("span", { class: "stack" }, people.slice(0, 3).map(av)), people.length === 1 ? (people[0] === me ? "You" : cap(firstName(people[0]))) : `${people.length} people`) : bit("Nobody yet")) : null,
+      status,
+      !t.done && t.due ? bit(late ? "Late · " + fmtDate(t.due) : dueText(t.due, false), late ? "strong" : "") : null,
+      !t.done && (t.priority === "urgent" || t.priority === "high") ? bit(t.priority === "urgent" ? "Urgent" : "High priority", "strong") : null),
     doneAnyway === key ? el("div", { class: "waitwarn" },
       el("span", {}, `Not done yet: ${w.open.map(d => `“${d.text}” (${ownerName(d)})`).join(", ")}. Mark this one done anyway?`),
       el("span", { class: "row", style: "gap:6px" }, el("button", { class: "btn small quiet", onclick: () => { doneAnyway = null; render() } }, "Not yet"),
-        el("button", { class: "btn small primary", onclick: () => toggleDone(p, t, true, key, true) }, "Mark done"))) : null,
-    open ? taskDetail(p, t, key) : null);
+        el("button", { class: "btn small primary", onclick: () => toggleDone(p, t, true, key, true) }, "Mark done"))) : null);
+}
+
+// An open task slides up as a sheet (centered on a computer), so the list stays where it was.
+let sheetUsed = false;
+function closeTaskSheet() { openTask = null; delTask = null; waitPick = null; changesFor = null; render() }
+function mountSheet(p, t, key) {
+  sheetUsed = true;
+  let root = document.getElementById("tsheet");
+  if (!root) { root = el("div", { id: "tsheet" }); $("#app").append(root) }
+  const old = root.querySelector(".tsheet"), same = root.dataset.key === key, top = same && old ? old.scrollTop : 0;
+  const ph = getPhases(p).find(x => x.id === t.phase);
+  const sheet = el("div", { class: "tsheet" + (same ? "" : " enter"), role: "dialog", "aria-modal": "true", "aria-label": t.text },
+    el("div", { class: "ts-grip", "aria-hidden": "true" }),
+    el("div", { class: "ts-head" }, el("span", { class: "ts-k" }, [p.title, ph && ph.name].filter(Boolean).join(" · ")), el("button", { class: "pp-ic", "aria-label": "Close", onclick: closeTaskSheet }, nIc("x"))),
+    el("h2", { class: "ts-title" }, t.text),
+    taskDetail(p, t, key));
+  root.replaceChildren(el("div", { class: "ts-scrim", onclick: closeTaskSheet }), sheet);
+  root.dataset.key = key;
+  if (top) sheet.scrollTop = top;
+  document.body.classList.add("sheet-open");
+  if (!same) setTimeout(() => { if (!sheet.contains(document.activeElement)) { const b = sheet.querySelector(".ts-head .pp-ic"); if (b) b.focus({ preventScroll: true }) } }, 40);
+}
+function sheetCleanup() {
+  if (sheetUsed) return;
+  const r = document.getElementById("tsheet");
+  if (r && r.firstChild) { r.replaceChildren(); delete r.dataset.key }
+  document.body.classList.remove("sheet-open");
 }
 
 function taskDetail(p, t, key) {
@@ -1636,10 +1842,6 @@ function taskDetail(p, t, key) {
   const box = el("div", { class: "tdetail" });
   const field = (label, ...kids) => el("div", { class: "tfield" }, el("span", { class: "tlabel" }, label), el("div", { class: "tval" }, ...kids));
 
-  const cur = t.done || inCheck(t) ? "done" : t.status === "doing" ? "doing" : "todo";
-  const doneLabel = inCheck(t) ? "Waiting for check" : needsSend(p, t) && !t.done ? "Send to check" : "Done";
-  box.append(field("Status", el("div", { class: "seg seg-sm", role: "group", "aria-label": "Status" },
-    [["todo", "Not started"], ["doing", "In progress"], ["done", doneLabel]].map(([v, l]) => el("button", { "aria-pressed": String(cur === v), disabled: !(can || (v === "done" && canCheck(p, t))), onclick: () => setTaskStatus(p, t, v, key) }, l)))));
   box.append(checkField(p, t, key, field, set));
 
   const solve = hardTaskPopBanner(p, t); if (solve) box.append(solve);
@@ -1668,18 +1870,16 @@ function taskDetail(p, t, key) {
     box.append(field("Due", ...quick, due, t.due ? el("button", { class: "linkbtn", onclick: () => set({ [t.path + ".due"]: null }, "No due date") }, "Clear") : null));
     const pr = el("select", { class: "mini", "aria-label": "Task priority", onchange: e => set({ [t.path + ".priority"]: e.target.value }) }, PRIORITIES.map(x => el("option", { value: x.id }, x.name + " priority")));
     pr.value = t.priority || "medium";
-    const sk = el("select", { class: "mini", "aria-label": "Skill needed", onchange: e => set({ [t.path + ".skill"]: e.target.value || null }) }, el("option", { value: "" }, "Any skill"), SKILL_IDS.map(s => el("option", { value: s }, SKILLS[s].name)));
-    sk.value = t.skill || "";
     let ph = null;
     if (phases.length > 1) {
-      ph = el("select", { class: "mini", "aria-label": "Phase", onchange: e => write(() => phaseWrite(p, { [t.path + ".phase"]: e.target.value })) }, phases.map(x => el("option", { value: x.id }, x.name)));
+      ph = el("select", { class: "mini", "aria-label": "Stage", onchange: e => write(() => phaseWrite(p, { [t.path + ".phase"]: e.target.value })) }, phases.map(x => el("option", { value: x.id }, x.name)));
       ph.value = t.phase;
     }
-    box.append(field("Details", pr, sk, ph));
+    box.append(field("Priority", pr));
+    if (ph) box.append(field("Stage", ph));
   } else {
     box.append(field("Details", el("span", { class: "row", style: "gap:6px" },
-      el("span", { class: "prio prio-" + (t.priority || "medium") }, PRIORITIES.find(x => x.id === (t.priority || "medium")).name), dueChip(t) || el("span", { class: "label" }, "No due date"),
-      t.skill ? el("span", { class: "chip" }, SKILLS[t.skill].name) : null)));
+      el("span", { class: "prio prio-" + (t.priority || "medium") }, PRIORITIES.find(x => x.id === (t.priority || "medium")).name), dueChip(t) || el("span", { class: "label" }, "No due date"))));
   }
 
   /* waiting for other tasks, and who's waiting on this one */
@@ -1741,7 +1941,30 @@ function taskDetail(p, t, key) {
     delTask === key
       ? el("button", { class: "linkbtn danger", onclick: () => { delTask = null; openTask = null; deleteTask(p, t) } }, "Tap again to delete this task")
       : el("button", { class: "linkbtn danger", onclick: () => { delTask = key; render() } }, "Delete task")));
+  const foot = taskFoot(p, t, key, can);
+  if (foot) box.append(foot);
   return box;
+}
+// The one main action at the bottom of an open task
+function taskFoot(p, t, key, can) {
+  const foot = el("div", { class: "ts-foot" });
+  if (doneAnyway === key) {
+    const w = waitInfo(p, t);
+    foot.append(el("span", { class: "label" }, `Not done yet: ${w.open.map(d => `“${d.text}” (${ownerName(d)})`).join(", ")}. Mark this one done anyway?`),
+      el("button", { class: "btn quiet", onclick: () => { doneAnyway = null; render() } }, "Not yet"),
+      el("button", { class: "btn primary", onclick: () => toggleDone(p, t, true, key, true) }, "Mark done"));
+    return foot;
+  }
+  if (t.done) { if (can) foot.append(el("button", { class: "btn quiet", onclick: () => toggleDone(p, t, false, key) }, "Not done yet")); else return null }
+  else if (inCheck(t)) {
+    if (canCheck(p, t)) return null;   // "Looks good" and "Needs changes" sit at the top, under "Checked by"
+    if (can) foot.append(el("span", { class: "label" }, `Waiting for ${checkWho(t)} to check it`), el("button", { class: "btn quiet", onclick: () => takeBackCheck(p, t) }, "Take it back"));
+    else return null;
+  } else if (can) {
+    if (t.status !== "doing") foot.append(el("button", { class: "btn", onclick: () => setTaskStatus(p, t, "doing", key) }, "Start"));
+    foot.append(el("button", { class: "btn primary", onclick: () => toggleDone(p, t, true, key) }, needsSend(p, t) ? `Done · send to ${checkWho(t)} to check` : "Mark done"));
+  } else return null;
+  return foot;
 }
 
 /* ----- files on a task (PDFs, docs, photos…), stored in pieces like project and chat files ----- */
@@ -2113,8 +2336,8 @@ function toggleDone(p, t, done, key, force) {
   if (!force && waitInfo(p, t).open.length) { doneAnyway = key; render(); return }
   doneAnyway = null;
   if (needsSend(p, t)) return sendForCheck(p, t, key);
-  openNote = "any:" + t.id;
-  if (key) openTask = key;
+  // ticked inside an open task: its note box opens to say what was done. Ticked in a list: it just gets done.
+  if (key && openTask === key) openNote = "any:" + t.id;
   const msg = doneMessage(p, t);
   write(() => upd(p.id, { [t.path + ".done"]: true, [t.path + ".doneBy"]: me, [t.path + ".doneAt"]: Date.now() })).then(ok => { if (ok) toast(msg, 4500) });
 }
