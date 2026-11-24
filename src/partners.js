@@ -150,44 +150,6 @@ async function addLeads(gid, rows) {
   }
 }
 
-// One update on a lead, from a partner or the team. It is kept in the lead's history so the team sees every call.
-function saveLeadUpdate(l, status, note, who) {
-  const hid = uid(), at = Date.now();
-  const data = { status, note, updatedAt: at, updatedBy: me, updatedName: who, ["history." + hid]: { s: status, note, by: me, name: who, at } };
-  if (!l.claimBy) { data.claimBy = me; data.claimName = who }
-  return write(() => updateDoc(doc(db, "pleads", l.id), data), "Saved");
-}
-
-function leadCard(l, { team, who }) {
-  const cur = pSel[l.id] || l.status || "new";
-  const sel = el("select", { class: "mini", id: "pls-" + l.id, "aria-label": "What happened", onchange: e => { pSel[l.id] = e.target.value } }, LEAD_ST.map(([k, v]) => el("option", { value: k, selected: k === cur }, v)));
-  const note = el("textarea", { class: "noteinput", id: "pln-" + l.id, rows: "1", maxlength: "500", placeholder: "What did they say? When to call back?" });
-  const hist = historyOf(l);
-  const phone = l.phone || "";
-  return el("article", { class: "idea lead" },
-    el("div", { class: "row", style: "gap:8px;align-items:flex-start" },
-      el("div", { style: "min-width:0;flex:1" },
-        el("h3", {}, leadTitle(l)),
-        [l.name && l.biz ? l.biz : null, l.city].filter(Boolean).length ? el("div", { class: "label" }, [l.name && l.biz ? l.biz : null, l.city].filter(Boolean).join(" · ")) : null),
-      stPill(l.status),
-      team ? el("button", { class: "x", "aria-label": "Delete " + leadTitle(l), title: "Delete this number", onclick: () => write(() => deleteDoc(doc(db, "pleads", l.id)), "Number deleted") }, "✕") : null),
-    el("div", { class: "row", style: "gap:8px" },
-      el("a", { class: "lphone", href: "tel:" + phone.replace(/[^\d+]/g, "") }, phone),
-      el("span", { class: "spacer" }),
-      el("a", { class: "btn small", href: "tel:" + phone.replace(/[^\d+]/g, "") }, "Call"),
-      el("a", { class: "btn small", href: waLink(phone), target: "_blank", rel: "noopener" }, "WhatsApp")),
-    l.extra ? el("p", { class: "label", style: "margin:0;overflow-wrap:anywhere" }, l.extra) : null,
-    l.note ? el("div", { class: "note" }, el("span", { class: "note-body" }, l.note), el("span", { class: "note-meta" }, (l.updatedBy === me ? "You" : l.updatedName || "") + (l.updatedAt ? " · " + ago(l.updatedAt) : ""))) : null,
-    l.claimBy ? el("div", { class: "label" }, l.claimBy === me ? "You're handling this one" : `${l.claimName || "Someone"} is handling this one`) : null,
-    team && l.status === "won" ? el("div", { class: "wonbar" }, l.projectId && ideas.find(i => i.id === l.projectId)
-      ? [el("span", {}, "\u2713 Project started"), el("button", { class: "btn small", onclick: () => { location.hash = "project-" + l.projectId } }, "Open it")]
-      : [el("span", {}, "\u{1F389} This is a client now."), el("button", { class: "btn small primary", onclick: () => startProjectFromLead(l) }, "Start a project for them")]) : null,
-    el("div", { class: "lead-edit" }, sel, note,
-      el("button", { class: "btn primary small", onclick: () => { const n = document.getElementById("pln-" + l.id); saveLeadUpdate(l, sel.value, (n.value || "").trim().slice(0, 500), who); delete pSel[l.id]; n.value = "" } }, "Save")),
-    hist.length ? el("details", { class: "lead-hist" }, el("summary", {}, `History (${hist.length})`),
-      el("ul", {}, hist.map(h => el("li", {}, stPill(h.s), el("span", {}, `${h.by === me ? "You" : h.name || "Someone"} · ${ago(h.at)}`), h.note ? el("span", { class: "post-text" }, h.note) : null)))) : null);
-}
-
 function leadFilters(leads, key, opts) {
   const cur = plFilter[key] || opts[0][0];
   const count = f => leads.filter(f).length;
@@ -209,7 +171,7 @@ function leadList(leads, key, cardOpts) {
     .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
   const search = el("input", { class: "noteinput", id: "plq-" + key, type: "search", placeholder: "Search name, business or number", oninput: e => { pQuery[key] = e.target.value; render() } });
   return [bar, leads.length > 8 || q ? el("div", { style: "margin-top:10px" }, search) : null,
-    el("div", { class: "list" }, shown.length ? shown.slice(0, 200).map(l => leadCard(l, cardOpts)) : el("div", { class: "empty" }, leads.length ? "Nothing here." : "No numbers yet.")),
+    shown.length ? el("div", { class: "ph-rows", style: "margin-top:10px" }, shown.slice(0, 200).map(phRow)) : el("div", { class: "empty" }, leads.length ? "Nothing here." : "No numbers yet."),
     shown.length > 200 ? el("p", { class: "label" }, `Showing 200 of ${shown.length}. Search to find the rest.`) : null];
 }
 
@@ -259,37 +221,9 @@ function rulesCard(open) {
 }
 
 function renderPartnersTeam(gid) {
-  const box = $("#partners"); box.replaceChildren();
-  if (gid) return renderPartnerGroupTeam(box, gid);
-  box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, "Partners"),
-    el("p", { class: "lede", style: "margin-top:-4px" }, "People abroad who find clients for Ardent Creative Studios. Each country gets a group. They sign in on this same link, but they only see their own group's numbers, updates and info. Never your ideas, projects, chat, money or team."));
-  if (pErr === "rules") { box.append(rulesCard(true)); return }
-  if (pErr === "network") box.append(el("p", { class: "status warn" }, "Can't reach the partner area. Check your connection."));
-  const nm = el("input", { class: "noteinput", id: "pg-new", maxlength: "40", placeholder: "Country or group, e.g. Qatar" });
-  const make = () => { const n = nm.value.trim(); if (!n) { nm.focus(); return } nm.value = ""; const id = uid();
-    write(() => setDoc(doc(db, "pgroups", id), { name: n, info: "", links: {}, createdAt: Date.now(), createdBy: me }), "Group made").then(ok => { if (ok) { pgTab = "people"; location.hash = "pg-" + id } }) };
-  nm.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); make() } });
-  box.append(el("div", { class: "compose", style: "margin-top:16px" }, el("h3", {}, "New group"), el("div", { class: "addstep" }, nm, el("button", { class: "btn primary", onclick: make }, "Make group"))));
-
-  const groups = [...pGroups].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  const list = el("div", { class: "list" });
-  if (!pLoaded) list.append(el("div", { class: "empty" }, "Loading…"));
-  else if (!groups.length) list.append(el("div", { class: "empty" }, "No groups yet. Make one for each country, then add the partners there."));
-  for (const g of groups) {
-    const leads = pLeads.filter(l => l.gid === g.id), people = pMembers.filter(m => m.gid === g.id);
-    const last = groupFeed(g.id, pPosts, pLeads)[0], unread = partnerUnread(g.id);
-    list.append(el("button", { class: "idea pgroup", onclick: () => { location.hash = "pg-" + g.id } },
-      el("div", { class: "row" }, el("h3", {}, g.name), unread ? el("span", { class: "pill" }, `${unread} new`) : null, el("span", { class: "spacer" }), el("span", { class: "label" }, `${people.length} ${people.length === 1 ? "partner" : "partners"}`)),
-      stats(leads),
-      el("div", { class: "label" }, last ? (last.kind === "post" ? `${last.p.name || "Someone"}: ${(last.p.text || "").slice(0, 90)}` : `${last.h.name || "Someone"} marked ${leadTitle(last.l)} as ${LEAD_NAME[last.h.s]}`) + " · " + ago(last.at) : "No updates yet")));
-  }
-  box.append(el("h2", { class: "sec-h" }, "Groups"), list);
-
-  const feed = pGroups.flatMap(g => groupFeed(g.id, pPosts, pLeads).filter(it => it.kind === "post" ? !it.p.team : it.h.by !== me).slice(0, 15).map(it => ({ ...it, g })))
-    .sort((a, b) => b.at - a.at).slice(0, 15);
-  if (feed.length) box.append(el("h2", { class: "sec-h" }, "Latest from partners"),
-    el("div", { class: "pfeed" }, feed.map(it => el("button", { class: "feedlink", onclick: () => { pgTab = "updates"; location.hash = "pg-" + it.g.id } }, el("span", { class: "chip" }, it.g.name), feedItem(it)))));
-  if (isAdmin) box.append(el("details", { style: "margin-top:22px" }, el("summary", { class: "label", style: "cursor:pointer" }, "Database rules for partners"), rulesCard(false)));
+  const box = $("#partners"); box.replaceChildren(); box.classList.toggle("phub", !gid);
+  if (gid) renderPartnerGroupTeam(box, gid); else renderPartnersHub(box);
+  renderLeadDrawer();
 }
 
 function stats(leads) {
@@ -300,7 +234,7 @@ function stats(leads) {
 }
 
 function renderPartnerGroupTeam(box, gid) {
-  box.append(el("button", { class: "back", onclick: () => { location.hash = "partners" } }, "← Partners"));
+  box.append(el("button", { class: "back", onclick: () => { phTab = "countries"; location.hash = "partners" } }, "← Partners"));
   const g = pGroups.find(x => x.id === gid);
   if (!g) { box.append(el("div", { class: "empty" }, pLoaded ? "This group isn't here anymore." : "Loading…")); return }
   const leads = pLeads.filter(l => l.gid === gid), people = pMembers.filter(m => m.gid === gid);
@@ -519,7 +453,7 @@ function keepPartnerInputs(fn) {
   for (const [id, v] of Object.entries(vals)) { const n = document.getElementById(id); if (n && v) n.value = v }
   if (actId) { const n = document.getElementById(actId); if (n && n !== document.activeElement) { n.focus(); try { if (sel) n.setSelectionRange(sel[0], sel[1]) } catch { } } }
 }
-function renderPortal() { keepPartnerInputs(renderPortalNow) }
+function renderPortal() { keepPartnerInputs(renderPortalNow); renderLeadDrawer() }
 function renderPortalNow() {
   let v = location.hash.slice(1), dmWith = null;
   if (v.startsWith("pdm-")) { dmWith = v.slice(4); v = "updates" }
@@ -538,12 +472,7 @@ function renderPortalNow() {
   if (v === "projects") { renderPartnerProjects(box); return }
   if (!pGroup) { box.append(el("div", { class: "empty" }, pGroupGone ? "Your group was closed. Message the Ardent Creative Studios team." : "Loading your group…")); return }
 
-  if (v === "leads") {
-    box.append(el("h2", { class: "sec-h", style: "margin-top:0" }, `Hi ${first}`),
-      el("p", { class: "lede", style: "margin-top:-4px" }, `These are the numbers to call for ${pGroup.name}. After each call, pick what happened and add a short note. The team sees it right away.`),
-      el("div", { style: "margin-top:14px" }, stats(pLeads)), earningsCard());
-    box.append(...leadList(pLeads, "p", { team: false, who: partnerName() }).filter(Boolean));
-  }
+  if (v === "leads") { box.classList.add("phub"); renderPartnerHome(box) } else box.classList.remove("phub");
   if (v === "updates") renderPartnerChat(box, dmWith);
   if (v === "info") {
     const links = Object.entries(pGroup.links || {}).filter(([, x]) => x).map(([id, x]) => ({ id, ...x })).sort((a, b) => (a.at || 0) - (b.at || 0));
@@ -553,6 +482,406 @@ function renderPortalNow() {
       el("div", { class: "idea", style: "margin-top:12px;gap:6px" }, el("div", { class: "label" }, "Signed in as"), el("b", {}, partnerName()), el("div", { class: "label" }, (myProfile && myProfile.email) || ""),
         el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn quiet small", onclick: () => doSignOut() }, "Sign out"))));
   }
+}
+
+/* ---------- Partners page (team): one sales board for every country ----------
+   Leads from every country in one place (To call, Interested, Meeting set, Client), what we owe partners,
+   what needs you, the partners as people, and the countries (each keeps its group chat, info and files). */
+const PH_STAGES = [["call", "To call", "var(--ph-call)"], ["hot", "Interested", "var(--ph-hot)"], ["meet", "Meeting set", "var(--fill)"], ["won", "Client", "var(--ph-gr)"]];
+const STAGE_TAG = { call: "To call", hot: "Interested", meet: "Meeting set", won: "Client", lost: "Not interested" };
+const stageOf = l => { const s = l.status || "new"; return TO_CALL.includes(s) ? "call" : s === "interested" ? "hot" : s === "meeting" ? "meet" : s === "won" ? "won" : "lost" };
+const phTag = l => el("span", { class: "ph-st " + stageOf(l) }, STAGE_TAG[stageOf(l)]);
+const ISO = [["egypt|مصر", "EG"], ["kenya", "KE"], ["tanzania", "TZ"], ["uganda", "UG"], ["rwanda", "RW"], ["qatar|doha", "QA"], ["sweden|sverige", "SE"], ["saudi|ksa", "SA"], ["uae|emirates|dubai|abu dhabi", "AE"], ["kuwait", "KW"], ["oman", "OM"], ["bahrain", "BH"], ["jordan", "JO"], ["lebanon", "LB"], ["morocco", "MA"], ["tunisia", "TN"], ["nigeria", "NG"], ["ghana", "GH"], ["south africa", "ZA"], ["germany", "DE"], ["france", "FR"], ["spain", "ES"], ["italy", "IT"], ["netherlands|holland", "NL"], ["united kingdom|england|britain|london|^uk$", "GB"], ["united states|america|^usa?$", "US"], ["canada", "CA"], ["turkey|türkiye", "TR"], ["norway", "NO"], ["denmark", "DK"], ["finland", "FI"]];
+function ccOf(gid) { const n = groupName(gid), f = ISO.find(([re]) => new RegExp(re, "i").test(n)); return f ? f[1] : (n.replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase() || "··") }
+const SW_CC = ["KE", "TZ", "UG", "RW"], AR_CC = ["EG", "SA", "AE", "QA", "KW", "OM", "BH", "JO", "LB", "MA", "TN"];
+const fName = s => String(s || "").trim().split(/\s+/)[0] || "";
+const phMemberByUid = u => u ? pMembers.find(m => m.uid === u) : null;
+function leadOwner(l) { if (l.claimBy) { const m = phMemberByUid(l.claimBy); return (m && m.name) || l.claimName || realName(l.claimBy) || "" } return l.toName || "" }
+// When a call-back or meeting is due. Kept on the lead, and in its history too (so it works before new rules are published).
+function leadDueOf(l) {
+  if (!["callback", "meeting"].includes(l.status)) return 0;
+  if (l.due) return l.due;
+  const h = historyOf(l)[0]; return h && h.s === l.status && h.due ? h.due : 0;
+}
+const isLate = l => { const d = leadDueOf(l); return !!d && d < Date.now() };
+function leadDueText(t) {
+  const d = new Date(t), sd = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(), diff = Math.round((sd(d) - sd(new Date())) / 864e5);
+  const hm = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return diff === 0 ? "Today " + hm : diff === 1 ? "Tomorrow " + hm : diff === -1 ? "Yesterday " + hm : diff > 1 && diff < 7 ? d.toLocaleDateString([], { weekday: "short" }) + " " + hm : fmtDay(t);
+}
+// late first, then the soonest call-back, then the newest change
+const leadOrder = (a, b) => (isLate(b) - isLate(a)) || ((leadDueOf(a) || 9e15) - (leadDueOf(b) || 9e15)) || ((b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+function leadMatch(l, q) {
+  const qq = q.trim().toLowerCase(), qd = leadDigits(q); if (!qq) return true;
+  return [l.name, l.biz, l.city, l.note, l.extra, leadOwner(l), groupName(l.gid)].join(" ").toLowerCase().includes(qq) || (qd.length > 2 && leadDigits(l.phone).includes(qd));
+}
+function phAv(name, photo, cls = "") { return photo ? el("img", { class: "ph-av " + cls, src: photo, alt: "", referrerpolicy: "no-referrer" }) : el("span", { class: "ph-av " + cls }, initials(name)) }
+
+let phTab = "leads", phView = "board", phGid = "", phSt = "", phQ = "", phDelM = null, phMore = {};
+
+function renderPartnersHub(box) {
+  const now = Date.now(), wk = 7 * 864e5;
+  box.classList.add("phub");
+  box.append(el("div", { class: "ph-head" }, el("h1", { class: "ph-h1" }, "Partners"),
+    el("span", { class: "ph-sub" }, "People in Egypt and around the world who bring us clients."), el("span", { class: "spacer" }),
+    el("div", { class: "ph-acts" },
+      el("button", { class: "btn", disabled: !pGroups.length, onclick: () => phSheetNumbers({}) }, nIc("plus"), "Add numbers"),
+      el("button", { class: "btn primary", onclick: () => phSheetPartner({}) }, nIc("plus"), "Add a partner"))));
+  if (pErr === "rules") { box.append(rulesCard(true)); return }
+  if (pErr === "network") box.append(el("p", { class: "status warn" }, "Can't reach the partner area. Check your connection."));
+  if (!pLoaded) { box.append(el("div", { class: "empty" }, "Loading…")); return }
+  if (!pGroups.length) { box.append(el("div", { class: "ph-card ph-first" }, el("h3", {}, "Start with a country"), el("p", { class: "ph-sub" }, "Each country gets a group: its partners, its numbers to call, a group chat, info and files. Partners only ever see their own country."), phNewCountry())); return }
+
+  const leads = phGid ? pLeads.filter(l => l.gid === phGid) : pLeads;
+  const byStage = { call: [], hot: [], meet: [], won: [], lost: [] };
+  for (const l of leads) byStage[stageOf(l)].push(l);
+  const needsProj = pLeads.filter(l => l.status === "won" && !(l.projectId && ideas.find(i => i.id === l.projectId)));
+  const late = pLeads.filter(isLate).sort((a, b) => leadDueOf(a) - leadDueOf(b));
+  const lateHere = phGid ? late.filter(l => l.gid === phGid) : late;
+  const meetWeek = byStage.meet.filter(l => { const d = leadDueOf(l); return d && d > now - 864e5 && d < now + wk }).length;
+  const hotWeek = byStage.hot.filter(l => (l.updatedAt || 0) > now - wk).length;
+  const owed = pMembers.reduce((s, m) => s + Math.max(0, ((m.earnings || {}).earned || 0) - ((m.earnings || {}).paid || 0)), 0);
+  const hint = { call: lateHere.length ? `${lateHere.length} call-back${lateHere.length > 1 ? "s are" : " is"} late` : "", hot: hotWeek ? `${hotWeek} new this week` : "", meet: meetWeek ? `${meetWeek} this week` : "",
+    won: (phGid ? needsProj.filter(l => l.gid === phGid) : needsProj).length ? `${(phGid ? needsProj.filter(l => l.gid === phGid) : needsProj).length} need${needsProj.length > 1 ? "" : "s"} a project` : "" };
+  box.append(el("div", { class: "ph-funnel" }, PH_STAGES.map(([s, label]) => el("button", { "aria-pressed": String(phSt === s), onclick: () => { phSt = phSt === s ? "" : s; phTab = "leads"; render() } },
+      el("span", { class: "n" }, byStage[s].length), el("span", { class: "l" }, label), el("span", { class: "h" }, hint[s] || " "))),
+    el("button", { class: "money", "aria-pressed": "false", onclick: () => { phTab = "people"; render() } }, el("span", { class: "n" }, fmtEGP(owed)), el("span", { class: "l" }, "Owed to partners"), el("span", { class: "h" }, owed ? "Pay out from Money" : "All paid"))));
+
+  // Needs you: new clients without a project, late call-backs, partners who went quiet
+  const rows = [];
+  for (const l of needsProj) rows.push(["star", [el("b", {}, leadTitle(l)), ` became a client (${[fName(leadOwner(l)), groupName(l.gid)].filter(Boolean).join(", ")})`], "Start a project", () => startProjectFromLead(l)]);
+  for (const l of late) rows.push(["clock", [el("b", {}, leadTitle(l)), ` ${l.status === "meeting" ? "meeting" : "call-back"} was due ${leadDueText(leadDueOf(l)).toLowerCase()} (${[fName(leadOwner(l)), groupName(l.gid)].filter(Boolean).join(", ")})`], "Open", () => openLead(l.id)]);
+  const lastCall = {}, toCall = {};
+  for (const l of pLeads) { if (TO_CALL.includes(l.status || "new")) toCall[l.gid] = (toCall[l.gid] || 0) + 1; for (const [, h] of Object.entries(l.history || {})) if (h && h.by && (h.at || 0) > (lastCall[h.by] || 0)) lastCall[h.by] = h.at }
+  for (const m of pMembers) {
+    if (!m.uid || m.active === false || !toCall[m.gid]) continue;
+    const since = lastCall[m.uid] || m.addedAt || 0, days = Math.floor((now - since) / 864e5);
+    if (since && days >= 3) rows.push(["users", [el("b", {}, fName(m.name || m.id)), lastCall[m.uid] ? ` hasn't called anyone in ${days} days (${groupName(m.gid)})` : ` hasn't made a call yet (${groupName(m.gid)})`], "Message", () => { location.hash = "dm-" + m.uid }]);
+  }
+  if (rows.length) box.append(el("div", { class: "ph-attn" }, el("b", { class: "t" }, "Needs you"),
+    rows.slice(0, phMore.attn ? 30 : 4).map(([ic, tx, label, go]) => el("div", { class: "row" }, el("span", { class: "ic" }, nIc(ic)), el("span", { class: "tx" }, tx), el("button", { class: "btn small", onclick: go }, label))),
+    rows.length > 4 ? el("button", { class: "more", onclick: () => { phMore.attn = !phMore.attn; render() } }, phMore.attn ? "Show less" : `Show ${rows.length - 4} more`) : null));
+
+  box.append(el("div", { class: "ph-tabs", role: "group", "aria-label": "Show" }, [["leads", "Leads", pLeads.length], ["people", "Partners", pMembers.length], ["countries", "Countries", pGroups.length]]
+    .map(([k, label, n]) => el("button", { "aria-pressed": String(phTab === k), onclick: () => { phTab = k; render() } }, label, el("span", { class: "n" }, n)))));
+  if (phTab === "leads") phLeads(box, leads);
+  if (phTab === "people") phPeople(box);
+  if (phTab === "countries") phCountries(box);
+}
+
+function phLeads(box, leads) {
+  const groups = [...pGroups].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const q = el("input", { id: "ph-q", type: "search", placeholder: "Search name, business, city or number", autocomplete: "off", "aria-label": "Search leads", value: phQ });
+  let t = 0; q.addEventListener("input", () => { phQ = q.value; clearTimeout(t); t = setTimeout(render, 120) });
+  const lostN = leads.filter(l => stageOf(l) === "lost").length;
+  box.append(el("div", { class: "ph-controls" },
+    el("label", { class: "ph-search" }, nIc("search"), q), el("div", { class: "ph-viewseg" }, el("button", { "aria-pressed": String(phView === "board"), onclick: () => { phView = "board"; render() } }, nIc("board"), "Board"),
+      el("button", { "aria-pressed": String(phView === "list"), onclick: () => { phView = "list"; render() } }, nIc("list"), "List")),
+    groups.length > 1 ? el("div", { class: "ph-chips" }, el("button", { class: "ph-chip", "aria-pressed": String(!phGid), onclick: () => { phGid = ""; render() } }, "All countries"),
+      groups.map(g => el("button", { class: "ph-chip", "aria-pressed": String(phGid === g.id), onclick: () => { phGid = g.id; render() } }, el("span", { class: "cc" }, ccOf(g.id)), g.name))) : null,
+    lostN ? el("button", { class: "ph-chip", "aria-pressed": String(phSt === "lost"), onclick: () => { phSt = phSt === "lost" ? "" : "lost"; render() } }, `Not interested ${lostN}`) : null));
+  const shown = leads.filter(l => (!phSt || stageOf(l) === phSt) && leadMatch(l, phQ)).sort(leadOrder);
+  if (!leads.length) { box.append(el("div", { class: "ph-card ph-first" }, el("h3", {}, "No numbers yet"), el("p", { class: "ph-sub" }, "Paste them from a sheet and the partners in that country get a fair share."), el("div", {}, el("button", { class: "btn primary", onclick: () => phSheetNumbers({ gid: phGid }) }, nIc("plus"), "Add numbers")))); return }
+  if (phView === "board" && phSt !== "lost" && matchMedia("(min-width: 760px)").matches) {
+    box.append(el("div", { class: "ph-board" }, PH_STAGES.map(([s, label, col]) => {
+      const list = shown.filter(l => stageOf(l) === s), cap = phMore["c-" + s] ? 400 : 30;
+      return el("div", { class: "ph-col" }, el("div", { class: "colh" }, el("span", { class: "dot", style: "background:" + col }), label, el("span", { class: "count" }, list.length)),
+        list.length ? list.slice(0, cap).map(phCard) : el("span", { class: "ph-sub", style: "padding:6px" }, "Nothing here"),
+        list.length > cap ? el("button", { class: "more", onclick: () => { phMore["c-" + s] = true; render() } }, `Show ${list.length - cap} more`) : null);
+    })));
+    return;
+  }
+  const cap = phMore.list ? 1000 : 150;
+  box.append(shown.length ? el("div", { class: "ph-rows" }, shown.slice(0, cap).map(phRow)) : el("div", { class: "empty" }, "Nothing found."),
+    shown.length > cap ? el("button", { class: "more", onclick: () => { phMore.list = true; render() } }, `Show ${shown.length - cap} more`) : null);
+}
+function phCard(l) {
+  const own = leadOwner(l), d = leadDueOf(l), hasP = l.projectId && ideas.find(i => i.id === l.projectId);
+  return el("button", { class: "ph-lead" + (l.status === "won" ? " client" : ""), onclick: () => openLead(l.id) },
+    el("span", { class: "t" }, el("span", { dir: "auto" }, leadTitle(l))),
+    el("span", { class: "m" }, el("span", { class: "cc" }, ccOf(l.gid)), l.city ? el("span", {}, l.city) : null, own ? [el("span", { class: "ph-av xs" }, initials(own)), el("span", {}, fName(own))] : null,
+      d ? el("span", { class: "due" + (d < Date.now() ? " late" : "") }, leadDueText(d)) : null),
+    l.note ? el("span", { class: "note", dir: "auto" }, l.note) : null,
+    l.status === "won" ? el("span", { class: "cta" }, hasP ? "Project started" : "Start a project", nIc("arrow")) : null);
+}
+function phRow(l) {
+  const own = leadOwner(l), d = leadDueOf(l);
+  return el("button", { class: "ph-row", onclick: () => openLead(l.id) }, el("span", { class: "ph-av md" }, initials(partnerMode ? leadTitle(l) : own || leadTitle(l))),
+    el("span", { class: "tx" }, el("b", { dir: "auto" }, leadTitle(l)),
+      el("span", { class: "m" }, partnerMode ? null : el("span", { class: "cc" }, ccOf(l.gid)), [l.city, partnerMode ? "" : fName(own), d ? leadDueText(d) : (l.updatedAt ? ago(l.updatedAt) : "new")].filter(Boolean).join(" · "))),
+    d && d < Date.now() ? el("span", { class: "ph-st late" }, "Late") : phTag(l));
+}
+
+function phPeople(box) {
+  if (!pMembers.length) { box.append(el("div", { class: "ph-card ph-first" }, el("h3", {}, "No partners yet"), el("p", { class: "ph-sub" }, "Add someone by their Google email and pick their country. They sign in on this same link."), el("div", {}, el("button", { class: "btn primary", onclick: () => phSheetPartner({}) }, nIc("plus"), "Add a partner")))); return }
+  const calls = {}, worked = {}, hot = {}, won = {};
+  for (const l of pLeads) {
+    for (const [, h] of Object.entries(l.history || {})) if (h && h.by) { calls[h.by] = (calls[h.by] || 0) + 1; (worked[h.by] = worked[h.by] || new Set()).add(l.id) }
+    if (l.claimBy && HOT.includes(l.status)) hot[l.claimBy] = (hot[l.claimBy] || 0) + 1;
+    if (l.claimBy && l.status === "won") won[l.claimBy] = (won[l.claimBy] || 0) + 1;
+  }
+  const list = [...pMembers].sort((a, b) => (won[b.uid] || 0) - (won[a.uid] || 0) || (calls[b.uid] || 0) - (calls[a.uid] || 0) || (a.name || "").localeCompare(b.name || ""));
+  box.append(el("div", { class: "ph-grid" }, list.map((m, i) => {
+    const e = m.earnings || {}, owe = Math.max(0, (e.earned || 0) - (e.paid || 0)), w = m.uid ? (worked[m.uid] || new Set()).size : 0, cl = m.uid ? won[m.uid] || 0 : 0;
+    const online = m.seenAt && Date.now() - m.seenAt < 5 * 60e3, nm = m.name || m.id;
+    return el("div", { class: "ph-pcard" }, el("span", { class: "rank" }, "#" + (i + 1)),
+      el("div", { class: "top" }, phAv(nm, m.photo, "lg"), el("div", { style: "min-width:0" }, el("div", { class: "nm" }, nm),
+        el("div", { class: "ms" }, el("span", { class: "cc" }, ccOf(m.gid)), groupName(m.gid), " · ", el("span", { class: online ? "on" : "off" }), !m.uid ? "Hasn't signed in yet" : online ? "Online" : m.seenAt ? "Last seen " + ago(m.seenAt) : "Signed in"))),
+      el("div", { class: "ph-pst" }, [[m.uid ? calls[m.uid] || 0 : 0, "Calls"], [m.uid ? hot[m.uid] || 0 : 0, "Interested"], [cl, "Clients"], [(w ? Math.round(cl / w * 100) : 0) + "%", "Win rate"]].map(([v, k]) => el("div", {}, el("b", {}, v), el("span", {}, k)))),
+      el("div", { class: "earn" }, e.earned ? el("span", {}, "Earned ", el("b", {}, fmtEGP(e.earned)), owe ? [" · owed ", el("b", {}, fmtEGP(owe))] : " · all paid") : el("span", {}, "Nothing earned yet"), el("span", { class: "spacer" }),
+        m.uid ? el("button", { class: "btn small", "aria-label": "Message " + fName(nm), title: "Private chat", onclick: () => { location.hash = "dm-" + m.uid } }, nIc("chat")) : null,
+        el("button", { class: "btn small", onclick: () => phSheetNumbers({ gid: m.gid, to: m.id }) }, "Give numbers")),
+      el("div", { class: "foot" }, el("span", { class: "ph-sub" }, m.email || m.id), el("span", { class: "spacer" }),
+        phDelM === m.id ? [el("button", { class: "btn quiet small", onclick: () => { phDelM = null; render() } }, "Cancel"), el("button", { class: "btn small danger-btn", onclick: () => { phDelM = null; write(() => deleteDoc(doc(db, "pmembers", m.id)), "Removed. They can't open the partner area anymore") } }, "Yes, remove")]
+          : el("button", { class: "btn quiet small", onclick: () => { phDelM = m.id; render() } }, "Remove")));
+  })));
+}
+
+function phNewCountry(after) {
+  const nm = el("input", { class: "noteinput", id: "ph-newc", maxlength: "40", placeholder: "Country, e.g. Qatar" });
+  const make = () => phMakeCountry(nm.value).then(id => { if (id) { nm.value = ""; if (after) after(id); else { pgTab = "people"; location.hash = "pg-" + id } } });
+  nm.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); make() } });
+  return el("div", { class: "addstep" }, nm, el("button", { class: "btn primary", onclick: make }, "Add country"));
+}
+async function phMakeCountry(name) {
+  const n = String(name || "").trim(); if (!n) { toast("Type the country first"); return null }
+  const same = pGroups.find(g => (g.name || "").toLowerCase() === n.toLowerCase()); if (same) { toast(n + " is already here"); return same.id }
+  const id = uid(); const ok = await write(() => setDoc(doc(db, "pgroups", id), { name: n, info: "", links: {}, createdAt: Date.now(), createdBy: me }), n + " added");
+  return ok ? id : null;
+}
+function phCountries(box) {
+  const groups = [...pGroups].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  box.append(el("div", { class: "ph-grid" }, groups.map(g => {
+    const ls = pLeads.filter(l => l.gid === g.id), ps = pMembers.filter(m => m.gid === g.id), tot = Math.max(1, ls.length), n = s => ls.filter(l => stageOf(l) === s).length;
+    const last = groupFeed(g.id, pPosts, pLeads)[0], unread = partnerUnread(g.id);
+    return el("button", { class: "ph-ccard", onclick: () => { pgTab = "updates"; location.hash = "pg-" + g.id } },
+      el("div", { class: "top" }, el("span", { class: "code" }, ccOf(g.id)), el("div", { style: "min-width:0;flex:1" }, el("div", { class: "nm" }, g.name), el("div", { class: "ph-sub" }, `${ps.length} ${ps.length === 1 ? "partner" : "partners"} · ${ls.length} ${ls.length === 1 ? "lead" : "leads"}`)),
+        unread ? el("span", { class: "pill" }, `${unread} new`) : null),
+      el("div", { class: "bar" }, PH_STAGES.map(([s, , col]) => el("i", { style: `width:${n(s) / tot * 100}%;background:${col}` }))),
+      el("div", { class: "legend" }, PH_STAGES.map(([s, label, col]) => el("span", {}, el("i", { style: "background:" + col }), `${n(s)} ${label.toLowerCase()}`))),
+      el("div", { class: "last" }, nIc("chat"), last ? (last.kind === "post" ? `${last.p.name || "Someone"}: ${last.p.text || ""}` : `${last.h.name || "Someone"} marked ${leadTitle(last.l)} as ${LEAD_NAME[last.h.s] || "updated"}`) + " · " + ago(last.at) : "Group chat, info for partners, price lists and files"));
+  }), el("div", { class: "ph-ccard ph-newc" }, el("div", { class: "nm" }, "New country"), el("p", { class: "ph-sub" }, "It gets its own group chat, numbers, info and files."), phNewCountry())));
+  if (isAdmin) box.append(el("details", { style: "margin-top:22px" }, el("summary", { class: "label", style: "cursor:pointer" }, "Database rules for partners"), rulesCard(false)));
+}
+
+/* ---------- sheets: add numbers, add a partner, add a business (partners) ---------- */
+function phSheet(title, build) {
+  document.querySelectorAll(".ph-sheet").forEach(x => x.remove());
+  const close = () => { wrap.remove(); document.removeEventListener("keydown", esc) };
+  const esc = e => { if (e.key === "Escape") close() };
+  const card = el("div", { class: "leadpick-card ph-sheetcard", role: "dialog", "aria-modal": "true", "aria-label": title });
+  const wrap = el("div", { class: "leadpick ph-sheet", onclick: e => { if (e.target === wrap) close() } }, card);
+  document.addEventListener("keydown", esc);
+  card.append(el("div", { class: "row" }, el("h2", { style: "margin:0" }, title), el("span", { class: "spacer" }), el("button", { class: "x", "aria-label": "Close", onclick: close }, "✕")));
+  build(card, close);
+  document.body.append(wrap);
+  const f = card.querySelector("input:not([type=checkbox]),textarea,select"); if (f) setTimeout(() => f.focus(), 30);
+}
+function phCountrySelect(sel, onPick) {
+  const s = el("select", { class: "mini", "aria-label": "Country" }, [...pGroups].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(g => el("option", { value: g.id, selected: g.id === sel }, g.name)), el("option", { value: "+" }, "New country…"));
+  const nc = el("input", { class: "noteinput", maxlength: "40", placeholder: "Country name", hidden: true });
+  s.onchange = () => { nc.hidden = s.value !== "+"; if (!nc.hidden) nc.focus(); onPick && onPick() };
+  const get = async () => s.value === "+" ? phMakeCountry(nc.value) : s.value;
+  return { s, nc, get };
+}
+function phSheetNumbers({ gid, to }) {
+  phSheet("Add numbers", (card, close) => {
+    const pick = phCountrySelect(gid || phGid || lastPickGid || (pGroups[0] || {}).id, () => draw());
+    const share = el("select", { class: "mini", "aria-label": "Who calls them" });
+    const ta = el("textarea", { class: "noteinput", rows: "5", placeholder: "Paste rows from Google Sheets or Excel, or a typed list.\nName\tPhone\tBusiness\tCity\nAhmed\t+974 5555 1234\tDoha Dental\tDoha" });
+    const f = { name: el("input", { class: "noteinput", maxlength: "80", placeholder: "Name" }), phone: el("input", { class: "noteinput", type: "tel", maxlength: "30", placeholder: "Phone, e.g. +974 5555 1234" }),
+      biz: el("input", { class: "noteinput", maxlength: "80", placeholder: "Business" }), city: el("input", { class: "noteinput", maxlength: "60", placeholder: "City" }) };
+    const info = el("div", { class: "ph-sub" }), add = el("button", { class: "btn primary" });
+    let found = { rows: [] };
+    const draw = () => {
+      const g = pick.s.value, people = pMembers.filter(m => m.gid === g && m.active !== false), cur = share.value || (to ? "to:" + to : people.length > 1 ? "share" : people.length ? "to:" + people[0].id : "any");
+      share.replaceChildren(...(people.length > 1 ? [el("option", { value: "share", selected: cur === "share" }, `Share them out between the ${people.length} partners`)] : []),
+        ...people.map(m => el("option", { value: "to:" + m.id, selected: cur === "to:" + m.id }, `Give them all to ${m.name || m.id}`)), el("option", { value: "any", selected: cur === "any" }, "Anyone in the country can call them"));
+      found = ta.value.trim() ? parseLeads(ta.value, g === "+" ? "" : g) : { rows: [], dupes: 0, noPhone: 0, repeats: [] };
+      const one = leadDigits(f.phone.value).length >= 6 ? 1 : 0, n = found.rows.length + one;
+      info.textContent = ta.value.trim() ? `Found ${found.rows.length} new ${found.rows.length === 1 ? "number" : "numbers"}` + (found.dupes ? ` · ${found.dupes} repeated, skipped` : "") + (found.noPhone ? ` · ${found.noPhone} without a number skipped` : "") : "";
+      add.disabled = !n; add.textContent = n ? `Add ${n} ${n === 1 ? "number" : "numbers"}` : "Add numbers";
+    };
+    let t = 0; ta.addEventListener("input", () => { clearTimeout(t); t = setTimeout(draw, 200) }); f.phone.addEventListener("input", draw);
+    add.onclick = async () => {
+      const g = await pick.get(); if (!g) return;
+      const rows = [...parseLeads(ta.value, g).rows];
+      const ph = f.phone.value.trim();
+      if (leadDigits(ph).length >= 6) { const w = leadWhere(ph, g); if (w) { toast(`${ph} is repeated. It's ${w}.`, 5000) } else rows.push({ phone: ph, name: f.name.value.trim(), biz: f.biz.value.trim(), city: f.city.value.trim(), extra: "" }) }
+      if (!rows.length) return;
+      // fair share: each partner in the country gets the next number in turn
+      const people = pMembers.filter(m => m.gid === g && m.active !== false), v = share.value;
+      const giveTo = v === "share" ? people : v.startsWith("to:") ? people.filter(m => m.id === v.slice(3)) : [];
+      if (giveTo.length) rows.forEach((r, i) => { const m = giveTo[i % giveTo.length]; r.to = m.id; r.toName = m.name || m.id });
+      add.disabled = true; lastPickGid = g;
+      const ok = await write(() => addLeads(g, rows), `Added ${rows.length} ${rows.length === 1 ? "number" : "numbers"} for ${groupName(g)}` + (giveTo.length > 1 ? `, shared between ${giveTo.length} partners` : giveTo.length ? `, given to ${fName(giveTo[0].name || giveTo[0].id)}` : ""));
+      if (ok) close(); else add.disabled = false;
+    };
+    card.append(el("div", { class: "ph-form" },
+      el("label", {}, el("span", { class: "lbl" }, "Country"), pick.s, pick.nc),
+      el("label", {}, el("span", { class: "lbl" }, "Paste from a sheet"), ta), info,
+      el("details", {}, el("summary", {}, "Or add one number by hand"), el("div", { class: "onelead", style: "margin-top:8px" }, f.name, f.phone, f.biz, f.city)),
+      el("label", {}, el("span", { class: "lbl" }, "Who calls them"), share)),
+      el("div", { class: "row" }, el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("span", { class: "spacer" }), add));
+    draw();
+  });
+}
+function phSheetPartner({ gid }) {
+  phSheet("Add a partner", (card, close) => {
+    const pick = phCountrySelect(gid || phGid || (pGroups[0] || {}).id);
+    const nm = el("input", { class: "noteinput", maxlength: "60", placeholder: "Their name" }), em = el("input", { class: "noteinput", type: "email", inputmode: "email", maxlength: "120", placeholder: "Their Google email", autocomplete: "off" });
+    const add = el("button", { class: "btn primary" }, "Add partner");
+    add.onclick = async () => {
+      const e = lower(em.value), n = nm.value.trim();
+      if (!emailOk(e)) { toast("That doesn't look like an email address"); em.focus(); return }
+      const has = roleOf(e); if (has === "team" || has === "client") { toast(`${e} is already a ${ROLE_NAME[has].toLowerCase()}`); return }
+      const g = await pick.get(); if (!g) return;
+      const cur = pMembers.find(m => m.id === e); if (cur && cur.gid === g) { toast("Already a partner in " + groupName(g)); return }
+      add.disabled = true;
+      const ok = await write(() => setDoc(doc(db, "pmembers", e), { email: e, name: n || (cur && cur.name) || e.split("@")[0], gid: g, active: true, addedBy: me, addedAt: Date.now() }, { merge: true }),
+        cur ? `${n || cur.name || e} moved to ${groupName(g)}` : `${n || e} is a partner in ${groupName(g)}. Send them the link`);
+      if (ok) close(); else add.disabled = false;
+    };
+    [nm, em].forEach(i => i.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); add.click() } }));
+    card.append(el("div", { class: "ph-form" }, el("label", {}, el("span", { class: "lbl" }, "Name"), nm), el("label", {}, el("span", { class: "lbl" }, "Google email"), em),
+      el("label", {}, el("span", { class: "lbl" }, "Country"), pick.s, pick.nc),
+      el("p", { class: "ph-sub", style: "margin:0" }, "They sign in with Google using exactly this email, on the same link as you:"),
+      el("div", { class: "row" }, el("code", { class: "plink" }, SITE_LINK), el("span", { class: "spacer" }), el("button", { class: "btn small", onclick: () => copyText(SITE_LINK, "Link copied") }, "Copy link"))),
+      el("div", { class: "row" }, el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("span", { class: "spacer" }), add));
+  });
+}
+function phSheetFound() {
+  phSheet("Add a business I found", (card, close) => {
+    const f = { biz: el("input", { class: "noteinput", maxlength: "80", placeholder: "Business name" }), name: el("input", { class: "noteinput", maxlength: "80", placeholder: "Who you talk to (optional)" }),
+      phone: el("input", { class: "noteinput", type: "tel", maxlength: "30", placeholder: "Phone" }), city: el("input", { class: "noteinput", maxlength: "60", placeholder: "City" }) };
+    const add = el("button", { class: "btn primary" }, "Add it");
+    add.onclick = async () => {
+      const phone = f.phone.value.trim(); if (leadDigits(phone).length < 6) { toast("Type their phone number"); f.phone.focus(); return }
+      const k = leadKey(phone); if (pLeads.some(l => leadKey(l.phone) === k)) { toast("That number is already on your list"); return }
+      add.disabled = true; const id = uid(), now = Date.now();
+      const ok = await write(() => setDoc(doc(db, "pleads", id), { phone, name: f.name.value.trim(), biz: f.biz.value.trim(), city: f.city.value.trim(), extra: "", gid: pGid, status: "new", note: "", createdAt: now, createdBy: me, foundBy: me, claimBy: me, claimName: partnerName(), history: {} }), "Added. If it becomes a client, the commission is yours");
+      if (ok) { close(); openLead(id) } else { add.disabled = false; toast("The team needs to update the database rules first. Send them a message.", 5000) }
+    };
+    card.append(el("p", { class: "ph-sub", style: "margin:0" }, "A business you found yourself. It's yours: if it becomes a client, the commission is yours."),
+      el("div", { class: "onelead" }, f.biz, f.name, f.phone, f.city),
+      el("div", { class: "row" }, el("button", { class: "btn quiet", onclick: close }, "Cancel"), el("span", { class: "spacer" }), add));
+  });
+}
+
+/* ---------- one panel per lead: call, WhatsApp with a ready message, what happened, history ---------- */
+let leadOpen = null, leadOut = null, leadNote = "", leadDue = "", leadLang = null, leadDel = false;
+const OUTS = [["noanswer", "mute", "No answer"], ["callback", "clock", "Call back"], ["interested", "flame", "Interested"], ["meeting", "cal", "Meeting set"], ["won", "star", "Client"], ["lost", "no", "Not interested"]];
+function openLead(id) { if (leadOpen !== id) { leadOut = null; leadNote = ""; leadDue = ""; leadLang = null; leadDel = false } leadOpen = id; if (!partnerMode && route().view !== "partners") location.hash = "partners"; render() }
+function closeLead() { leadOpen = null; leadDel = false; renderLeadDrawer() }
+function pitchText(l, lang) {
+  const to = l.name || "", biz = l.biz || l.name || "", from = fName(partnerMode ? partnerName() : realName(me) || teamName());
+  if (lang === "ar") return `أهلاً${to ? " " + to : ""}، معاك ${from} من Ardent Creative Studios. بنعمل مواقع وإعلانات جوجل لشركات زي ${biz || "شركتك"}. ممكن أوريك مثالين؟`;
+  if (lang === "sw") return `Habari${to ? " " + to : ""}, mimi ni ${from} kutoka Ardent Creative Studios. Tunatengeneza tovuti na matangazo ya Google kwa biashara kama ${biz || "yako"}. Naweza kukuonyesha mifano 2?`;
+  return `Hi ${to || "there"}, this is ${from} from Ardent Creative Studios. We build websites and run Google Ads for businesses like ${biz || "yours"}. Could I show you 2 examples?`;
+}
+// the next number for a partner: a late call-back first, then their own, then new ones
+function nextLead(skip) {
+  const mine = l => l.to === (pMe && pMe.id) || l.claimBy === me || l.foundBy === me;
+  return pLeads.filter(l => l.id !== skip && TO_CALL.includes(l.status || "new") && (!leadDueOf(l) || leadDueOf(l) < Date.now() + 15 * 60e3) && (mine(l) || (!l.to && !l.claimBy)))
+    .sort((a, b) => (isLate(b) - isLate(a)) || (mine(b) - mine(a)) || ((a.status === "new") - (b.status === "new")) || ((a.createdAt || 0) - (b.createdAt || 0)))[0] || null;
+}
+async function saveLeadUpdate(l, status, note, who, due) {
+  const hid = uid(), at = Date.now(), ref = doc(db, "pleads", l.id);
+  const data = { status, note, updatedAt: at, updatedBy: me, updatedName: who, ["history." + hid]: { s: status, note, by: me, name: who, at, ...(due ? { due } : {}) } };
+  if (!l.claimBy) { data.claimBy = me; data.claimName = who }
+  if (due) data.due = due; else if (l.due) data.due = DEL();
+  return write(async () => {
+    try { await updateDoc(ref, data) }
+    catch (e) { if (e && e.code === "permission-denied" && "due" in data) { delete data.due; await updateDoc(ref, data) } else throw e }   // works before the new rules are published
+  }, "Saved");
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape" && leadOpen && !document.querySelector(".ph-sheet,.leadpick")) closeLead() });
+function renderLeadDrawer() {
+  let host = document.getElementById("ld"), scrim = document.getElementById("ld-scrim");
+  if (!host) { scrim = el("div", { id: "ld-scrim", class: "ld-scrim", onclick: closeLead }); host = el("aside", { id: "ld", class: "ld", role: "dialog", "aria-label": "Number" }); document.body.append(scrim, host) }
+  const onPage = partnerMode ? !$("#partner").hidden : route().view === "partners";
+  const l = leadOpen && onPage && pLeads.find(x => x.id === leadOpen);
+  if (!l) { leadOpen = null; host.classList.remove("open"); scrim.classList.remove("open"); host.dataset.sig = ""; return }
+  // rebuilt only when something on it changed, so typing a note is never interrupted
+  const sig = JSON.stringify([l.id, l.status, l.updatedAt, l.projectId, l.due, Object.keys(l.history || {}).length, leadOut, leadLang, leadDel, !!(l.projectId && ideas.find(i => i.id === l.projectId))]);
+  host.classList.add("open"); scrim.classList.add("open");
+  if (host.dataset.sig === sig) return;
+  const act = document.activeElement, actId = act && host.contains(act) ? act.id : null;
+  host.dataset.sig = sig;
+  const cc = partnerMode ? ccOf(pGid) : ccOf(l.gid), lang = leadLang || (SW_CC.includes(cc) ? "sw" : AR_CC.includes(cc) ? "ar" : "en"), msg = pitchText(l, lang);
+  const tel = "tel:" + String(l.phone || "").replace(/[^\d+]/g, ""), own = leadOwner(l), who = partnerMode ? partnerName() : teamName();
+  const hasP = l.projectId && ideas.find(i => i.id === l.projectId), hist = historyOf(l), d = leadDueOf(l);
+  const note = el("textarea", { class: "ld-in", id: "ld-note", rows: "2", maxlength: "500", dir: "auto", placeholder: "A short note: what did they say?", oninput: e => { leadNote = e.target.value } }); note.value = leadNote;
+  const wantsTime = ["callback", "meeting"].includes(leadOut);
+  const when = wantsTime ? el("input", { class: "ld-in", id: "ld-due", type: "datetime-local", "aria-label": leadOut === "meeting" ? "When is the meeting" : "When to call back", oninput: e => { leadDue = e.target.value } }) : null;
+  if (when) when.value = leadDue;
+  const save = async () => {
+    const st = leadOut || l.status || "new", n = leadNote.trim().slice(0, 500);
+    if (!leadOut && !n) { toast("Pick what happened, or write a note"); return }
+    const due = ["callback", "meeting"].includes(st) && leadDue ? new Date(leadDue).getTime() : (["callback", "meeting"].includes(st) && st === l.status ? leadDueOf(l) : 0);
+    if (!(await saveLeadUpdate(l, st, n, who, due || 0))) return;
+    const next = partnerMode ? nextLead(l.id) : null;
+    leadOut = null; leadNote = ""; leadDue = ""; leadLang = null;
+    if (next) { leadOpen = next.id; toast("Saved. Next: " + leadTitle(next)) } else leadOpen = null;
+    render();
+  };
+  host.replaceChildren(
+    el("div", { class: "ld-head" }, el("b", { dir: "auto" }, leadTitle(l)), phTag(l), el("button", { class: "x", "aria-label": "Close", onclick: closeLead }, nIc("x"))),
+    el("div", { class: "ld-body" },
+      el("div", { class: "ld-contact" }, el("a", { class: "pn", href: tel, dir: "ltr" }, l.phone || "No number"),
+        el("span", { class: "m" }, [l.name && l.biz ? l.name : "", l.city, partnerMode ? "" : groupName(l.gid), !partnerMode && own ? "handled by " + own : ""].filter(Boolean).join(" · ")),
+        l.extra ? el("span", { class: "m", dir: "auto" }, l.extra) : null,
+        d ? el("span", { class: "due" + (d < Date.now() ? " late" : "") }, (l.status === "meeting" ? "Meeting " : "Call back ") + leadDueText(d).replace(/^T/, "t")) : null),
+      el("div", { class: "two" }, el("a", { class: "btn primary big", href: tel }, nIc("phone"), "Call"),
+        el("a", { class: "btn big", href: waLink(l.phone) + "?text=" + encodeURIComponent(msg), target: "_blank", rel: "noopener" }, nIc("wa"), "WhatsApp")),
+      el("div", { class: "ld-tpl" }, el("div", { class: "row" }, el("span", { class: "lbl" }, "Message to send"), el("span", { class: "spacer" }),
+        el("span", { class: "langs" }, [["en", "EN"], ["ar", "AR"], ["sw", "SW"]].map(([k, v]) => el("button", { "aria-pressed": String(lang === k), onclick: () => { leadLang = k; renderLeadDrawer() } }, v))),
+        el("button", { class: "x", "aria-label": "Copy the message", title: "Copy", onclick: () => copyText(msg, "Message copied") }, nIc("copy"))),
+        el("span", { dir: "auto" }, msg)),
+      l.status === "won" && !partnerMode ? el("div", { class: "wonbox" }, el("span", {}, hasP ? "Project started for this client." : "This is a client now. Start the project: the partner's 10% is set up for you."),
+        hasP ? el("button", { class: "btn small", onclick: () => { leadOpen = null; location.hash = "project-" + l.projectId } }, "Open it") : el("button", { class: "btn small primary", onclick: () => { leadOpen = null; startProjectFromLead(l) } }, "Start a project")) : null,
+      l.status === "won" && partnerMode ? el("div", { class: "wonbox" }, el("span", {}, "A client! The team takes it from here, and your commission shows on your home page.")) : null,
+      el("span", { class: "lbl" }, "What happened?"),
+      el("div", { class: "outs" }, OUTS.map(([k, ic, t]) => el("button", { class: "out", "aria-pressed": String(leadOut === k), onclick: () => { leadOut = leadOut === k ? null : k; renderLeadDrawer(); const w = document.getElementById("ld-due"); if (w && !leadDue) w.focus() } }, nIc(ic), t))),
+      when, note,
+      el("button", { class: "btn primary big", onclick: save }, partnerMode ? "Save and show the next number" : "Save"),
+      hist.length ? [el("span", { class: "lbl" }, "History"), el("div", { class: "ld-hist" }, hist.slice(0, 30).map(h => el("div", {}, el("b", {}, h.by === me ? "You" : h.name || "Someone"), ` · ${LEAD_NAME[h.s] || "Updated"} · ${ago(h.at)}`, h.note ? [el("br"), el("span", { dir: "auto" }, h.note)] : null)))] : null,
+      !partnerMode ? el("div", { class: "row" }, el("span", { class: "ph-sub" }, `Added ${l.createdAt ? ago(l.createdAt) : ""}${l.foundBy ? " · found by the partner" : ""}`), el("span", { class: "spacer" }),
+        leadDel ? [el("button", { class: "btn quiet small", onclick: () => { leadDel = false; renderLeadDrawer() } }, "Cancel"), el("button", { class: "btn small danger-btn", onclick: () => { leadOpen = null; write(() => deleteDoc(doc(db, "pleads", l.id)), "Number deleted") } }, "Yes, delete")]
+          : el("button", { class: "btn quiet small", onclick: () => { leadDel = true; renderLeadDrawer() } }, "Delete number")) : null));
+  if (actId) { const n = document.getElementById(actId); if (n) n.focus() }
+}
+
+/* ---------- partner home: who to call next, earnings, then their numbers ---------- */
+let pnFilter = null;
+function renderPartnerHome(box) {
+  const nm = fName(partnerName()), now = Date.now(), mine = l => l.to === (pMe && pMe.id) || l.claimBy === me || l.foundBy === me;
+  const hasMine = pLeads.some(mine), pool = pLeads.filter(l => mine(l) || (!l.to && !l.claimBy));
+  const late = pool.filter(isLate), meets = pool.filter(l => l.status === "meeting"), toCall = pool.filter(l => TO_CALL.includes(l.status || "new"));
+  box.append(el("div", { class: "ph-hi" }, el("span", { class: "ph-sub" }, new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })), el("h1", { class: "ph-h1" }, "Hi " + nm)),
+    el("div", { class: "ph-today" }, el("div", {}, el("b", {}, toCall.length), el("span", {}, "To call")), el("div", {}, el("b", {}, late.length), el("span", {}, "Call-backs now")), el("div", {}, el("b", {}, meets.length), el("span", {}, "Meetings"))));
+  const next = nextLead(null);
+  if (next) {
+    const why = isLate(next) ? (next.status === "meeting" ? "meeting was due " : "call-back due ") + leadDueText(leadDueOf(next)).toLowerCase() : next.status === "new" ? "new number" : LEAD_NAME[next.status].toLowerCase();
+    const tel = "tel:" + String(next.phone || "").replace(/[^\d+]/g, "");
+    box.append(el("div", { class: "ph-next" }, el("span", { class: "k" }, nIc("clock"), "Call next · " + why), el("span", { class: "nm", dir: "auto" }, leadTitle(next)),
+      el("span", { class: "m" }, [next.name && next.biz ? next.name : "", next.city, next.phone].filter(Boolean).join(" · ")),
+      next.note ? el("span", { class: "note", dir: "auto" }, "Last time: " + next.note) : null,
+      el("div", { class: "two" }, el("a", { class: "btn primary big", href: tel, onclick: () => openLead(next.id) }, nIc("phone"), "Call"),
+        el("button", { class: "btn big", onclick: () => openLead(next.id) }, "Open")))); 
+  } else box.append(el("div", { class: "ph-card" }, el("h3", {}, pLeads.length ? "All called" : "No numbers yet"), el("p", { class: "ph-sub", style: "margin:0" }, pLeads.length ? "Nobody is waiting for a call right now. Nice work." : "The team will add numbers for you to call soon.")));
+  box.append(earningsCard(), el("button", { class: "btn big ph-found", onclick: phSheetFound }, nIc("plus"), "Add a business I found"));
+  // the list
+  const F = [["mine", "Mine", mine], ["call", "To call", l => TO_CALL.includes(l.status || "new")], ["hot", "Interested", l => l.status === "interested"], ["meet", "Meetings", l => l.status === "meeting"], ["won", "Clients", l => l.status === "won"], ["lost", "Not interested", l => l.status === "lost"], ["all", "All", () => true]].filter(([k]) => k !== "mine" || hasMine);
+  const cur = F.find(f => f[0] === pnFilter) || F[0], q = pQuery.p || "";
+  const shown = pLeads.filter(cur[2]).filter(l => leadMatch(l, q)).sort(leadOrder);
+  const qi = el("input", { class: "noteinput", id: "plq-p", type: "search", placeholder: "Search name, business or number", autocomplete: "off" });
+  let t = 0; qi.addEventListener("input", () => { pQuery.p = qi.value; clearTimeout(t); t = setTimeout(render, 120) });
+  box.append(el("h2", { class: "sec-h" }, "My numbers"),
+    el("div", { class: "ph-chips" }, F.map(([k, label, f]) => el("button", { class: "ph-chip", "aria-pressed": String(cur[0] === k), onclick: () => { pnFilter = k; render() } }, `${label} ${pLeads.filter(f).length}`))),
+    pLeads.length > 8 ? el("div", { style: "margin-top:10px" }, qi) : null,
+    shown.length ? el("div", { class: "ph-rows", style: "margin-top:10px" }, shown.slice(0, phMore.p ? 2000 : 150).map(phRow)) : el("div", { class: "empty" }, pLeads.length ? "Nothing here." : "No numbers yet."),
+    shown.length > 150 && !phMore.p ? el("button", { class: "more", onclick: () => { phMore.p = true; render() } }, `Show ${shown.length - 150} more`) : null);
 }
 
 /* ---------- files for a partner group: PDFs, price lists, scripts (stored in pieces, tagged with the group) ---------- */
@@ -629,11 +958,11 @@ function renderPartnerChat(box, dmWith) {
 // What a partner has earned from clients they brought (kept up to date by the team's site)
 function earningsCard() {
   const e = (pMe && pMe.earnings) || null;
-  if (!e || !(e.earned || e.paid)) return el("div", { class: "idea", style: "margin-top:12px;gap:4px" }, el("h3", {}, "Your earnings"),
+  if (!e || !(e.earned || e.paid)) return el("div", { class: "ph-card" }, el("h3", {}, "Your earnings"),
     el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "When a client you brought pays, your commission shows here."));
   const owed = Math.max(0, e.earned - e.paid);
-  return el("section", { class: "idea", style: "margin-top:12px" }, el("h3", {}, "Your earnings"),
-    el("div", { class: "adgrid" }, el("div", {}, el("b", {}, fmtEGP(e.earned)), el("span", {}, "earned")), el("div", {}, el("b", {}, fmtEGP(e.paid)), el("span", {}, "paid to you")), el("div", {}, el("b", {}, fmtEGP(owed)), el("span", {}, "to come"))),
+  return el("section", { class: "ph-card" }, el("h3", {}, "Your earnings"),
+    el("div", { class: "ph-earn" }, el("div", {}, el("b", {}, fmtEGP(e.earned)), el("span", {}, "Earned")), el("div", {}, el("b", {}, fmtEGP(e.paid)), el("span", {}, "Paid to you")), el("div", {}, el("b", {}, fmtEGP(owed)), el("span", {}, "On the way"))),
     (e.deals || []).length ? el("div", { style: "display:grid;gap:2px" }, e.deals.map(d => el("div", { class: "mrow" }, el("span", { class: "mname" }, d.title), el("span", { class: "mval" }, fmtEGP(d.earned))))) : null);
 }
 

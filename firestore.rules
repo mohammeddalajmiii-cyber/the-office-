@@ -103,10 +103,13 @@ service cloud.firestore {
     }
     match /pleads/{lid} {
       allow read: if isTeam() || (isPartner() && resource.data.gid == myGroup());
-      allow create, delete: if isTeam();
+      // partners can add a business they found themselves: it is theirs from the start
+      allow create: if isTeam() || (isPartner() && request.resource.data.gid == myGroup()
+        && request.resource.data.foundBy == request.auth.uid && request.resource.data.claimBy == request.auth.uid);
+      allow delete: if isTeam();
       allow update: if isTeam() || (isPartner() && resource.data.gid == myGroup()
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(["status", "note", "claimBy", "claimName", "updatedAt", "updatedBy", "updatedName", "history"]));
+          .hasOnly(["status", "note", "due", "claimBy", "claimName", "updatedAt", "updatedBy", "updatedName", "history"]));
     }
     match /pposts/{pid} {
       allow read: if isTeam() || (isPartner() && resource.data.gid == myGroup());

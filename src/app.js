@@ -376,7 +376,7 @@ function renderAll() {
   if (r.view === "settings") renderSettings();
   if (r.view === "money") renderMoneyPage();
   if (r.view === "me") renderMe();
-  if (r.view === "partners") renderPartnersTeam(r.gid);
+  if (r.view === "partners") renderPartnersTeam(r.gid); else if (leadOpen) renderLeadDrawer();
   { const pu = pGroups.reduce((a, g) => a + partnerUnread(g.id), 0); const pc = $("#c-partners"); pc.hidden = !pu; pc.textContent = pu > 9 ? "9+" : pu }
   { const v = rulesNow().version || 1, need = dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v ? 1 : 0;
     const late = dealProjects().filter(p => canPlan(p) && p.status === "approved").reduce((a, p) => a + moneyOf(p).late.length, 0);
@@ -2451,7 +2451,7 @@ async function startRec() {
   if (!navigator.mediaDevices || !window.MediaRecorder) { toast("Voice messages need a newer browser. Try Chrome or Safari"); return }
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }) } catch { toast("Allow the microphone to record a voice message"); return }
-  const type = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+  const type = ["audio/mp4;codecs=mp4a.40.2", "audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
   let mr; try { mr = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined) } catch { mr = new MediaRecorder(stream) }
   rec = { mr, chunks: [], start: Date.now(), stream, type: mr.mimeType || type || "audio/webm", levels: [] };
   mr.ondataavailable = e => { if (e.data && e.data.size) rec && rec.chunks.push(e.data) };
@@ -2488,31 +2488,65 @@ function stopRec(send) {
   try { r.mr.stop() } catch { r.mr.onstop() }
 }
 // one player for all voice messages, so playing survives the page redrawing
-const ncAudio = { a: new Audio(), id: null, rate: 1 };
+const ncAudio = { a: new Audio(), id: null, rate: 1, loading: null, alt: {} };
+ncAudio.a.preload = "auto";
+// a tiny silent sound, played in the tap itself: Safari only lets sound start from a tap, and the real file arrives a moment later
+const SILENT_WAV = "data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQgAAAAAAAAAAAAAAA==";
 const waveOf = id => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return Array.from({ length: 34 }, (_, i) => 5 + Math.round(Math.abs(Math.sin(i * 1.7 + (h % 97))) * 18) + (i % 5)) };
 function voiceUi() {
   const { a, id } = ncAudio;
   for (const v of document.querySelectorAll(".nc-voice")) {
-    const mine = v.dataset.voice === id, bars = v.querySelectorAll(".nc-wave i"), pct = mine && a.duration && isFinite(a.duration) ? a.currentTime / a.duration : 0;
+    // voice notes from Chrome don't say how long they are, so the length saved with the message is used
+    const mine = v.dataset.voice === id, bars = v.querySelectorAll(".nc-wave i"), dur = isFinite(a.duration) && a.duration > 0 ? a.duration : +v.dataset.secs || 0, pct = mine && dur ? Math.min(1, a.currentTime / dur) : 0;
     bars.forEach((b, i) => b.classList.toggle("on", mine && i < Math.round(pct * bars.length)));
     const t = v.querySelector(".nc-vt"); if (t) t.textContent = mine && !a.paused ? fmtSecs(a.currentTime) : fmtSecs(+v.dataset.secs);
-    const btn = v.querySelector(".nc-play"); if (btn) { const want = mine && !a.paused ? "pause" : "play"; if (btn.dataset.ic !== want) { btn.dataset.ic = want; btn.replaceChildren(nIc(want)) } }
+    const btn = v.querySelector(".nc-play"); if (btn) { const want = mine && (!a.paused || ncAudio.loading === id) ? "pause" : "play"; if (btn.dataset.ic !== want) { btn.dataset.ic = want; btn.replaceChildren(nIc(want)) } btn.classList.toggle("busy", mine && ncAudio.loading === id) }
   }
 }
 ncAudio.a.addEventListener("timeupdate", voiceUi); ncAudio.a.addEventListener("pause", voiceUi); ncAudio.a.addEventListener("play", voiceUi);
 ncAudio.a.addEventListener("ended", () => { ncAudio.id = null; voiceUi() });
 async function toggleVoice(f) {
   const a = ncAudio.a;
-  if (ncAudio.id === f.id) { a.paused ? a.play() : a.pause(); return }
-  a.pause(); ncAudio.id = f.id; voiceUi();
-  try { a.src = await loadFile(f); a.playbackRate = ncAudio.rate; await a.play() } catch { ncAudio.id = null; voiceUi(); toast("That voice message couldn't be played") }
+  if (ncAudio.id === f.id && !ncAudio.loading) { if (a.paused) a.play().catch(() => {}); else a.pause(); return }
+  if (ncAudio.id === f.id && ncAudio.loading) { ncAudio.id = null; ncAudio.loading = null; a.pause(); voiceUi(); return }   // second tap while loading: stop
+  a.pause(); ncAudio.id = f.id; ncAudio.loading = f.id;
+  try { a.src = SILENT_WAV; a.play().catch(() => {}) } catch { }   // unlocks sound inside the tap
+  voiceUi();
+  const go = async url => { a.src = url; a.playbackRate = ncAudio.rate; await a.play() };
+  try {
+    const url = ncAudio.alt[f.id] || await loadFile(f);
+    if (ncAudio.id !== f.id) return;
+    try { await go(url) }
+    catch (e) {
+      if (ncAudio.id !== f.id || (e && e.name === "AbortError")) return;
+      // this phone can't play the format it was recorded in: turn it into a plain sound file and play that
+      ncAudio.alt[f.id] = await toWav(url); if (ncAudio.id !== f.id) return;
+      await go(ncAudio.alt[f.id]);
+    }
+    ncAudio.loading = null; voiceUi();
+  } catch (e) { if (ncAudio.id === f.id) { ncAudio.id = null; ncAudio.loading = null; voiceUi(); toast(e && e.name === "NotAllowedError" ? "Tap play again to listen" : "That voice message couldn't be played on this device") } }
 }
+async function toWav(url) {
+  const buf = await (await fetch(url)).arrayBuffer(), AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
+  const audio = await new Promise((ok, no) => { const p = ac.decodeAudioData(buf, ok, no); if (p && p.then) p.then(ok, no) });
+  try { ac.close() } catch { }
+  const rate = audio.sampleRate, ch = audio.getChannelData(0), n = ch.length, out = new DataView(new ArrayBuffer(44 + n * 2));
+  const s = (o, t) => [...t].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  s(0, "RIFF"); out.setUint32(4, 36 + n * 2, true); s(8, "WAVE"); s(12, "fmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+  out.setUint32(24, rate, true); out.setUint32(28, rate * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true); s(36, "data"); out.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, ch[i])) * 0x7fff, true);
+  return URL.createObjectURL(new Blob([out], { type: "audio/wav" }));
+}
+// voice notes start loading as soon as they scroll into view, so play starts right away
+const voiceIO = "IntersectionObserver" in window ? new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting) { voiceIO.unobserve(e.target); const f = e.target._file; if (f && (f.size || 0) < 3e6) (window.requestIdleCallback || setTimeout)(() => loadFile(f).catch(() => {})) } }, { rootMargin: "300px" }) : null;
+function watchVoices() { if (!voiceIO) return; voiceIO.disconnect(); for (const v of document.querySelectorAll("#chatlog .nc-voice")) if (v._file) voiceIO.observe(v) }
 function cycleRate() { ncAudio.rate = ncAudio.rate === 1 ? 1.5 : ncAudio.rate === 1.5 ? 2 : 1; ncAudio.a.playbackRate = ncAudio.rate; for (const s of document.querySelectorAll(".nc-speed")) s.textContent = ncAudio.rate + "×" }
 function voiceEl(f) {
-  return el("div", { class: "nc-voice", "data-voice": f.id, "data-secs": f.voice || 0 },
+  const v = el("div", { class: "nc-voice", "data-voice": f.id, "data-secs": f.voice || 0 },
     el("button", { type: "button", class: "nc-play", "aria-label": "Play voice message", "data-ic": "play", onclick: e => { e.stopPropagation(); toggleVoice(f) } }, nIc("play")),
     el("span", { class: "nc-wave" }, waveOf(f.id).map(h => el("i", { style: `height:${h}px` }))),
     el("span", { class: "nc-vmeta" }, el("button", { type: "button", class: "nc-speed", onclick: e => { e.stopPropagation(); cycleRate() } }, ncAudio.rate + "×"), el("span", { class: "nc-vt" }, fmtSecs(f.voice))));
+  v._file = f; return v;
 }
 
 /* polls */
@@ -2727,6 +2761,7 @@ function renderLog(k, fresh) {
   $("#nc-hits").textContent = term ? (hits ? `${hits} found` : "Not found") : "";
   // where to scroll: a message to show, the first new message, the bottom, or stay put
   if (ncLit) { const ms = performance.now() - ncLit.at, n = ms < 1400 && document.getElementById("msg-" + ncLit.id); if (n && !n.classList.contains("flash")) { n.classList.add("flash"); const b = n.querySelector(".nc-b"); if (b) b.style.animationDelay = -ms + "ms" } else if (ms >= 1400) ncLit = null }
+  voiceUi(); watchVoices();
   if (ncKeepFromBottom != null) { log.scrollTop = log.scrollHeight - ncKeepFromBottom; ncKeepFromBottom = null }
   else if (ncFlash && document.getElementById("msg-" + ncFlash)) { const id = ncFlash; ncFlash = null; requestAnimationFrame(() => ncJump(id)) }
   else if (term && firstHit && ncFindJump) { ncFindJump = false; const n = document.getElementById("msg-" + firstHit); if (n) n.scrollIntoView({ block: "center" }) }
@@ -6307,7 +6342,7 @@ $("#asst-btn").onclick = () => { asstOpen = !asstOpen; alertsOpen = false; rende
 $("#brand").onclick = () => { location.hash = "me" };
 
 /* ----- backup: everything on the board in one file ----- */
-const RULES_VERSION = "2026-11-24";
+const RULES_VERSION = "2026-11-24b";
 function downloadBackup() {
   const strip = o => { const x = { ...o }; delete x.pushSubs; return x };
   const data = { app: "Pitch Room", at: new Date().toISOString(), by: myProfile && myProfile.email,
@@ -6376,8 +6411,8 @@ function searchResults(q) {
   inChat("ideas", "Ideas chat", ideaTalk());
   for (const [pid, list] of Object.entries(pcMsgs)) { const p = ideas.find(x => x.id === pid); if (p) inChat("p:" + pid, "Project chat", list || []) }
   for (const [tid, list] of Object.entries(dmMsgs)) { const u = tid.split("_").find(x => x !== me); if (u) inChat("dm:" + u, "Private chat", list || []) }
-  for (const l of pLeads) if (has(l.name) || has(l.biz) || has(l.city) || (digits.length > 3 && leadDigits(l.phone).includes(digits))) push("Number", leadTitle(l), `${l.phone || ""} · ${groupName(l.gid)} · ${LEAD_NAME[l.status] || "New"}`, "pg-" + l.gid, () => { pgTab = "leads"; pQuery["t-" + l.gid] = q });
-  for (const m of pMembers) if (has(m.name) || has(m.id)) push("Partner", m.name || m.id, groupName(m.gid), "pg-" + m.gid, () => { pgTab = "people" });
+  for (const l of pLeads) if (has(l.name) || has(l.biz) || has(l.city) || (digits.length > 3 && leadDigits(l.phone).includes(digits))) push("Number", leadTitle(l), `${l.phone || ""} · ${groupName(l.gid)} · ${LEAD_NAME[l.status] || "New"}`, "partners", () => { phTab = "leads"; leadOut = null; leadNote = ""; leadDue = ""; leadLang = null; leadDel = false; leadOpen = l.id });
+  for (const m of pMembers) if (has(m.name) || has(m.id)) push("Partner", m.name || m.id, groupName(m.gid), "partners", () => { phTab = "people" });
   for (const g of (fundDoc && fundDoc.goals ? Object.values(fundDoc.goals) : [])) if (g && (has(g.name) || has(g.details))) push("Goal", g.name, "Team fund goal", "money", () => { moneyTab = "fund" });
   for (const x of myNotes) if (has(x.text)) push("My note", x.text.slice(0, 90), "Only you see this", "me", () => { meTab = "notes" });
   for (const t of personal) if (has(t.text)) push("My task", t.text, "Just for me", "me", () => { meTab = "tasks" });
