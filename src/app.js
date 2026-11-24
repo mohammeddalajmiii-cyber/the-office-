@@ -2559,7 +2559,7 @@ function chatRows() {
   const partners = [...new Set([...pMembers.filter(m => m.uid && m.active !== false).map(m => m.uid), ...dmThreads.filter(t => Object.values(t.roles || {}).includes("partner")).map(otherOf)])].filter(u => u !== me && !others.includes(u));
   for (const u of [...others, ...partners]) { const t = threadOf(u); rows.push({ k: "dm:" + u, kind: "dm", u, partner: isPartnerUid(u), title: chatName(u), last: t && t.lastAt ? { by: t.lastBy, at: t.lastAt, text: t.lastText || "" } : null, unread: t && dmUnread(t) ? 1 : 0 }) }
   if (typeof pGroups !== "undefined") for (const g of pGroups) {
-    const items = groupChatItems(g.id).filter(x => !x.system), l = items[items.length - 1];
+    const items = groupChatItems(g.id, () => false).filter(x => !x.system), l = items[items.length - 1];
     rows.push({ k: "pg:" + g.id, kind: "pgroup", gid: g.id, title: g.name || "Partner group", partner: true, last: l ? { by: l.by, at: l.at, text: l.text || (l.file ? "File" : ""), name: l.name } : null, unread: partnerUnread(g.id) });
   }
   for (const r of rows) { r.muted = notifyOf(r.k) === "off"; r.typers = r.kind === "pgroup" ? [] : typersIn(r.k); if (r.at == null) r.at = r.last ? r.last.at : 0 }
