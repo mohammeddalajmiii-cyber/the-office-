@@ -876,6 +876,8 @@ input,select,textarea{background-color:var(--field)}
 .mgroup.check b{color:var(--accent)}
 .checkchip{font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);padding:3px 8px;border-radius:999px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .checkchip.mine{color:var(--on-accent);background:var(--fill)}
+.checkchip,.checkedchip{display:inline-flex;align-items:center;gap:4px}
+.checkchip .nic,.checkedchip .nic,.label .nic.sm{width:13px;height:13px}
 .checkedchip{font-size:12px;font-weight:600;color:var(--keep);background:var(--keep-soft);padding:3px 8px;border-radius:999px;white-space:nowrap}
 .changechip{font-size:12px;font-weight:600;color:var(--drop);background:var(--drop-soft);padding:3px 8px;border-radius:999px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .changeline{width:100%;font-size:13.5px;line-height:1.45;color:var(--ink);background:var(--drop-soft);border-radius:10px;padding:8px 10px}
@@ -1224,6 +1226,304 @@ input,select,textarea{background-color:var(--field)}
   .alerts,.asst{top:76px}
 }
 
+/* ===== Chat (matches the approved mockup) ===== */
+.nc{--t:var(--fill);--soft:var(--accent-soft);--soft2:color-mix(in srgb,var(--accent-soft) 45%,var(--surface));--mist:var(--bg);--faint:color-mix(in srgb,var(--muted) 72%,var(--surface));--graphite:#2A2D31;--hair:color-mix(in srgb,var(--line) 60%,transparent);--ez:cubic-bezier(.2,.7,.2,1);
+  display:grid;grid-template-columns:340px 1fr;background:var(--surface);border:1px solid var(--line);border-radius:18px;overflow:hidden;position:relative;height:calc(100dvh - 140px);min-height:420px;font-family:var(--body);color:var(--ink)}
+.nc.info-open{grid-template-columns:340px 1fr 320px}
+.nc button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform 140ms var(--ez),background 140ms var(--ez)}
+.nc button:active{transform:scale(.97)}
+.nc .spacer{flex:1}
+.nic{display:inline-grid;place-items:center;flex:none;width:20px;height:20px}
+.nic svg{width:100%;height:100%;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.nic.sm{width:14px;height:14px;vertical-align:-2px}
+.nc-list,.nc-conv,.nc-info{min-width:0;min-height:0;display:flex;flex-direction:column;position:relative}
+.nc-list{border-right:1px solid var(--line);background:var(--surface)}
+.nc-conv{background:var(--mist)}
+.nc-info{border-left:1px solid var(--line);background:var(--surface);display:none}
+.nc.info-open .nc-info{display:flex}
+.nc:not(.has-chat) .nc-conv{display:none}
+.nc:not(.has-chat){grid-template-columns:340px}
+.nc-back{display:none!important}
+/* the list */
+.nc-lhead{display:flex;align-items:center;gap:10px;padding:18px 18px 10px}
+.nc-h1{font:800 26px/1 var(--display);letter-spacing:-.01em;display:flex;align-items:center;gap:10px;margin:0}
+.nc-h1::before{content:"";width:4px;height:22px;border-radius:2px;background:var(--t)}
+.nc-ib{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;color:var(--ink)}
+.nc-ib:hover{background:var(--field)}
+.nc-ib.sm{width:32px;height:32px;border-radius:10px}
+.nc-ib.teal{background:var(--t);color:var(--on-accent)}
+.nc-ib.teal:hover{background:color-mix(in srgb,var(--t) 85%,#000)}
+.nc-search{margin:4px 16px 10px;display:flex;align-items:center;gap:8px;background:var(--field);border-radius:12px;padding:0 12px;height:42px;color:var(--muted)}
+.nc-search input{flex:1;border:0;background:none;font:inherit;color:var(--ink);outline:0;min-width:0;padding:0}
+.nc-filters{display:flex;gap:6px;padding:0 16px 10px;overflow-x:auto;scrollbar-width:none;flex:none}
+.nc-filters button{flex:none;padding:6px 12px;border-radius:999px;border:1px solid var(--line);font-size:13px;font-weight:600;color:var(--muted);display:flex;gap:6px;align-items:center}
+.nc-filters button[aria-pressed=true]{background:var(--graphite);border-color:var(--graphite);color:#fff}
+.nc-filters .n{font-size:11.5px;background:var(--t);color:var(--on-accent);border-radius:999px;padding:0 6px;line-height:18px}
+.nc-chats{flex:1;overflow-y:auto;padding:2px 8px 12px}
+.nc-sect{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:12px 12px 6px}
+.nc-none{padding:24px 12px;color:var(--muted);text-align:center;font-size:14px}
+.nc-row{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;text-align:left;padding:10px;border-radius:14px}
+.nc-row:hover{background:var(--field)}
+.nc-row[aria-current=true]{background:var(--soft2)}
+.nc-rmain{min-width:0;display:grid;gap:2px}
+.nc-cname{font-weight:700;font-size:15px;display:flex;align-items:center;gap:6px;min-width:0}
+.nc-cname .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nc-cprev{font-size:13.5px;color:var(--muted);overflow:hidden;white-space:nowrap;display:flex;gap:4px;align-items:center;min-width:0}
+.nc-cprev .tx{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.nc-cprev .who{color:var(--ink);font-weight:600;flex:none}
+.nc-cprev.typing{color:var(--t);font-weight:600}
+.nc-cprev.quiet{color:var(--faint)}
+.nc-cprev .nic{width:16px;height:16px}
+.nc-tick{display:inline-grid;color:var(--faint)}
+.nc-tick.read{color:var(--t)}
+.nc-tick .nic{width:16px;height:16px}
+.nc-tick .nic svg{stroke-width:2.2}
+.nc-cmeta{display:grid;justify-items:end;gap:5px;font-size:12px;color:var(--faint);white-space:nowrap}
+.nc-cmeta.unread{color:var(--t);font-weight:700}
+.nc-badges{display:flex;gap:4px;align-items:center;min-height:20px;color:var(--faint)}
+.nc-badges .nic{width:16px;height:16px}
+.nc-count{min-width:20px;height:20px;border-radius:10px;background:var(--t);color:var(--on-accent);font-size:12px;font-weight:700;display:grid;place-items:center;padding:0 6px}
+.nc-count.muted{background:var(--faint)}
+.nc-at{width:20px;height:20px;border-radius:10px;background:var(--graphite);color:#fff;font-size:12px;font-weight:700;display:grid;place-items:center}
+.nc-tag{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 6px;border-radius:6px;background:var(--field);color:var(--muted);flex:none}
+.nc-tag.proj{background:var(--soft);color:var(--t)}
+/* avatars: a photo, or initials on soft teal; projects get a rounded square */
+.nc-av{width:48px;height:48px;border-radius:50%;background:var(--soft);color:var(--t);display:grid;place-items:center;font-weight:700;font-size:16px;position:relative;flex:none;overflow:visible}
+.nc-av img{width:100%;height:100%;border-radius:inherit;object-fit:cover;display:block}
+.nc-av.sq{border-radius:14px;background:var(--t);color:var(--on-accent)}
+.nc-av.sq.pg{background:var(--graphite);color:#fff}
+.nc-av.team{border-radius:14px;background:var(--graphite);color:#fff;font-size:18px}
+.nc-av.sm{width:32px;height:32px;font-size:12px}
+.nc-av.xs{width:18px;height:18px;font-size:8.5px;border:2px solid var(--surface);box-sizing:content-box}
+.nc-av.lg{width:84px;height:84px;font-size:28px;border-radius:24px}
+.nc-av.lg img{border-radius:24px}
+.nc-av .on{position:absolute;right:1px;bottom:1px;width:12px;height:12px;border-radius:50%;background:var(--t);border:2px solid var(--surface)}
+.nc-av.sm .on{width:9px;height:9px;right:-1px;bottom:-1px}
+/* the conversation */
+.nc-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface);border-bottom:1px solid var(--line);min-height:64px;flex:none}
+.nc-head .nc-av{width:40px;height:40px;font-size:14px}
+.nc-head .nc-av.sq,.nc-head .nc-av.team{border-radius:12px}
+.nc-ctitle{flex:1;min-width:0;text-align:left;display:grid;gap:1px;padding:2px 4px!important}
+.nc-ctitle b{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nc-ctitle span{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nc-ctitle span.typing{color:var(--t);font-weight:600}
+.nc-pinbar{display:flex;align-items:center;gap:4px;padding:4px 8px 4px 14px;background:var(--surface);border-bottom:1px solid var(--line);flex:none}
+.nc-pinmain{display:flex!important;align-items:center;gap:10px;flex:1;min-width:0;text-align:left;font-size:13.5px;padding:4px 0!important}
+.nc-pinmain .bar{width:3px;align-self:stretch;border-radius:2px;background:var(--t)}
+.nc-pinmain .nic{color:var(--t);width:16px;height:16px}
+.nc-pinmain .pt{flex:1;min-width:0}
+.nc-pinmain small{display:block;font-size:11.5px;font-weight:700;color:var(--t)}
+.nc-pinmain .pt span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nc-find{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line);color:var(--muted);flex:none}
+.nc-find[hidden]{display:none}
+.nc-find input{flex:1;height:38px;border-radius:10px;border:0;background:var(--field);padding:0 12px;font:inherit;outline:0;color:var(--ink);min-width:0}
+.nc-hits{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.nc-log{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:2px;min-height:0}
+.nc-empty{margin:auto;display:grid;gap:10px;justify-items:center;text-align:center;color:var(--muted);font-size:14px;max-width:380px;padding:20px}
+.nc-day{align-self:center;font-size:12px;font-weight:600;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 10px;margin:12px 0 8px}
+.nc-newdiv{display:flex;align-items:center;gap:10px;color:var(--t);font-size:12px;font-weight:700;margin:10px 0 6px}
+.nc-newdiv::before,.nc-newdiv::after{content:"";flex:1;height:1px;background:var(--t);opacity:.35}
+.nc-mname{font-size:12.5px;font-weight:700;color:var(--muted);margin:8px 0 2px 40px;display:flex;gap:6px;align-items:center}
+.nc-m{display:flex;align-items:flex-end;gap:8px;max-width:100%;position:relative;touch-action:pan-y}
+.nc-m.mine{justify-content:flex-end}
+.nc-avs{width:32px;flex:none;display:flex}
+.nc-bw{display:grid;gap:3px;max-width:min(78%,520px);min-width:0;position:relative;transition:transform 220ms var(--ez)}
+.nc-m.mine .nc-bw{justify-items:end}
+.nc-b{background:var(--surface);border:1px solid var(--hair);border-radius:18px;padding:8px 12px;overflow-wrap:anywhere;white-space:pre-wrap;min-width:0;cursor:pointer;display:grid;gap:4px;text-align:start;outline-offset:2px}
+.nc-m:not(.mine) .nc-b{border-bottom-left-radius:8px}
+.nc-m.g:not(.mine) .nc-b{border-top-left-radius:8px}
+.nc-m.mine .nc-b{background:var(--t);color:var(--on-accent);border-color:transparent;border-bottom-right-radius:8px}
+.nc-m.mine.g .nc-b{border-top-right-radius:8px}
+.nc-b.rich,.nc-m.mine .nc-b.rich{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-left:3px solid var(--t)}
+.nc-b.emo{background:none!important;border-color:transparent!important;font-size:38px;line-height:1.1;padding:2px 4px}
+.nc-b.hl{box-shadow:0 0 0 2px var(--graphite)}
+.nc-m.flash .nc-b{animation:ncflash 1.4s var(--ez)}
+@keyframes ncflash{0%,45%{box-shadow:0 0 0 4px color-mix(in srgb,var(--t) 35%,transparent)}100%{box-shadow:none}}
+.nc-text{white-space:pre-wrap}
+.nc-text a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+.nc-meta{display:flex;align-items:center;gap:4px;justify-content:flex-end;font-size:11px;color:var(--faint);line-height:1}
+.nc-m.mine .nc-b:not(.rich) .nc-meta{color:color-mix(in srgb,var(--on-accent) 75%,transparent)}
+.nc-m.mine .nc-b:not(.rich) .nc-tick{color:inherit}
+.nc-m.mine .nc-b:not(.rich) .nc-tick.read{color:#9FE3E6}
+.nc-b.emo .nc-meta{font-size:11px}
+.nc-mention{font-weight:700;color:var(--t);background:var(--soft);border-radius:6px;padding:0 3px}
+.nc-m.mine .nc-b:not(.rich) .nc-mention{color:var(--on-accent);background:rgba(255,255,255,.2)}
+.nc-mention.me{background:var(--graphite);color:#fff}
+.nc-fwd{display:flex;align-items:center;gap:4px;font-size:12px;font-style:italic;opacity:.75}
+.nc-fwd .nic{width:14px;height:14px}
+.nc-quote{display:grid!important;gap:1px;text-align:left;border-left:3px solid var(--t)!important;background:var(--soft2)!important;border-radius:10px;padding:5px 9px!important;font-size:13px;max-width:100%;min-width:0;white-space:normal}
+.nc-m.mine .nc-b:not(.rich) .nc-quote{background:rgba(255,255,255,.14)!important;border-left-color:#fff!important}
+.nc-quote b{font-size:12px;color:var(--t)}
+.nc-m.mine .nc-b:not(.rich) .nc-quote b{color:#fff}
+.nc-quote span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}
+.nc .reacts{display:flex;gap:4px;flex-wrap:wrap;margin-top:-2px}
+.nc .react{display:flex;align-items:center;gap:3px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:1px 7px;font-size:13px}
+.nc .react b{font-size:11.5px;color:var(--muted)}
+.nc .react.mine{border-color:var(--t);background:var(--soft)}
+.nc-seenby{display:flex;align-items:center;gap:6px;justify-content:flex-end;font-size:11.5px;color:var(--muted);margin:2px 2px 6px}
+.nc-seenby .avs{display:flex}
+.nc-seenby .nc-av.xs{margin-left:-6px;border-color:var(--mist)}
+.nc-swipe{position:absolute;left:-34px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;opacity:0;color:var(--t);pointer-events:none}
+.nc-swipe .nic{width:16px;height:16px}
+.nc-m.mine .nc-swipe{left:auto;right:calc(100% + 6px)}
+.nc-tools{position:absolute;top:-16px;display:none;gap:2px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px;z-index:2}
+.nc-m:not(.mine) .nc-tools{left:calc(100% - 60px)}
+.nc-m.mine .nc-tools{right:calc(100% - 60px)}
+.nc-tools button{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+.nc-tools button:hover{background:var(--field);color:var(--ink)}
+.nc-tools .nic{width:17px;height:17px}
+@media (hover:hover){.nc-m:hover .nc-tools{display:flex}}
+/* photos, files, voice, polls and task cards inside messages */
+.nc .att-img{border-radius:12px}
+.nc .att-file{background:var(--field);border-radius:12px;width:260px;max-width:100%}
+.nc-m.mine .nc-b:not(.rich) .att-file{background:rgba(255,255,255,.14);color:inherit}
+.nc-voice{display:flex;align-items:center;gap:10px;width:250px;max-width:100%}
+.nc-play{width:36px;height:36px;border-radius:50%!important;background:var(--t)!important;color:var(--on-accent);display:grid;place-items:center;flex:none}
+.nc-m.mine .nc-b:not(.rich) .nc-play{background:#fff!important;color:var(--t)}
+.nc-play .nic{width:16px;height:16px}
+.nc-wave{flex:1;display:flex;align-items:center;gap:2px;height:28px;min-width:0}
+.nc-wave i{flex:1;border-radius:2px;background:var(--faint);opacity:.55}
+.nc-wave i.on{background:var(--t);opacity:1}
+.nc-m.mine .nc-b:not(.rich) .nc-wave i{background:#fff;opacity:.45}
+.nc-m.mine .nc-b:not(.rich) .nc-wave i.on{opacity:1}
+.nc-vmeta{display:grid;gap:2px;justify-items:end;font-size:11.5px;color:var(--muted);flex:none}
+.nc-m.mine .nc-b:not(.rich) .nc-vmeta{color:rgba(255,255,255,.8)}
+.nc-speed{font-weight:700;font-size:11px!important;padding:1px 6px!important;border-radius:999px;background:var(--field)!important;color:var(--ink)}
+.nc-m.mine .nc-b:not(.rich) .nc-speed{background:rgba(255,255,255,.2)!important;color:#fff}
+.nc-poll{width:290px;max-width:100%;display:grid;gap:8px;cursor:default;white-space:normal}
+.nc-poll .q{font-weight:700;font-size:15px}
+.nc-poll .sub{font-size:12px;color:var(--muted);margin-top:-6px}
+.nc-opt{position:relative;display:flex!important;align-items:center;gap:8px;border:1px solid var(--line)!important;border-radius:12px;padding:8px 10px!important;text-align:left;overflow:hidden;font-size:14px;width:100%}
+.nc-opt .fill{position:absolute;inset:0 auto 0 0;background:var(--soft);transition:width 220ms var(--ez);z-index:0}
+.nc-opt>*:not(.fill){position:relative;z-index:1}
+.nc-opt .box{width:18px;height:18px;border-radius:50%;border:2px solid var(--faint);display:grid;place-items:center;flex:none}
+.nc-opt.on .box{border-color:var(--t);background:var(--t);color:var(--on-accent)}
+.nc-opt .box .nic{width:12px;height:12px}
+.nc-opt .box .nic svg{stroke-width:3}
+.nc-opt .lab{flex:1;min-width:0}
+.nc-opt .vs{display:flex}
+.nc-opt .vs .nc-av.xs{margin-left:-5px}
+.nc-opt .pc{font-size:12.5px;font-weight:700;color:var(--muted);min-width:34px;text-align:right}
+.nc-taskcard{width:290px;max-width:100%;display:grid;gap:8px;cursor:default;white-space:normal}
+.nc-taskcard .k{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t);display:flex;gap:6px;align-items:center}
+.nc-taskcard .k .nic{width:15px;height:15px}
+.nc-taskcard .tt{font-weight:700;font-size:15px}
+.nc-taskcard .tt.done{text-decoration:line-through;opacity:.7}
+.nc-taskcard .tm{display:flex;gap:6px;flex-wrap:wrap}
+.nc-chip{font-size:12px;font-weight:600;padding:3px 8px;border-radius:999px;background:var(--field);color:var(--ink);display:inline-flex;gap:5px;align-items:center}
+.nc-row2{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.nc-sub{font-size:12.5px;color:var(--muted)}
+.nc-typing{display:flex;gap:4px;padding:12px 14px;background:var(--surface);border:1px solid var(--hair);border-radius:18px;width:max-content;margin-top:6px}
+.nc-typing i{width:7px;height:7px;border-radius:50%;background:var(--faint);animation:ncdot 1.2s infinite var(--ez)}
+.nc-typing i:nth-child(2){animation-delay:.15s}.nc-typing i:nth-child(3){animation-delay:.3s}
+@keyframes ncdot{0%,60%,100%{transform:none;opacity:.5}30%{transform:translateY(-4px);opacity:1}}
+.nc-weekly{align-self:stretch;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--t);border-radius:14px;padding:10px 12px;margin:6px 0;font-size:13.5px}
+.nc-weekly .h{font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--t);margin-bottom:4px}
+.nc-weekly .pre{white-space:pre-wrap}
+.nc-jump{position:absolute;right:16px;bottom:84px;width:42px;height:42px;border-radius:50%!important;background:var(--surface)!important;border:1px solid var(--line)!important;display:grid;place-items:center;z-index:3;animation:ncrise 220ms var(--ez)}
+.nc-jump[hidden]{display:none}
+@keyframes ncrise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+/* the message box */
+.nc-compose{position:relative;padding:8px 10px 10px;background:var(--surface);border-top:1px solid var(--line);flex:none;display:grid;gap:6px}
+.nc-compose [hidden]{display:none!important}
+.nc-ctx{display:flex;align-items:center;gap:10px;padding:0 6px}
+.nc-ctx .nc-quote{flex:1;background:var(--field)!important}
+.nc-bar{display:flex;align-items:flex-end;gap:6px;margin:0}
+.nc #chat-input{flex:1;resize:none;border:0;background:var(--field);border-radius:20px;padding:10px 14px;font:inherit;line-height:1.35;max-height:140px;outline:0;min-height:42px;color:var(--ink);width:auto}
+.nc-bar .nc-ib{border-radius:50%;width:42px;height:42px}
+.nc-send{background:var(--t)!important;color:var(--on-accent)!important}
+.nc-send:hover{background:color-mix(in srgb,var(--t) 85%,#000)!important}
+.nc-send .nic{width:19px;height:19px}
+@media (hover:none){.nc-emo{display:none!important}}
+.nc-rec{display:flex;align-items:center;gap:10px;height:42px}
+.nc-recdot{width:10px;height:10px;border-radius:50%;background:var(--graphite);animation:ncpulse 1s infinite}
+@keyframes ncpulse{50%{opacity:.25}}
+.nc-rect{font-variant-numeric:tabular-nums;font-weight:700}
+.nc-recwave{flex:1;display:flex;gap:2px;align-items:center;height:24px;min-width:0}
+.nc-recwave i{flex:1;background:var(--t);border-radius:2px;opacity:.8;transition:height 100ms linear}
+.nc-readonly{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;font-size:14px;color:var(--muted);padding:4px 6px}
+.nc-pop{position:absolute;left:10px;bottom:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:6px;z-index:5;min-width:250px;max-width:calc(100% - 20px);animation:ncrise 220ms var(--ez)}
+.nc-it{display:flex!important;align-items:center;gap:12px;width:100%;padding:9px 10px!important;border-radius:12px;text-align:left;font-weight:600;font-size:14.5px}
+.nc-it:hover,.nc-it.on{background:var(--field)!important}
+.nc-it .ic{width:34px;height:34px;border-radius:10px;background:var(--soft);color:var(--t);display:grid;place-items:center;flex:none}
+.nc-it small{display:block;font-weight:400;font-size:12px;color:var(--muted)}
+.nc-ph{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:6px 10px 4px}
+.nc-formbox{display:grid;gap:8px;background:var(--field);border-radius:14px;padding:10px}
+.nc-formh{display:flex;align-items:center;gap:8px;color:var(--t)}
+.nc-formh b{color:var(--ink);font-size:14.5px}
+.nc-in{height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:0 12px;font:inherit;color:var(--ink);min-width:0}
+.nc-formbox .nc-row2 .nc-in{flex:1 1 140px}
+.nc-conv.dropping .nc-log{outline:2px dashed var(--t);outline-offset:-8px}
+/* tap a message: the options sheet */
+.nc-scrim{position:absolute;inset:0;background:rgba(17,24,31,.32);z-index:20;animation:ncfade 220ms var(--ez)}
+@keyframes ncfade{from{opacity:0}}
+.nc-sheet{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:min(420px,100%);max-height:85%;overflow-y:auto;background:var(--surface);border-radius:22px 22px 0 0;z-index:21;padding:8px 10px 14px;animation:ncup 220ms var(--ez)}
+@keyframes ncup{from{transform:translate(-50%,100%)}}
+@media (min-width:900px){.nc-sheet{bottom:auto;top:50%;transform:translate(-50%,-50%);border-radius:22px;border:1px solid var(--line);animation:ncpop 220ms var(--ez)}@keyframes ncpop{from{opacity:0;transform:translate(-50%,-46%) scale(.98)}}}
+.nc-grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 10px}
+.nc-sheeth{display:flex;align-items:center;gap:8px;padding:0 4px 6px;font-size:16px}
+.nc-emorow{display:flex;justify-content:space-between;gap:4px;padding:4px 6px 12px;border-bottom:1px solid var(--line)}
+.nc-emorow button{width:44px;height:44px;border-radius:50%;font-size:24px;display:grid;place-items:center}
+.nc-emorow button:hover,.nc-emorow button.on{background:var(--soft)}
+.nc-emorow .plus{background:var(--field);color:var(--muted)}
+.nc-emopick{padding:8px 0}
+.nc-acts{display:grid;padding-top:6px}
+.nc-acts button{display:flex;align-items:center;gap:14px;padding:11px 12px;border-radius:12px;font-weight:600;font-size:15px;text-align:left}
+.nc-acts button:hover{background:var(--field)}
+.nc-acts button small{margin-left:auto;font-weight:500;font-size:12.5px;color:var(--muted)}
+.nc-acts .quietline{height:1px;background:var(--line);margin:4px 8px}
+.nc-acts .del{color:var(--graphite)}
+.nc-acts .del.sure{background:var(--graphite);color:#fff}
+.nc-fwdlist{display:grid;max-height:60vh;overflow-y:auto}
+/* chat info */
+.nc-ihead{display:flex;align-items:center;gap:8px;padding:12px;border-bottom:1px solid var(--line);flex:none}
+.nc-ihead b{font-size:16px;flex:1}
+.nc-ibody{flex:1;overflow-y:auto;padding:18px 16px 24px;display:grid;gap:18px;align-content:start}
+.nc-ihero{display:grid;justify-items:center;gap:6px;text-align:center}
+.nc-ihero h2{font:800 22px/1.1 var(--display);margin:0}
+.nc-ihero p{font-size:13px;color:var(--muted);max-width:260px;margin:0}
+.nc-ihero .nc-row2{margin-top:6px;justify-content:center}
+.nc-ihero .btn .nic{width:16px;height:16px}
+.nc-ihero .btn{gap:6px}
+.nc-card{border:1px solid var(--line);border-radius:18px;padding:12px 14px;display:grid;gap:10px}
+.nc-card h3{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);display:flex;align-items:center;gap:8px;margin:0}
+.nc-card h3::before{content:"";width:3px;height:12px;border-radius:2px;background:var(--t)}
+.nc-notif{display:grid;gap:4px}
+.nc-notif label{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:10px;cursor:pointer;font-size:14px}
+.nc-notif label:hover{background:var(--field)}
+.nc-notif input{accent-color:var(--t);width:18px;height:18px;flex:none}
+.nc-notif small{display:block;font-size:12px;color:var(--muted)}
+.nc-mem{display:flex;align-items:center;gap:10px;font-size:14px}
+.nc-mem .nc-av{width:36px;height:36px;font-size:13px}
+.nc-mem .nm{flex:1;min-width:0}
+.nc-mem small{display:block;font-size:12px;color:var(--muted)}
+.nc-tabs{display:flex;gap:4px;background:var(--field);border-radius:12px;padding:3px}
+.nc-tabs button{flex:1;padding:6px!important;border-radius:9px;font-size:13px;font-weight:600;color:var(--muted)}
+.nc-tabs button[aria-pressed=true]{background:var(--surface);color:var(--ink)}
+.nc-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.nc-grid3 .ph{aspect-ratio:1;border-radius:8px;overflow:hidden;padding:0!important}
+.nc-grid3 img{width:100%;height:100%;object-fit:cover;display:block}
+.nc-flist{display:grid;gap:6px}
+.nc-flist .att-file{width:auto}
+.nc-filecard{display:flex;align-items:center;gap:10px;background:var(--field);border-radius:12px;padding:8px 10px;text-align:left;color:var(--ink);text-decoration:none;min-width:0}
+.nc-filecard .fileic{width:40px;height:46px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;font-size:10px;font-weight:800;color:var(--t);flex:none}
+.nc-filecard .fmain{min-width:0;display:grid}
+.nc-filecard .fn{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nc-filecard .fs{font-size:12px;color:var(--muted)}
+/* phones: one screen at a time (list, chat, info); a chat fills the whole screen like WhatsApp */
+@media (max-width:899px){
+  .nc,.nc.info-open,.nc:not(.has-chat){grid-template-columns:1fr}
+  .nc-back{display:grid!important}
+  .nc[data-screen=list] .nc-conv,.nc[data-screen=list] .nc-info,.nc[data-screen=conv] .nc-list,.nc[data-screen=conv] .nc-info,.nc[data-screen=info] .nc-list,.nc[data-screen=info] .nc-conv{display:none}
+  .nc[data-screen=info] .nc-info{display:flex;border:0}
+  .nc[data-screen=conv] .nc-conv{animation:ncin 320ms var(--ez)}
+  @keyframes ncin{from{opacity:0;transform:translateX(24px)}}
+  .nc-list{border:0}
+  html.nc-full .nc{position:fixed;inset:0;z-index:40;border:0;border-radius:0;height:auto!important;min-height:0;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);background:var(--surface)}
+  html.nc-full body{overflow:hidden}
+  .nc-bw{max-width:84%}
+}
+@media (prefers-reduced-motion:reduce){.nc *,.nc *::before,.nc *::after{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
@@ -1390,20 +1690,49 @@ input,select,textarea{background-color:var(--field)}
   <section id="view-money" hidden><div id="money"></div></section>
 
   <section id="view-chat" hidden>
-    <div class="chatbox">
-      <div class="chat-head" id="chat-head"></div>
-      <div class="chatlog" id="chatlog" aria-live="polite"></div>
-      <div class="cv-emoji" id="chat-emoji-panel" hidden></div>
-      <div class="chat-context" id="chat-context" hidden></div>
-      <div class="attach-list" id="attach-list" hidden></div>
-      <div class="upload-status" id="upload-status" hidden></div>
-      <form class="chatform" id="chatform">
-        <button type="button" class="attach" id="chat-attach" aria-label="Attach files" title="Attach photos or files"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
-        <input type="file" id="chat-file" multiple hidden>
-        <button type="button" class="attach" id="chat-emoji" aria-label="Emoji" title="Emoji">&#x1F642;</button>
-        <textarea id="chat-input" rows="1" maxlength="6000" placeholder="Message the team" aria-label="Message"></textarea>
-        <button class="btn primary" id="chat-send">Send</button>
-      </form>
+    <div class="nc" id="nc" data-screen="conv">
+      <aside class="nc-list" aria-label="Chats">
+        <div class="nc-lhead"><h2 class="nc-h1">Chats</h2><span class="spacer"></span>
+          <button type="button" class="nc-ib teal" id="nc-new" aria-label="New chat" title="New chat"><span class="nic"><svg aria-hidden="true"><use href="#ni-edit"/></svg></span></button></div>
+        <label class="nc-search"><span class="nic"><svg aria-hidden="true"><use href="#ni-search"/></svg></span><input id="nc-q" placeholder="Search chats and messages" autocomplete="off" aria-label="Search chats and messages"></label>
+        <div class="nc-filters" id="nc-filters"></div>
+        <div class="nc-chats" id="nc-chats"></div>
+      </aside>
+      <section class="nc-conv" aria-label="Conversation">
+        <div class="nc-head" id="chat-head"></div>
+        <div class="nc-find" id="nc-find" hidden><span class="nic"><svg aria-hidden="true"><use href="#ni-search"/></svg></span><input id="nc-fq" placeholder="Search this chat" aria-label="Search this chat"><span class="nc-hits" id="nc-hits"></span><button type="button" class="nc-ib sm" id="nc-fx" aria-label="Close search"><span class="nic"><svg aria-hidden="true"><use href="#ni-x"/></svg></span></button></div>
+        <div id="nc-pin"></div>
+        <div class="nc-log" id="chatlog" aria-live="polite"></div>
+        <button type="button" class="nc-jump" id="nc-jump" hidden aria-label="Go to the newest message"><span class="nic"><svg aria-hidden="true"><use href="#ni-down"/></svg></span></button>
+        <div class="nc-compose" id="nc-compose">
+          <div class="cv-emoji" id="chat-emoji-panel" hidden></div>
+          <div class="nc-ctx" id="chat-context" hidden></div>
+          <div class="attach-list" id="attach-list" hidden></div>
+          <div class="upload-status" id="upload-status" hidden></div>
+          <div id="nc-form"></div>
+          <div class="nc-pop" id="nc-plusmenu" role="menu" aria-label="Add" hidden></div>
+          <div class="nc-pop" id="nc-mentions" role="listbox" aria-label="Mention someone" hidden></div>
+          <div class="nc-readonly" id="nc-readonly" hidden></div>
+          <form class="nc-bar" id="chatform">
+            <button type="button" class="nc-ib" id="chat-attach" aria-label="Add a photo, file, poll or task" title="Add"><span class="nic"><svg aria-hidden="true"><use href="#ni-plus"/></svg></span></button>
+            <input type="file" id="chat-file" multiple hidden>
+            <input type="file" id="chat-photo" accept="image/*,video/*" multiple hidden>
+            <input type="file" id="chat-camera" accept="image/*" capture="environment" hidden>
+            <button type="button" class="nc-ib nc-emo" id="chat-emoji" aria-label="Emoji" title="Emoji"><span class="nic"><svg aria-hidden="true"><use href="#ni-smile"/></svg></span></button>
+            <textarea id="chat-input" rows="1" maxlength="6000" placeholder="Message" aria-label="Message" dir="auto"></textarea>
+            <button type="submit" class="nc-ib nc-send" id="chat-send" aria-label="Record a voice message"><span class="nic"><svg aria-hidden="true"><use href="#ni-mic"/></svg></span></button>
+          </form>
+          <div class="nc-rec" id="nc-rec" hidden>
+            <button type="button" class="nc-ib" id="nc-rec-x" aria-label="Delete the recording"><span class="nic"><svg aria-hidden="true"><use href="#ni-trash"/></svg></span></button>
+            <span class="nc-recdot"></span><span class="nc-rect" id="nc-rect">0:00</span>
+            <span class="nc-recwave" id="nc-recwave"></span>
+            <button type="button" class="nc-ib nc-send" id="nc-rec-send" aria-label="Send voice message"><span class="nic"><svg aria-hidden="true"><use href="#ni-send"/></svg></span></button>
+          </div>
+        </div>
+        <div class="nc-scrim" id="nc-scrim" hidden></div>
+        <div class="nc-sheet" id="nc-sheet" role="dialog" aria-label="Message options" hidden></div>
+      </section>
+      <aside class="nc-info" id="nc-info" aria-label="Chat info"></aside>
     </div>
   </section>
 </div>
@@ -1438,5 +1767,38 @@ input,select,textarea{background-color:var(--field)}
 <script type="module">
 /*APP*/
 </script>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" id="nc-icons">
+      <symbol id="ni-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+      <symbol id="ni-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+      <symbol id="ni-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+      <symbol id="ni-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+      <symbol id="ni-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="ni-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+      <symbol id="ni-send" viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7Z"/><path d="m11 13 9-9"/></symbol>
+      <symbol id="ni-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+      <symbol id="ni-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+      <symbol id="ni-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/></symbol>
+      <symbol id="ni-poll" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+      <symbol id="ni-task" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></symbol>
+      <symbol id="ni-reply" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v6"/></symbol>
+      <symbol id="ni-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+      <symbol id="ni-fwd" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0-5 5v6"/></symbol>
+      <symbol id="ni-pin" viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3Z"/></symbol>
+      <symbol id="ni-pinf" viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3Z" fill="currentColor"/></symbol>
+      <symbol id="ni-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></symbol>
+      <symbol id="ni-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="ni-check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+      <symbol id="ni-checks" viewBox="0 0 24 24"><path d="m2 12 5 5L17 7"/><path d="m11 16 1 1L22 7"/></symbol>
+      <symbol id="ni-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+      <symbol id="ni-mute" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4Z"/><path d="m22 9-6 6M16 9l6 6"/></symbol>
+      <symbol id="ni-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></symbol>
+      <symbol id="ni-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+      <symbol id="ni-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8Z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="ni-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="ni-sparkle" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></symbol>
+      <symbol id="ni-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+      <symbol id="ni-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></symbol>
+      <symbol id="ni-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/></symbol>
+    </svg>
 </body>
 </html>

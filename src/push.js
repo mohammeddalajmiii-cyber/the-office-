@@ -182,12 +182,22 @@ function pushAlertsFor(u) {
   }
   for (const [pid, a] of Object.entries(activeMap)) { const p = ideas.find(i => i.id === pid); if (p && a && a.by === me && p.status === "approved") add("start:" + pid + ":" + a.at, a.at, `We started building ${p.title}`, "build-" + pid) }
   if (!(people[u] || {}).newsOff) for (const [id, v] of Object.entries((newsDoc || {}).items || {})) if (v && v.title && v.by === me) add("news:post-" + id, v.at, `Posted: ${v.title}`, "me");
-  for (const t of dmThreads) if (t.lastBy === me && (t.members || []).includes(u)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, t.lastText || "Sent you a message", "dm-" + me, `${meFull} · private`);
+  // chats: each person picks per chat whether their phone rings for every message, only @mentions, or never
+  const lvl = k => ((((people[u] || {}).chatNotify) || {})[k]) || "all";
+  const pinged = mentions => Array.isArray(mentions) && (mentions.includes(u) || mentions.includes("all"));
+  for (const p of ideas) {
+    const l = p.status === "approved" && p.chat && p.chat.last;
+    if (!l || l.by !== me || !projTeam(p).includes(u)) continue;
+    const k = "p:" + p.id, men = pinged(l.mentions);
+    if (lvl(k) === "all" || men) add("pc:" + p.id + ":" + l.at, l.at, (men ? "Mentioned you: " : "") + (l.text || "New message"), "pc-" + p.id, `${meFull} · ${p.title}`);
+  }
+  for (const t of dmThreads) if (t.lastBy === me && (t.members || []).includes(u) && lvl("dm:" + me) !== "off") add("dm:" + t.id + ":" + t.lastAt, t.lastAt, t.lastText || "Sent you a message", "dm-" + me, `${meFull} · private`);
   for (const m of chat) {
     if (m.by !== me) continue;
     const o = m.replyTo && chat.find(x => x.id === m.replyTo);
-    if (o && o.by === u) add("reply:" + m.id, m.at, `Replied: ${msgSummary(m)}`, "chat");
-    else add("chat:" + m.id, m.at, msgSummary(m), "chat", `${meFull} · team chat`);
+    const men = pinged(m.mentions);
+    if (o && o.by === u) add("reply:" + m.id, m.at, `Replied: ${msgSummary(m)}`, "chat-team");
+    else if (lvl("team") === "all" || men) add("chat:" + m.id, m.at, (men ? "Mentioned you: " : "") + msgSummary(m), "chat-team", `${meFull} · team chat`);
   }
   return out;
 }

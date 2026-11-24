@@ -85,7 +85,9 @@ function route(hash) {
   for (const pre of ["project-", "plan-", "build-"]) if (h.startsWith(pre)) return { view: "project", id: h.slice(pre.length) };
   if (h === "projects-done" || h === "current") return { view: "projects" };
   if (h === "mine" || h === "notes") return { view: "me" };
-  if (h.startsWith("dm-")) return { view: "chat", dm: h.slice(3) };
+  if (h.startsWith("dm-")) return { view: "chat", dm: h.slice(3), ch: "dm:" + h.slice(3) };
+  if (h.startsWith("pc-")) return { view: "chat", ch: "p:" + h.slice(3) };
+  if (h === "chat-team") return { view: "chat", ch: "team" };
   if (h.startsWith("pg-")) return { view: "partners", gid: h.slice(3) };
   return { view: VIEWS.includes(h) && h !== "project" ? h : "me" };
 }
@@ -113,7 +115,7 @@ function closeForms() {
   planEdit = null; renamingPhase = null; delPhase = null; addingLink = null; delLink = null; delFile = null; delTask = null; doneAnyway = null; waitPick = null; delNote = null; delTaskFile = null;
   confirmDone = null; confirmDelProject = null; confirmDelIdea = null; newCatFor = null; fundForm = null; goalEdit = null; subPay = null; subEdit = null; delFund = null; cvOpen = {};
 }
-const routeKey = h => { const r = route.call(null, h); return r.view + ":" + (r.id || r.sub || r.dm || r.gid || "") };
+const routeKey = h => { const r = route.call(null, h); return r.view + ":" + (r.id || r.sub || r.ch || r.dm || r.gid || "") };
 function leavePage() { closeForms(); showSettings = null; openTask = null; openNote = null; editCheckin = null; projTab = pendingTab || "tasks"; pendingTab = null }
 addEventListener("hashchange", () => {
   prevHash = curHash; curHash = location.hash;
@@ -166,7 +168,7 @@ async function onAuth(u) {
   }
   $("#boot").hidden = true;
   remember(true);
-  if (me && me !== u.uid) { ideas = []; people = {}; chat = []; dmThreads = []; dmMsgs = {}; personal = []; myNotes = []; focusId = null; activeMap = {} }
+  if (me && me !== u.uid) { ideas = []; people = {}; chat = []; dmThreads = []; dmMsgs = {}; pcMsgs = {}; personal = []; myNotes = []; focusId = null; activeMap = {} }
   me = u.uid;
   isAdmin = ADMINS.includes((u.email || "").toLowerCase());
   myProfile = { name: u.displayName || u.email, email: u.email, photo: u.photoURL || "" };
@@ -187,10 +189,12 @@ async function onAuth(u) {
     const before = chat.length ? chat[chat.length - 1].at : 0;
     chat = s.docs.map(d => ({ id: d.id, ...d.data() }));
     const newest = chat.length ? chat[chat.length - 1] : null;
-    if (before && newest && newest.at > before && newest.by !== me) chime();
-    if (before && newest && newest.at > before && newest.by !== me && (route().view !== "chat" || document.hidden)) ping({ key: "chat:" + newest.id, who: newest.by, title: realName(newest.by) || "Team chat", sub: "Team chat", text: msgSummary(newest), go: "chat", at: newest.at });
+    const lvl = notifyOf("team"), ment = mentionsMe(newest), heard = lvl === "all" || ment;
+    if (before && newest && newest.at > before && newest.by !== me && heard) chime();
+    if (before && newest && newest.at > before && newest.by !== me && heard && (chatKey() !== "team" || document.hidden)) ping({ key: "chat:" + newest.id, who: newest.by, title: realName(newest.by) || "Team chat", sub: "Team chat", text: (ment ? "Mentioned you: " : "") + msgSummary(newest), go: "chat-team", at: newest.at });
     render();
   }, () => {}));
+  unsubs.push(onSnapshot(doc(db, "meta", "chat"), s => { chatMeta = { pins: {}, typing: {}, ...(s.exists() ? s.data() : {}) }; render() }, () => {}));
   // private messages: the conversations I'm in
   unsubs.push(onSnapshot(query(collection(db, "dms"), where("members", "array-contains", me)), s => {
     const before = Object.fromEntries(dmThreads.map(t => [t.id, t.lastAt || 0]));
@@ -399,6 +403,7 @@ function renderProjectPage(p) {
       done ? el("span", { class: "done-badge" }, "\u2713 Completed " + fmtDay(p.completedAt)) : el("span", { class: "pill" + (isPaused(p) ? " pill-paused" : "") }, isPaused(p) ? "\u23f8 Paused" : isActive(p) ? "Building now" : "Up next"),
       prioChip(p), catsOf(p).length ? catChip(p) : null),
     el("div", { class: "row", style: "align-items:flex-start;flex-wrap:nowrap" }, el("h2", { style: "flex:1;min-width:0" }, p.title),
+      p.status === "approved" ? el("button", { class: "btn small", title: "This project's chat", onclick: () => { location.hash = "pc-" + p.id } }, "Chat") : null,
       planner || joined ? el("button", { class: "btn small", "aria-expanded": String(settingsOpen), onclick: () => { showSettings = settingsOpen ? null : p.id; render() } }, settingsOpen ? "Close" : "Settings") : null),
     isPaused(p) ? el("div", { class: "paused-line" }, el("span", {}, `\u23f8 Paused by ${p.paused.by === me ? "you" : name(p.paused.by)} ${ago(p.paused.at)}. Its tasks are on hold.`), el("span", { class: "spacer" }), planner ? el("button", { class: "btn primary small", onclick: () => resumeProject(p) }, "Resume") : null) : null,
     whoseLine(p),
@@ -1495,14 +1500,14 @@ function takeBackCheck(p, t) {
 // The check line on a task card: waiting for a check, changes asked, or who checks it
 function checkChips(p, t, key) {
   if (!t.checker) return [];
-  if (t.done) return t.checked ? [el("span", { class: "checkedchip", title: `Checked by ${name(t.checked.by)} ${ago(t.checked.at)}` }, "✓ Checked by " + checkedByName(t))] : [];
+  if (t.done) return t.checked ? [el("span", { class: "checkedchip", title: `Checked by ${name(t.checked.by)} ${ago(t.checked.at)}` }, nIc("check", "sm"), "Checked by " + checkedByName(t))] : [];
   if (inCheck(t)) return canCheck(p, t)
-    ? [el("span", { class: "checkchip mine" }, `🔍 ${t.review.by === me ? "Check it" : firstName(t.review.by) + " finished it. Check it"}`),
+    ? [el("span", { class: "checkchip mine" }, nIc("search", "sm"), `${t.review.by === me ? "Check it" : firstName(t.review.by) + " finished it. Check it"}`),
        el("button", { class: "btn small primary", onclick: () => approveCheck(p, t, key) }, "Looks good"),
        el("button", { class: "btn small", onclick: () => { changesFor = key; openTask = key; render(); setTimeout(() => { const n = document.getElementById("chg-" + key); if (n) n.focus() }, 0) } }, "Needs changes")]
-    : [el("span", { class: "checkchip" }, `🔍 Waiting for ${t.checker === PLANNERS && t.review.by === me && canPlan(p) ? "another planner" : checkWho(t)} to check`)];
+    : [el("span", { class: "checkchip" }, nIc("search", "sm"), `Waiting for ${t.checker === PLANNERS && t.review.by === me && canPlan(p) ? "another planner" : checkWho(t)} to check`)];
   if (t.changes && t.changes.text) return [el("span", { class: "changechip", title: t.changes.text }, `↩ ${firstName(t.changes.by)} asked for changes`)];
-  return [el("span", { class: "label", style: "text-transform:none;letter-spacing:0", title: `${checkerFull(t)} checks this before it counts as done` }, "🔍 Checked by " + (t.checker === PLANNERS ? "any planner" : checkWho(t)))];
+  return [el("span", { class: "label", style: "text-transform:none;letter-spacing:0", title: `${checkerFull(t)} checks this before it counts as done` }, nIc("search", "sm"), "Checked by " + (t.checker === PLANNERS ? "any planner" : checkWho(t)))];
 }
 // Inside an open task: who checks it, and the check itself
 function checkField(p, t, key, field, set) {
@@ -1530,7 +1535,7 @@ function checkField(p, t, key, field, set) {
       } else kids.push(el("button", { class: "btn small", onclick: () => { changesFor = key; render(); setTimeout(() => { const n = document.getElementById("chg-" + key); if (n) n.focus() }, 0) } }, "Needs changes"));
     } else if (can) kids.push(el("button", { class: "linkbtn", onclick: () => takeBackCheck(p, t) }, "Take it back"));
   } else if (!t.done && t.changes && t.changes.text) kids.push(el("div", { class: "changeline" }, `${name(t.changes.by)} asked for changes ${ago(t.changes.at)}: `, el("b", {}, t.changes.text), ". Tick it again when it's fixed."));
-  else if (t.done && t.checked) kids.push(el("span", { class: "label ok", style: "text-transform:none;letter-spacing:0" }, `✓ Checked by ${t.checked.by === me ? "you" : name(t.checked.by)} ${ago(t.checked.at)}`));
+  else if (t.done && t.checked) kids.push(el("span", { class: "label ok", style: "text-transform:none;letter-spacing:0" }, nIc("check", "sm"), `Checked by ${t.checked.by === me ? "you" : name(t.checked.by)} ${ago(t.checked.at)}`));
   return field("Checked by", ...kids);
 }
 
@@ -2138,14 +2143,26 @@ function ago(at) {
 
 /* ----- chat ----- */
 
-// Private messages live in dms/{a_b}/msgs, where a_b are the two people's ids in order. Only those two can read them.
+/* ===================== Chat ===================== */
+// One list for every conversation: the team chat (collection "chat"), a chat for each project (ideas/{id}/chat, written by
+// the project's team) and private chats (dms/{a_b}/msgs, where a_b are the two people's ids in order; only they can read them).
+// A chat's key: "team", "p:<projectId>" or "dm:<uid>". Pins and who's typing (team and project chats) live in meta/chat.
 let dmThreads = [], dmMsgs = {}, dmSubFor = null, dmSubStop = null, dmOff = false;
+let pcMsgs = {}, pcSubFor = null, pcSubStop = null, pcOff = {};
+let chatMeta = { pins: {}, typing: {} };
 const dmId = u => [me, u].sort().join("_");
 const otherOf = t => (t.members || []).find(x => x !== me) || me;
-const chatWith = () => route().dm || null;                    // the person I'm messaging, or null for the team chat
-const curList = () => chatWith() ? (dmMsgs[dmId(chatWith())] || []) : chat;
-const msgRef = id => chatWith() ? doc(db, "dms", dmId(chatWith()), "msgs", id) : doc(db, "chat", id);
 const dmUnread = t => t.lastBy && t.lastBy !== me && (t.lastAt || 0) > ((t.seen || {})[me] || 0);
+const wideChat = () => matchMedia("(min-width: 900px)").matches;
+const chatKey = () => { const r = route(); return r.view !== "chat" ? null : r.ch || (wideChat() ? "team" : null) };
+const chatWith = () => { const k = chatKey(); return k && k.startsWith("dm:") ? k.slice(3) : null };
+const projOfKey = k => k && k.startsWith("p:") ? ideas.find(i => i.id === k.slice(2)) || null : null;
+const chatHash = k => k === "team" ? "chat-team" : k.startsWith("dm:") ? "dm-" + k.slice(3) : "pc-" + k.slice(2);
+const listOf = k => !k ? [] : k === "team" ? chat : k.startsWith("dm:") ? (dmMsgs[dmId(k.slice(3))] || []) : (pcMsgs[k.slice(2)] || []);
+const curList = () => listOf(chatKey() || "team");
+const chatRef = (k, id) => k === "team" ? doc(db, "chat", id) : k.startsWith("dm:") ? doc(db, "dms", dmId(k.slice(3)), "msgs", id) : doc(db, "ideas", k.slice(2), "chat", id);
+const msgRef = id => chatRef(chatKey() || "team", id);
+const threadOf = u => dmThreads.find(t => t.id === dmId(u));
 function watchDm(u) {
   const tid = u ? dmId(u) : null;
   if (tid === dmSubFor) return;
@@ -2154,6 +2171,14 @@ function watchDm(u) {
   dmSubStop = onSnapshot(query(collection(db, "dms", tid, "msgs"), orderBy("at"), limitToLast(300)),
     s => { dmMsgs[tid] = s.docs.map(d => ({ id: d.id, ...d.data() })); render() },
     () => { dmOff = true; render() });
+}
+function watchPc(pid) {
+  if (pid === pcSubFor) return;
+  if (pcSubStop) { pcSubStop(); pcSubStop = null }
+  pcSubFor = pid; if (!pid || !db) return;
+  pcSubStop = onSnapshot(query(collection(db, "ideas", pid, "chat"), orderBy("at"), limitToLast(300)),
+    s => { pcMsgs[pid] = s.docs.map(d => ({ id: d.id, ...d.data() })); delete pcOff[pid]; render() },
+    () => { pcOff[pid] = true; render() });
 }
 // after sending or deleting in a private chat, keep the conversation's summary up to date
 function touchThread(u, last) {
@@ -2166,73 +2191,723 @@ function touchThread(u, last) {
 }
 
 let chat = [];
-let chatSel = null;      // message whose actions are showing
-let chatReply = null;    // message being replied to
-let chatEdit = null;     // own message being edited
-let chatDel = null;      // own message waiting for delete confirmation
-let chatReactPick = null, chatEmojiOpen = false;
+let chatSel = null, chatReply = null, chatEdit = null, chatDel = null, chatReactPick = null, chatEmojiOpen = false;
+let ncFilter = "all", ncInfo = false, ncInfoTab = "photos", ncFind = "", ncFindOpen = false, ncForm = null, ncPollN = 2, ncFwd = null, ncPlusOpen = false;
+let ncSheet = null, ncCur = null, ncDivider = 0, ncDividerSet = false, ncFlash = null;
+const ncDrafts = {};
 const seenKey = () => "chatSeen:" + me;
 const getSeen = () => { try { return +localStorage.getItem(seenKey()) || 0 } catch { return 0 } };
 const setSeen = v => { try { localStorage.setItem(seenKey(), String(v)) } catch { } };
 const msgById = id => curList().find(m => m.id === id);
 const snippet = t => (t || "").replace(/\s+/g, " ").slice(0, 90) + ((t || "").length > 90 ? "…" : "");
+const fmtSecs = s => `${Math.floor((s || 0) / 60)}:${String(Math.round(s || 0) % 60).padStart(2, "0")}`;
+const initials = s => String(s || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => [...w][0]).join("").toUpperCase() || "?";
+const firstOf = u => (chatName(u) || "").split(" ")[0];
+const atName = u => (realName(u) || chatName(u) || "").split(" ")[0];   // the name people type after @ (yours too, not "You")
 
-$("#chatform").addEventListener("submit", e => { e.preventDefault(); sendChat() });
-$("#chat-emoji").onclick = () => { chatEmojiOpen = !chatEmojiOpen; const host = $("#chat-emoji-panel"); host.hidden = !chatEmojiOpen; host.replaceChildren(chatEmojiOpen ? emojiPanel(e => insertAtCursor($("#chat-input"), e)) : "") };
-$("#chat-input").addEventListener("input", () => autoGrow($("#chat-input")));
-$("#chat-input").addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat() }
-  if (e.key === "Escape" && (chatReply || chatEdit)) { e.preventDefault(); cancelChatMode() }
-});
-function cancelChatMode() {
-  if (chatEdit) $("#chat-input").value = "";
-  chatReply = null; chatEdit = null; render();
+/* icons: a small set drawn once in the page (see #nc-icons) */
+const nIc = (id, cls = "") => { const s = document.createElement("span"); s.className = "nic" + (cls ? " " + cls : ""); s.innerHTML = `<svg aria-hidden="true"><use href="#ni-${id}"/></svg>`; return s };
+// a person's round picture, or their initials on soft teal
+function ncAv(u, cls = "", dot = true) {
+  const pr = people[u] || {}, pm = pmByUid(u) || {}, ph = pr.pic || pr.photo || pm.photo || "";
+  return el("span", { class: "nc-av" + (cls ? " " + cls : ""), title: chatName(u) },
+    ph ? el("img", { src: ph, alt: "", referrerpolicy: "no-referrer" }) : initials(realName(u) || chatName(u)),
+    dot && u !== me && isOnline(u) ? el("span", { class: "on" }) : null);
 }
+const keyAv = (k, cls = "") => k === "team" ? el("span", { class: "nc-av team" + (cls ? " " + cls : "") }, "#")
+  : k.startsWith("dm:") ? ncAv(k.slice(3), cls) : el("span", { class: "nc-av sq" + (cls ? " " + cls : "") }, initials((projOfKey(k) || {}).title));
+const keyTitle = k => k === "team" ? "Everyone" : k.startsWith("dm:") ? chatName(k.slice(3)) : (projOfKey(k) || {}).title || "Project";
+const chatMembers = k => k === "team" ? teamIds() : k.startsWith("p:") ? (projOfKey(k) ? teamOf(projOfKey(k)) : []) : [me, k.slice(3)];
+
+/* seen, unread and read ticks: each person's last-seen time per chat is on their profile (users/{uid}.chatSeen) */
+const mySeenMap = () => ((people[me] || {}).chatSeen) || {};
+const seenOf = (k, u = me) => {
+  if (k.startsWith("dm:")) return (((threadOf(k.slice(3)) || {}).seen) || {})[u] || 0;
+  const s = ((((people[u] || {}).chatSeen) || {})[k] || {}).at || 0;
+  return u === me && k === "team" ? Math.max(s, getSeen()) : s;
+};
+const seenSent = {};
+function markRead(k) {
+  if (!k || document.hidden || !db) return;
+  if (k.startsWith("dm:")) {
+    const t = threadOf(k.slice(3)); if (t && dmUnread(t)) { t.seen = { ...(t.seen || {}), [me]: Date.now() }; setDoc(doc(db, "dms", t.id), { seen: { [me]: Date.now() } }, { merge: true }).catch(() => {}) }
+    return;
+  }
+  const list = listOf(k), p = projOfKey(k), last = Math.max(list.length ? list[list.length - 1].at : 0, p && p.chat && p.chat.last ? p.chat.last.at : 0);
+  if (!last || last <= seenOf(k) || (seenSent[k] || 0) >= last) return;
+  seenSent[k] = last; if (k === "team") setSeen(last);
+  setDoc(doc(db, "users", me), { chatSeen: { [k]: { at: last, n: p ? ((p.chat || {}).n || 0) : list.length } } }, { merge: true }).catch(() => { seenSent[k] = 0 });
+}
+
+/* @mentions */
+function findMentions(k, text) {
+  if (!k || k.startsWith("dm:")) return [];
+  const words = new Set((String(text).match(/@([\p{L}\p{N}_]+)/gu) || []).map(w => w.slice(1).toLowerCase()));
+  const out = new Set(); if (words.has("everyone") || words.has("all")) out.add("all");
+  for (const u of chatMembers(k)) if (u !== me && words.has(atName(u).toLowerCase())) out.add(u);
+  return [...out];
+}
+const mentionsMe = m => !!m && m.by !== me && Array.isArray(m.mentions) && (m.mentions.includes(me) || m.mentions.includes("all"));
+// message text: links, and @names in a teal pill (yours in graphite)
+function ncText(k, text) {
+  const names = new Map(chatMembers(k).map(u => [atName(u).toLowerCase(), u]));
+  const out = []; let last = 0;
+  String(text).replace(/@([\p{L}\p{N}_]+)/gu, (w, n, i) => {
+    const l = n.toLowerCase(), u = names.get(l);
+    if (!u && l !== "everyone" && l !== "all") return w;
+    out.push(...linkify(text.slice(last, i)));
+    out.push(el("span", { class: "nc-mention" + (u === me || l === "everyone" || l === "all" ? " me" : "") }, w));
+    last = i + w.length; return w;
+  });
+  out.push(...linkify(text.slice(last)));
+  return el("span", { class: "nc-text", dir: "auto" }, out);
+}
+
+/* who gets a phone alert from a chat: every message, only @mentions, or nothing */
+const notifyOf = (k, u = me) => ((((people[u] || {}).chatNotify) || {})[k]) || "all";
+function setNotify(k, v) {
+  write(() => setDoc(doc(db, "users", me), { chatNotify: { [k]: v === "all" ? DEL() : v } }, { merge: true }),
+    v === "off" ? "Muted. You still see the unread count" : v === "mentions" ? "You'll only hear about @mentions here" : "You'll hear about every message");
+}
+
+/* online: the site says you're here every couple of minutes while it's open */
+let activeSentAt = 0;
+function heartbeat() {
+  if (!me || !db || !live || document.hidden || partnerMode || clientMode) return;
+  const now = Date.now(); if (now - activeSentAt < 120e3) return; activeSentAt = now;
+  setDoc(doc(db, "users", me), { active: now }, { merge: true }).catch(() => { activeSentAt = 0 });
+}
+setInterval(heartbeat, 30e3); document.addEventListener("visibilitychange", heartbeat); addEventListener("focus", heartbeat);
+const isOnline = u => Date.now() - ((people[u] || {}).active || 0) < 4 * 60e3;
+const lastSeenText = u => { const a = (people[u] || {}).active; return a ? "Last seen " + ago(a) : "" };
+
+/* typing: written at most every 4 seconds, and shown for 7 */
+let typingSentAt = 0, typingKey = null;
+function sendTyping(k) {
+  if (!k || !db) return;
+  const now = Date.now(); if (typingKey === k && now - typingSentAt < 4000) return;
+  if (k.startsWith("dm:") && !threadOf(k.slice(3))) return;
+  typingSentAt = now; typingKey = k;
+  (k.startsWith("dm:") ? setDoc(doc(db, "dms", dmId(k.slice(3))), { typing: { [me]: now } }, { merge: true }) : setDoc(doc(db, "meta", "chat"), { typing: { [k]: { [me]: now } } }, { merge: true })).catch(() => {});
+}
+function stopTyping() {
+  const k = typingKey; if (!k || !db) return; typingKey = null; typingSentAt = 0;
+  (k.startsWith("dm:") ? setDoc(doc(db, "dms", dmId(k.slice(3))), { typing: { [me]: DEL() } }, { merge: true }) : setDoc(doc(db, "meta", "chat"), { typing: { [k]: { [me]: DEL() } } }, { merge: true })).catch(() => {});
+}
+const typersIn = k => {
+  const t = k.startsWith("dm:") ? ((threadOf(k.slice(3)) || {}).typing || {}) : (((chatMeta.typing || {})[k]) || {});
+  return Object.entries(t).filter(([u, at]) => u !== me && typeof at === "number" && Date.now() - at < 7000).map(([u]) => u);
+};
+let typingTimer = null;
+const typingWord = (k, us) => k.startsWith("dm:") ? "typing…" : `${us.map(firstOf).join(", ")} ${us.length > 1 ? "are" : "is"} typing…`;
+
+/* pinned message, one per chat */
+const pinOf = k => k.startsWith("dm:") ? ((threadOf(k.slice(3)) || {}).pin || null) : (((chatMeta.pins || {})[k]) || null);
+function setPin(k, m) {
+  const v = m ? { id: m.id, text: (m.text || msgSummary(m)).slice(0, 200), by: me, at: Date.now() } : DEL();
+  if (k.startsWith("dm:")) return write(() => setDoc(doc(db, "dms", dmId(k.slice(3))), { pin: v }, { merge: true }), m ? "Pinned for both of you" : "Unpinned");
+  return write(() => setDoc(doc(db, "meta", "chat"), { pins: { [k]: v } }, { merge: true }), m ? "Pinned for everyone in this chat" : "Unpinned");
+}
+
+/* sending */
 let sending = false;
-async function sendChat() {
-  if (sending) return;
+const extraFor = k => { const u = k && k.startsWith("dm:") ? k.slice(3) : null, pm = u ? pmByUid(u) : null; return pm ? { gid: pm.gid } : {} };
+async function sendMsg(k, data) {
+  const full = { by: me, at: Date.now(), text: "", ...data };
+  const ok = await write(() => setDoc(chatRef(k, uid()), full));
+  if (ok) afterSend(k, full);
+  return ok;
+}
+function afterSend(k, last) {
+  stopTyping();
+  if (k.startsWith("dm:")) write(() => touchThread(k.slice(3), last));
+  else if (k.startsWith("p:")) {
+    const p = projOfKey(k); if (!p) return;
+    const c = p.chat || {};
+    write(() => upd(p.id, { "chat.n": (c.n || 0) + 1, "chat.last": { by: me, at: last.at, text: msgSummary(last).slice(0, 120), ...(last.mentions && last.mentions.length ? { mentions: last.mentions } : {}) } }));
+  }
+}
+async function ncSend() {
+  const k = chatKey(); if (!k || sending || rec) return;
   const inp = $("#chat-input"); const text = inp.value.trim();
   if (chatEdit) {
     if (!text) return;
-    inp.value = "";
+    inp.value = ""; autoGrow(inp); updateSendBtn();
     const id = chatEdit; chatEdit = null;
     const old = msgById(id);
-    if (old && old.text !== text) write(() => updateDoc(msgRef(id), { text, edited: Date.now() }), "Message edited");
+    if (old && old.text !== text) write(() => updateDoc(msgRef(id), { text, edited: Date.now(), mentions: findMentions(k, text) }), "Message edited");
     else render();
     return;
   }
-  if (!text && !pending.length) return;
-  inp.value = ""; autoGrow(inp); if (chatEmojiOpen) $("#chat-emoji").click();
+  if (!text && !pending.length) { startRec(); return }
+  inp.value = ""; autoGrow(inp); ncDrafts[k] = ""; closeMentions(); if (chatEmojiOpen) $("#chat-emoji").click();
   await fbReady;
   let replyTo = chatReply && msgById(chatReply) ? chatReply : null;
   chatReply = null;
   const files = pending.splice(0); renderAttach();
-  const dmTo = chatWith(); let last = null;
   if (files.length) {
-    sending = true; $("#chat-send").disabled = true;
+    sending = true; updateSendBtn();
     try {
       for (let i = 0; i < files.length; i++) {
-        setUploadStatus(`Sending ${files.length > 1 ? `file ${i + 1} of ${files.length}` : files[i].f.name}\u2026`);
-        const pm = dmTo ? pmByUid(dmTo) : null;
-        const file = await uploadFile(await prepareFile(files[i].f), pct => setUploadStatus(`Sending ${files[i].f.name}\u2026 ${pct}%`), pm ? { gid: pm.gid } : {});
-        const data = { by: me, text: "", at: Date.now(), file };
-        if (replyTo) { data.replyTo = replyTo; replyTo = null }
-        await setDoc(msgRef(uid()), data); last = data;
+        setUploadStatus(`Sending ${files.length > 1 ? `file ${i + 1} of ${files.length}` : files[i].f.name}…`);
+        const file = await uploadFile(await prepareFile(files[i].f), pct => setUploadStatus(`Sending ${files[i].f.name}… ${pct}%`), extraFor(k));
+        await sendMsg(k, { file, ...(replyTo ? { replyTo } : {}) }); replyTo = null;
       }
     } catch (e) {
-      status(e.code === "permission-denied" ? "Sending files isn't allowed yet. Ask Mohammed to update the database rules." : "A file didn't send. Check your connection and try again.", true);
+      status(e && e.code === "permission-denied" ? "Sending files isn't allowed yet. Ask Mohammed to update the database rules." : "A file didn't send. Check your connection and try again.", true);
     }
-    sending = false; $("#chat-send").disabled = false; setUploadStatus("");
+    sending = false; setUploadStatus("");
   }
-  if (text) {
-    const data = { by: me, text, at: Date.now() };
-    if (replyTo) data.replyTo = replyTo;
-    last = data;
-    write(() => setDoc(msgRef(uid()), data));
+  if (text) { const mentions = findMentions(k, text); sendMsg(k, { text, ...(replyTo ? { replyTo } : {}), ...(mentions.length ? { mentions } : {}) }) }
+  ncToBottom = true; updateSendBtn(); render();
+}
+function cancelChatMode() {
+  if (chatEdit) $("#chat-input").value = "";
+  chatReply = null; chatEdit = null; updateSendBtn(); render();
+}
+
+/* voice messages: recorded in the browser, sent like a file (about 1 MB a minute) */
+let rec = null;
+async function startRec() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) { toast("Voice messages need a newer browser. Try Chrome or Safari"); return }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }) } catch { toast("Allow the microphone to record a voice message"); return }
+  const type = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+  let mr; try { mr = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined) } catch { mr = new MediaRecorder(stream) }
+  rec = { mr, chunks: [], start: Date.now(), stream, type: mr.mimeType || type || "audio/webm", levels: [] };
+  mr.ondataavailable = e => { if (e.data && e.data.size) rec && rec.chunks.push(e.data) };
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)(), an = ac.createAnalyser(); an.fftSize = 256;
+    ac.createMediaStreamSource(stream).connect(an); rec.ac = ac; rec.an = an;
+  } catch { }
+  mr.start(250);
+  $("#nc-rec").hidden = false; $("#chatform").hidden = true; closeMentions(); ncPlusOpen = false; renderPlus();
+  const wave = $("#nc-recwave"); wave.replaceChildren(...Array.from({ length: 28 }, () => el("i", { style: "height:4px" })));
+  const buf = new Uint8Array(128);
+  rec.timer = setInterval(() => {
+    if (!rec) return;
+    const s = (Date.now() - rec.start) / 1000; $("#nc-rect").textContent = fmtSecs(s);
+    let lvl = Math.random() * .5; if (rec.an) { rec.an.getByteTimeDomainData(buf); lvl = Math.min(1, buf.reduce((a, v) => Math.max(a, Math.abs(v - 128)), 0) / 64) }
+    const bars = [...wave.children]; bars.forEach((b, i) => { b.style.height = (i === bars.length - 1 ? 4 + lvl * 20 : parseFloat((bars[i + 1] || b).style.height)) + "px" });
+    if (s >= 300) stopRec(true);
+  }, 120);
+}
+function stopRec(send) {
+  const r = rec; if (!r) return; rec = null; clearInterval(r.timer);
+  $("#nc-rec").hidden = true; $("#chatform").hidden = false;
+  const k = chatKey(), secs = Math.max(1, Math.round((Date.now() - r.start) / 1000));
+  r.mr.onstop = async () => {
+    r.stream.getTracks().forEach(t => t.stop()); try { r.ac && r.ac.close() } catch { }
+    if (!send || !k) { if (!send) toast("Voice message deleted"); return }
+    const type = (r.type || "audio/webm").split(";")[0], blob = new Blob(r.chunks, { type });
+    if (blob.size > MAX_FILE) { toast("That voice message is too long. Keep it under 10 minutes"); return }
+    setUploadStatus("Sending voice message…");
+    try { const file = await uploadFile({ blob, name: "Voice message." + (/mp4|aac/.test(type) ? "m4a" : /ogg/.test(type) ? "ogg" : "webm"), type }, null, extraFor(k)); file.voice = secs; ncToBottom = true; await sendMsg(k, { file }) }
+    catch { toast("The voice message didn't send. Check your connection and try again", 5000) }
+    setUploadStatus("");
+  };
+  try { r.mr.stop() } catch { r.mr.onstop() }
+}
+// one player for all voice messages, so playing survives the page redrawing
+const ncAudio = { a: new Audio(), id: null, rate: 1 };
+const waveOf = id => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return Array.from({ length: 34 }, (_, i) => 5 + Math.round(Math.abs(Math.sin(i * 1.7 + (h % 97))) * 18) + (i % 5)) };
+function voiceUi() {
+  const { a, id } = ncAudio;
+  for (const v of document.querySelectorAll(".nc-voice")) {
+    const mine = v.dataset.voice === id, bars = v.querySelectorAll(".nc-wave i"), pct = mine && a.duration && isFinite(a.duration) ? a.currentTime / a.duration : 0;
+    bars.forEach((b, i) => b.classList.toggle("on", mine && i < Math.round(pct * bars.length)));
+    const t = v.querySelector(".nc-vt"); if (t) t.textContent = mine && !a.paused ? fmtSecs(a.currentTime) : fmtSecs(+v.dataset.secs);
+    const btn = v.querySelector(".nc-play"); if (btn) { const want = mine && !a.paused ? "pause" : "play"; if (btn.dataset.ic !== want) { btn.dataset.ic = want; btn.replaceChildren(nIc(want)) } }
   }
-  if (dmTo && last) write(() => touchThread(dmTo, last));
+}
+ncAudio.a.addEventListener("timeupdate", voiceUi); ncAudio.a.addEventListener("pause", voiceUi); ncAudio.a.addEventListener("play", voiceUi);
+ncAudio.a.addEventListener("ended", () => { ncAudio.id = null; voiceUi() });
+async function toggleVoice(f) {
+  const a = ncAudio.a;
+  if (ncAudio.id === f.id) { a.paused ? a.play() : a.pause(); return }
+  a.pause(); ncAudio.id = f.id; voiceUi();
+  try { a.src = await loadFile(f); a.playbackRate = ncAudio.rate; await a.play() } catch { ncAudio.id = null; voiceUi(); toast("That voice message couldn't be played") }
+}
+function cycleRate() { ncAudio.rate = ncAudio.rate === 1 ? 1.5 : ncAudio.rate === 1.5 ? 2 : 1; ncAudio.a.playbackRate = ncAudio.rate; for (const s of document.querySelectorAll(".nc-speed")) s.textContent = ncAudio.rate + "×" }
+function voiceEl(f) {
+  return el("div", { class: "nc-voice", "data-voice": f.id, "data-secs": f.voice || 0 },
+    el("button", { type: "button", class: "nc-play", "aria-label": "Play voice message", "data-ic": "play", onclick: e => { e.stopPropagation(); toggleVoice(f) } }, nIc("play")),
+    el("span", { class: "nc-wave" }, waveOf(f.id).map(h => el("i", { style: `height:${h}px` }))),
+    el("span", { class: "nc-vmeta" }, el("button", { type: "button", class: "nc-speed", onclick: e => { e.stopPropagation(); cycleRate() } }, ncAudio.rate + "×"), el("span", { class: "nc-vt" }, fmtSecs(f.voice))));
+}
+
+/* polls */
+function pollEl(k, m) {
+  const votes = (m.poll && m.poll.votes) || {}, opts = (m.poll && m.poll.opts) || [], who = Object.keys(votes), mineV = votes[me];
+  const counts = opts.map((_, i) => who.filter(u => votes[u] === i).length);
+  const total = Math.max(1, chatMembers(k).length);
+  return el("div", { class: "nc-poll" }, el("div", { class: "q", dir: "auto" }, m.poll.q), el("div", { class: "sub" }, `Poll · tap to vote · ${who.length} of ${total} voted`),
+    opts.map((t, i) => { const pc = who.length ? Math.round(counts[i] / who.length * 100) : 0, on = mineV === i;
+      return el("button", { type: "button", class: "nc-opt" + (on ? " on" : ""), onclick: e => { e.stopPropagation(); write(() => updateDoc(chatRef(k, m.id), { [`poll.votes.${me}`]: on ? DEL() : i })) } },
+        el("span", { class: "fill", style: `width:${pc}%` }), el("span", { class: "box" }, on ? nIc("check") : null), el("span", { class: "lab", dir: "auto" }, t),
+        el("span", { class: "vs" }, who.filter(u => votes[u] === i).slice(0, 4).map(u => ncAv(u, "xs", false))), el("span", { class: "pc" }, pc + "%")) }));
+}
+/* a task made from a message: shows the task as it is now */
+function taskCardEl(k, m) {
+  const p = ideas.find(i => i.id === m.task.pid), t = p ? tasksOf(p).find(x => x.id === m.task.tid) : null;
+  return el("div", { class: "nc-taskcard" },
+    el("span", { class: "k" }, nIc("task"), t && t.done ? "Task done" : m.task.from ? "Task made from a message" : "New task"),
+    el("span", { class: "tt" + (t && t.done ? " done" : ""), dir: "auto" }, t ? t.text : m.task.text),
+    t ? el("span", { class: "tm" }, assignees(t).map(u => el("span", { class: "nc-chip" }, ncAv(u, "xs", false), firstOf(u))), t.due ? el("span", { class: "nc-chip" }, "Due " + fmtDate(t.due)) : null, el("span", { class: "nc-chip" }, p.title))
+      : el("span", { class: "nc-sub" }, "This task was deleted"),
+    el("span", { class: "nc-row2" },
+      t ? el("button", { type: "button", class: "btn small primary", onclick: e => { e.stopPropagation(); location.hash = "task-" + p.id + "-" + t.id } }, "Open task") : null,
+      m.task.from ? el("button", { type: "button", class: "btn small", onclick: e => { e.stopPropagation(); ncJump(m.task.from) } }, "See the message") : null));
+}
+function makeTask(k, m) {
+  const p = projOfKey(k);
+  const text = (m.text || msgSummary(m)).replace(/^(@[\p{L}\p{N}_]+[\s,]*)+/u, "").replace(/\s+/g, " ").trim().slice(0, 140) || "Follow up";
+  if (!p || !canPlan(p)) return write(() => setDoc(doc(db, "private", me, "tasks", uid()), { text, done: false, due: null, priority: "medium", order: Date.now() }), "Saved as your own task. Find it in Me");
+  const tid = uid(), owner = m.by !== me && teamOf(p).includes(m.by) ? m.by : null, ph = getPhases(p)[0];
+  write(async () => {
+    await upd(p.id, { ["tasks." + tid]: { text, phase: ph ? ph.id : "build", skill: null, owner, assignedBy: me, assignedAt: Date.now(), done: false, order: Date.now(), due: null } });
+    ncToBottom = true; await sendMsg(k, { task: { pid: p.id, tid, text, from: m.id } });
+  }, `Task added to ${p.title}`);
+}
+function askAboutMsg(m) {
+  asstOpen = true; alertsOpen = false; render();
+  setTimeout(() => { const i = document.getElementById("asst-input"); if (i) { i.value = `About this message from ${chatName(m.by)}: “${(m.text || msgSummary(m)).slice(0, 500)}”\n`; i.focus(); i.dispatchEvent(new Event("input")) } }, 80);
+}
+
+/* the list of chats */
+function chatRows() {
+  const rows = [];
+  const tl = chat.length ? chat[chat.length - 1] : null, tSeen = seenOf("team"), tNew = chat.filter(m => m.at > tSeen && m.by !== me);
+  rows.push({ k: "team", kind: "team", title: "Everyone", last: tl ? { by: tl.by, at: tl.at, text: tl.system ? "Weekly summary" : msgSummary(tl) } : null, unread: tNew.length, mention: tNew.some(mentionsMe), pinned: true });
+  for (const p of ideas) {
+    if (p.status !== "approved" || !(isAdmin || projTeam(p).includes(me))) continue;
+    const k = "p:" + p.id, c = p.chat || {}, last = c.last || null, s = mySeenMap()[k] || {};
+    const unread = last && last.by !== me && last.at > (s.at || 0) ? Math.max(1, (c.n || 0) - (s.n || 0)) : 0;
+    rows.push({ k, kind: "project", title: p.title, last, unread, at: last ? last.at : 0, mention: !!(unread && last && Array.isArray(last.mentions) && (last.mentions.includes(me) || last.mentions.includes("all"))) });
+  }
+  const others = teamIds().filter(u => u !== me && people[u]);
+  const partners = [...new Set([...pMembers.filter(m => m.uid && m.active !== false).map(m => m.uid), ...dmThreads.filter(t => Object.values(t.roles || {}).includes("partner")).map(otherOf)])].filter(u => u !== me && !others.includes(u));
+  for (const u of [...others, ...partners]) { const t = threadOf(u); rows.push({ k: "dm:" + u, kind: "dm", u, partner: isPartnerUid(u), title: chatName(u), last: t && t.lastAt ? { by: t.lastBy, at: t.lastAt, text: t.lastText || "" } : null, unread: t && dmUnread(t) ? 1 : 0 }) }
+  if (typeof pGroups !== "undefined") for (const g of pGroups) {
+    const items = groupChatItems(g.id).filter(x => !x.system), l = items[items.length - 1];
+    rows.push({ k: "pg:" + g.id, kind: "pgroup", gid: g.id, title: g.name || "Partner group", partner: true, last: l ? { by: l.by, at: l.at, text: l.text || (l.file ? "File" : ""), name: l.name } : null, unread: partnerUnread(g.id) });
+  }
+  for (const r of rows) { r.muted = notifyOf(r.k) === "off"; r.typers = r.kind === "pgroup" ? [] : typersIn(r.k); if (r.at == null) r.at = r.last ? r.last.at : 0 }
+  return rows;
+}
+function whenShort(t) {
+  const d = new Date(t), days = Math.round((new Date(new Date().toDateString()) - new Date(d.toDateString())) / 864e5);
+  return days <= 0 ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : days === 1 ? "Yesterday" : days < 7 ? d.toLocaleDateString(undefined, { weekday: "short" }) : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+const PREV_IC = [[/^Voice message/, "mic"], [/^Photo/, "image"], [/^File:/, "file"], [/^Poll:/, "poll"], [/^Task:/, "task"]];
+function rowAv(r) { return r.kind === "team" ? el("span", { class: "nc-av team" }, "#") : r.kind === "dm" ? ncAv(r.u) : el("span", { class: "nc-av sq" + (r.kind === "pgroup" ? " pg" : "") }, initials(r.title)) }
+function previewEl(r) {
+  if (r.typers.length) return el("span", { class: "nc-cprev typing" }, typingWord(r.k, r.typers));
+  const l = r.last;
+  if (!l) return el("span", { class: "nc-cprev quiet" }, r.kind === "dm" ? "Say hi" : "No messages yet");
+  const mine = l.by === me, who = mine ? "You" : r.kind === "dm" ? "" : (l.name || firstOf(l.by));
+  const ic = (PREV_IC.find(([re]) => re.test(l.text || "")) || [])[1];
+  const read = mine && r.kind === "dm" && seenOf(r.k, r.u) >= l.at;
+  return el("span", { class: "nc-cprev" }, mine && r.kind !== "pgroup" ? el("span", { class: "nc-tick" + (read ? " read" : "") }, nIc(read ? "checks" : "check")) : null,
+    who ? el("span", { class: "who" }, who + ":") : null, ic ? nIc(ic) : null, el("span", { class: "tx", dir: "auto" }, l.text || ""));
+}
+function openRow(r, flash) {
+  if (r.kind === "pgroup") { location.hash = "pg-" + r.gid; return }
+  ncFlash = flash || null; ncInfo = false;
+  const h = chatHash(r.k); if (location.hash === "#" + h) render(); else location.hash = h;
+}
+function renderChatList(cur, rows) {
+  const q = ($("#nc-q").value || "").trim().toLowerCase();
+  const unreadN = rows.filter(r => r.unread && !r.muted).length;
+  const f = $("#nc-filters"), fk = ncFilter + unreadN;
+  if (f.dataset.k !== fk) { f.dataset.k = fk; f.replaceChildren(...[["all", "All"], ["unread", "Unread", unreadN], ["project", "Projects"], ["dm", "People"], ["partner", "Partners"]].map(([v, l, n]) =>
+    el("button", { type: "button", "aria-pressed": String(ncFilter === v), onclick: () => { ncFilter = v; render() } }, l, n ? el("span", { class: "n" }, String(n)) : null))) }
+  let list = rows.filter(r => ncFilter === "all" || (ncFilter === "unread" ? r.unread : ncFilter === "project" ? r.kind === "project" : ncFilter === "dm" ? r.kind === "dm" && !r.partner : r.partner));
+  if (q) list = list.filter(r => r.title.toLowerCase().includes(q) || (r.last && (r.last.text || "").toLowerCase().includes(q)));
+  const pinned = list.filter(r => r.pinned), rest = list.filter(r => !r.pinned).sort((a, b) => (b.at || 0) - (a.at || 0) || a.title.localeCompare(b.title));
+  const row = r => el("button", { type: "button", class: "nc-row", "aria-current": String(r.k === cur), onclick: () => openRow(r) }, rowAv(r),
+    el("span", { class: "nc-rmain" }, el("span", { class: "nc-cname" }, el("span", { class: "t" }, r.title),
+      r.kind === "project" ? el("span", { class: "nc-tag proj" }, "Project") : r.partner ? el("span", { class: "nc-tag" }, r.kind === "pgroup" ? "Partners" : "Partner") : null), previewEl(r)),
+    el("span", { class: "nc-cmeta" + (r.unread && !r.muted ? " unread" : "") }, r.last ? whenShort(r.last.at) : "",
+      el("span", { class: "nc-badges" }, r.muted ? nIc("mute") : null, r.pinned ? nIc("pin") : null, r.mention ? el("span", { class: "nc-at" }, "@") : null, r.unread ? el("span", { class: "nc-count" + (r.muted ? " muted" : "") }, String(r.unread)) : null)));
+  const out = [];
+  out.push(...pinned.map(row));
+  if (rest.length) { if (pinned.length) out.push(el("div", { class: "nc-sect" }, "Recent")); out.push(...rest.map(row)) }
+  if (q.length > 1) {
+    const hits = [];
+    const look = (k, list) => { for (const m of list) if (m.text && m.text.toLowerCase().includes(q)) hits.push({ k, m }) };
+    look("team", chat); for (const [pid, l] of Object.entries(pcMsgs)) look("p:" + pid, l); for (const [tid, l] of Object.entries(dmMsgs)) { const u = tid.split("_").find(x => x !== me); if (u) look("dm:" + u, l) }
+    hits.sort((a, b) => b.m.at - a.m.at);
+    if (hits.length) { out.push(el("div", { class: "nc-sect" }, "Messages"));
+      out.push(...hits.slice(0, 8).map(({ k, m }) => el("button", { type: "button", class: "nc-row", onclick: () => openRow({ k, kind: "x" }, m.id) }, keyAv(k),
+        el("span", { class: "nc-rmain" }, el("span", { class: "nc-cname" }, el("span", { class: "t" }, keyTitle(k))), el("span", { class: "nc-cprev" }, el("span", { class: "who" }, (m.by === me ? "You" : firstOf(m.by)) + ":"), el("span", { class: "tx", dir: "auto" }, m.text))),
+        el("span", { class: "nc-cmeta" }, whenShort(m.at))))) }
+  }
+  if (!out.length) out.push(el("p", { class: "nc-none" }, q ? `Nothing found for “${$("#nc-q").value.trim()}”.` : ncFilter === "unread" ? "You're all caught up." : "No chats here yet."));
+  $("#nc-chats").replaceChildren(...out);
+}
+
+/* the open conversation */
+function renderHead(k) {
+  const typers = typersIn(k), p = projOfKey(k), u = chatWith();
+  const sub = typers.length ? typingWord(k, typers) : u ? (isPartnerUid(u) ? "Partner · " : "") + (isOnline(u) ? "Online" : lastSeenText(u)) : k === "team" ? `Team chat · ${teamIds().length} team members` : `Project chat · ${p ? teamOf(p).length : 0} people on the team`;
+  $("#chat-head").replaceChildren(
+    el("button", { type: "button", class: "nc-ib nc-back", "aria-label": "Back to chats", onclick: () => { location.hash = "chat" } }, nIc("back")),
+    keyAv(k),
+    el("button", { type: "button", class: "nc-ctitle", title: "Chat info", onclick: () => { ncInfo = true; render() } }, el("b", {}, keyTitle(k)), el("span", { class: typers.length ? "typing" : "" }, sub)),
+    el("button", { type: "button", class: "nc-ib", "aria-label": "Search in this chat", title: "Search in this chat", onclick: () => toggleFind() }, nIc("search")),
+    el("button", { type: "button", class: "nc-ib", "aria-label": "Chat info", title: "Chat info", onclick: () => { ncInfo = !ncInfo; render() } }, nIc("info")));
+}
+function toggleFind(open = !ncFindOpen) {
+  ncFindOpen = open; $("#nc-find").hidden = !open;
+  if (open) { if (!wideChat()) ncInfo = false; setTimeout(() => $("#nc-fq").focus(), 0) } else { ncFind = ""; $("#nc-fq").value = "" }
   render();
 }
+function renderPin(k) {
+  const pin = pinOf(k), host = $("#nc-pin");
+  host.replaceChildren(...(pin && pin.text ? [el("div", { class: "nc-pinbar" },
+    el("button", { type: "button", class: "nc-pinmain", onclick: () => ncJump(pin.id) }, el("span", { class: "bar" }), nIc("pinf"), el("span", { class: "pt" }, el("small", {}, "Pinned"), el("span", { dir: "auto" }, pin.text))),
+    el("button", { type: "button", class: "nc-ib sm", "aria-label": "Unpin", title: "Unpin", onclick: () => setPin(k, null) }, nIc("x")))] : []));
+}
+function ncJump(id) {
+  const n = document.getElementById("msg-" + id); if (!n) { toast("That message is too old to show here"); return }
+  n.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  n.classList.remove("flash"); void n.offsetWidth; n.classList.add("flash");
+}
+let ncToBottom = false;
+function dayLabel(t) {
+  const d = new Date(t), days = Math.round((new Date(new Date().toDateString()) - new Date(d.toDateString())) / 864e5);
+  return days === 0 ? "Today" : days === 1 ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+function renderLog(k, fresh) {
+  const log = $("#chatlog"), list = listOf(k), u = chatWith(), p = projOfKey(k);
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80, prevTop = log.scrollTop;
+  log.replaceChildren();
+  const denied = (u && dmOff) || (p && pcOff[p.id]);
+  if (denied) {
+    log.append(el("div", { class: "nc-empty" }, isAdmin
+      ? [el("span", {}, (p ? "Project chats" : "Private chats") + " need the latest database rules. Publish them the same way as last time (Cloud Shell), or copy them here and paste them in Firebase › Firestore › Rules."), el("button", { class: "btn small primary", onclick: () => copyText(PARTNER_RULES, "Rules copied. Paste them in Firebase › Firestore › Rules, then Publish") }, "Copy the rules")]
+      : `${p ? "Project chats aren't" : "Private chats aren't"} switched on yet. Ask ${ADMIN_NAME} to update the database rules.`));
+    return;
+  }
+  if (!list.length) { log.append(el("div", { class: "nc-empty" }, u ? `No messages with ${firstOf(u)} yet. Say hi, only you two will see it.` : p ? `No messages yet. Everyone on ${p.title}'s team is in this chat.` : "No messages yet. Say hi to the team.")); return }
+  const others = chatMembers(k).filter(x => x !== me);
+  const lastMine = [...list].reverse().find(m => m.by === me && !m.system);
+  const term = ncFindOpen ? ncFind.trim().toLowerCase() : ""; let hits = 0, firstHit = null;
+  let lastDay = "", lastBy = "", lastAt = 0, divided = false;
+  const react = (m, e, on) => write(() => updateDoc(chatRef(k, m.id), { [`reacts.${emojiKey(e)}.${me}`]: on ? true : DEL() }));
+  for (const m of list) {
+    const day = new Date(m.at).toDateString();
+    if (day !== lastDay) { log.append(el("div", { class: "nc-day" }, dayLabel(m.at))); lastBy = "" }
+    lastDay = day;
+    if (m.system === "weekly") { log.append(el("div", { class: "nc-weekly", id: "msg-" + m.id }, el("div", { class: "h" }, "Weekly summary"), el("div", { class: "pre" }, m.text))); lastBy = ""; continue }
+    if (!divided && ncDivider && m.at > ncDivider && m.by !== me) { log.append(el("div", { class: "nc-newdiv", id: "nc-newdiv" }, "New messages")); divided = true; lastBy = "" }
+    const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60e3 && !m.replyTo;
+    if (!mine && !grouped && !u) log.append(el("div", { class: "nc-mname" }, chatName(m.by), isPartnerUid(m.by) ? el("span", { class: "nc-tag" }, "Partner") : null));
+    const hit = !!term && (m.text || "").toLowerCase().includes(term); if (hit) { hits++; firstHit = firstHit || m.id }
+    const orig = m.replyTo ? list.find(x => x.id === m.replyTo) : null;
+    const rich = !!(m.poll || m.task), voice = m.file && m.file.voice, emo = isEmojiOnly(m.text) && !m.file && !m.replyTo;
+    const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const seenAll = mine && others.length && others.every(x => seenOf(k, x) >= m.at);
+    const b = el("div", { class: "nc-b" + (rich ? " rich" : "") + (hit ? " hl" : "") + (emo ? " emo" : ""), tabindex: "0", role: "button", "aria-label": "Message options",
+      onclick: e => { if (String(getSelection()) || e.target.closest("a, button, audio, video")) return; openSheet(m.id) },
+      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSheet(m.id) } } },
+      m.fwd ? el("span", { class: "nc-fwd" }, nIc("fwd"), "Forwarded") : null,
+      m.replyTo ? el("button", { type: "button", class: "nc-quote", onclick: e => { e.stopPropagation(); if (orig) ncJump(orig.id) } }, el("b", {}, orig ? (orig.by === me ? "You" : firstOf(orig.by)) : "Message"), el("span", { dir: "auto" }, orig ? msgSummary(orig) : "This message was deleted")) : null,
+      voice ? voiceEl(m.file) : m.file ? attachmentEl(m.file) : null,
+      m.poll ? pollEl(k, m) : null, m.task ? taskCardEl(k, m) : null,
+      m.text ? ncText(k, m.text) : null,
+      m.text && chatLeadCount(m.text) ? el("button", { type: "button", class: "msg-leads", onclick: e => { e.stopPropagation(); openLeadPicker(m.text) } }, `Put ${chatLeadCount(m.text)} ${chatLeadCount(m.text) === 1 ? "number" : "numbers"} in a group`) : null,
+      el("span", { class: "nc-meta" }, m.edited ? "edited · " : "", time, mine ? el("span", { class: "nc-tick" + (seenAll ? " read" : "") }, nIc(seenAll ? "checks" : "check")) : null));
+    log.append(el("div", { class: "nc-m" + (mine ? " mine" : "") + (grouped ? " g" : ""), id: "msg-" + m.id, "data-m": m.id },
+      mine ? null : el("span", { class: "nc-avs" }, grouped || u ? null : ncAv(m.by, "sm")),
+      el("div", { class: "nc-bw" }, el("span", { class: "nc-swipe" }, nIc("reply")),
+        el("div", { class: "nc-tools" },
+          el("button", { type: "button", "aria-label": "React", title: "React", onclick: e => { e.stopPropagation(); openSheet(m.id) } }, nIc("smile")),
+          el("button", { type: "button", "aria-label": "Reply", title: "Reply", onclick: e => { e.stopPropagation(); startReply(m.id) } }, nIc("reply")),
+          el("button", { type: "button", "aria-label": "More", title: "More", onclick: e => { e.stopPropagation(); openSheet(m.id) } }, nIc("more"))),
+        b, reactRow(m, (e, on) => react(m, e, on)))));
+    if (m === lastMine && others.length) {
+      const saw = others.filter(x => seenOf(k, x) >= m.at);
+      if (saw.length) log.append(el("div", { class: "nc-seenby" }, u ? "Seen" : "Seen by " + (saw.length === others.length && others.length > 2 ? "everyone" : saw.map(firstOf).join(", ")), u ? null : el("span", { class: "avs" }, saw.slice(0, 5).map(x => ncAv(x, "xs", false)))));
+    }
+    lastBy = m.by; lastAt = m.at;
+  }
+  const typers = typersIn(k);
+  if (typers.length) log.append(el("div", { class: "nc-m" }, el("span", { class: "nc-avs" }, u ? null : ncAv(typers[0], "sm")), el("div", { class: "nc-typing", "aria-label": typingWord(k, typers) }, el("i"), el("i"), el("i"))));
+  $("#nc-hits").textContent = term ? (hits ? `${hits} found` : "Not found") : "";
+  // where to scroll: a message to show, the first new message, the bottom, or stay put
+  if (ncFlash && document.getElementById("msg-" + ncFlash)) { const id = ncFlash; ncFlash = null; requestAnimationFrame(() => ncJump(id)) }
+  else if (term && firstHit && ncFindJump) { ncFindJump = false; const n = document.getElementById("msg-" + firstHit); if (n) n.scrollIntoView({ block: "center" }) }
+  else if (fresh) { const dv = document.getElementById("nc-newdiv"); if (dv) dv.scrollIntoView({ block: "center" }); else log.scrollTop = log.scrollHeight }
+  else if (atBottom || ncToBottom) log.scrollTop = log.scrollHeight;
+  else log.scrollTop = prevTop;
+  ncToBottom = false;
+  $("#nc-jump").hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 160;
+}
+let ncFindJump = false;
+function startReply(id) { chatReply = id; chatEdit = null; ncSheet = null; render(); $("#chat-input").focus() }
+
+/* the message box */
+function updateSendBtn() {
+  const b = $("#chat-send"), has = !!$("#chat-input").value.trim() || pending.length > 0 || !!chatEdit;
+  const want = chatEdit ? "check" : has ? "send" : "mic";
+  if (b.dataset.ic !== want) { b.dataset.ic = want; b.replaceChildren(nIc(want)) }
+  b.setAttribute("aria-label", chatEdit ? "Save" : has ? "Send" : "Record a voice message"); b.title = chatEdit ? "Save" : has ? "Send" : "Record a voice message";
+  b.disabled = sending;
+}
+function renderComposer(k) {
+  const p = projOfKey(k), canWrite = !p || inTeam(p), u = chatWith();
+  $("#chatform").hidden = !canWrite || !!rec; $("#nc-rec").hidden = !rec;
+  const ro = $("#nc-readonly"); ro.hidden = canWrite;
+  if (!canWrite) ro.replaceChildren(el("span", {}, `Only ${p.title}'s team can write here. You can read along.`), (p.joinReqs || {})[me] ? el("span", { class: "nc-sub" }, "You asked to join") : el("button", { class: "btn small primary", onclick: () => askToJoin(p) }, "Ask to join the team"));
+  $("#chat-input").placeholder = u ? "Message " + firstOf(u) : "Message " + keyTitle(k);
+  if (chatReply && !msgById(chatReply)) chatReply = null;
+  if (chatEdit && !msgById(chatEdit)) chatEdit = null;
+  const ctx = $("#chat-context"), ctxMsg = msgById(chatEdit || chatReply);
+  ctx.hidden = !ctxMsg;
+  ctx.replaceChildren(...(ctxMsg ? [el("span", { class: "nc-quote" }, el("b", {}, chatEdit ? "Editing your message" : `Replying to ${ctxMsg.by === me ? "yourself" : firstOf(ctxMsg.by)}`), el("span", { dir: "auto" }, msgSummary(ctxMsg))),
+    el("button", { type: "button", class: "nc-ib", title: "Cancel", "aria-label": "Cancel", onclick: cancelChatMode }, nIc("x"))] : []));
+  renderForm(k); renderPlus(); updateSendBtn();
+}
+function renderPlus() {
+  const k = chatKey(), p = projOfKey(k), box = $("#nc-plusmenu");
+  box.hidden = !ncPlusOpen;
+  if (!ncPlusOpen) { box.replaceChildren(); return }
+  const touch = matchMedia("(hover: none)").matches;
+  const it = (icon, label, sub, fn) => el("button", { type: "button", class: "nc-it", onclick: () => { ncPlusOpen = false; fn(); render() } }, el("span", { class: "ic" }, nIc(icon)), el("span", {}, label, sub ? el("small", {}, sub) : null));
+  box.replaceChildren(...[
+    it("image", "Photos and videos", "Send several at once", () => $("#chat-photo").click()),
+    touch ? it("camera", "Camera", null, () => $("#chat-camera").click()) : null,
+    it("file", "File", "PDF, design files, anything up to 10 MB", () => $("#chat-file").click()),
+    k && !k.startsWith("dm:") ? it("poll", "Poll", "Let the team vote", () => { ncForm = "poll"; ncPollN = 2; setTimeout(() => { const n = document.getElementById("nc-pq"); if (n) n.focus() }, 0) }) : null,
+    p && canPlan(p) ? it("task", "Task", "Give someone a task in this project", () => { ncForm = "task"; setTimeout(() => { const n = document.getElementById("nc-tt"); if (n) n.focus() }, 0) }) : null].filter(Boolean));
+}
+function renderForm(k) {
+  const host = $("#nc-form"), p = projOfKey(k);
+  if (ncForm === "task" && !(p && canPlan(p))) ncForm = null;
+  if (!ncForm) { host.replaceChildren(); return }
+  const close = el("button", { type: "button", class: "nc-ib sm", "aria-label": "Cancel", onclick: () => { ncForm = null; render() } }, nIc("x"));
+  if (ncForm === "poll") {
+    const opts = Array.from({ length: ncPollN }, (_, i) => el("input", { id: "nc-po" + i, class: "nc-in", placeholder: "Option " + (i + 1), maxlength: "80", dir: "auto" }));
+    const send = () => {
+      const q = $("#nc-pq").value.trim(), o = opts.map(x => document.getElementById(x.id).value.trim()).filter(Boolean);
+      if (!q) { toast("Write the question first"); return } if (o.length < 2) { toast("Add at least 2 options"); return }
+      ncForm = null; ncToBottom = true; sendMsg(k, { poll: { q, opts: o, votes: {} } }); render();
+    };
+    host.replaceChildren(el("div", { class: "nc-formbox" }, el("div", { class: "nc-formh" }, nIc("poll"), el("b", {}, "New poll"), el("span", { class: "spacer" }), close),
+      el("input", { id: "nc-pq", class: "nc-in", placeholder: "Ask a question", maxlength: "140", dir: "auto" }), ...opts,
+      el("div", { class: "nc-row2" }, ncPollN < 6 ? el("button", { type: "button", class: "btn small", onclick: () => { ncPollN++; render() } }, "Add an option") : null, el("span", { class: "spacer" }), el("button", { type: "button", class: "btn small primary", onclick: send }, "Send poll"))));
+  } else {
+    const who = el("select", { id: "nc-tw", class: "nc-in", "aria-label": "Who does it" }, el("option", { value: "" }, "Who does it?"), teamOf(p).map(u => el("option", { value: u }, chatName(u))));
+    const add = () => {
+      const text = $("#nc-tt").value.trim(); if (!text) { toast("Write what needs doing"); return }
+      const owner = $("#nc-tw").value || null, due = $("#nc-td").value || null, tid = uid(), ph = getPhases(p)[0];
+      ncForm = null; ncToBottom = true;
+      write(async () => { await upd(p.id, { ["tasks." + tid]: { text, phase: ph ? ph.id : "build", skill: null, owner, assignedBy: me, assignedAt: Date.now(), done: false, order: Date.now(), due } }); await sendMsg(k, { task: { pid: p.id, tid, text } }) }, `Task added to ${p.title}`);
+      render();
+    };
+    host.replaceChildren(el("div", { class: "nc-formbox" }, el("div", { class: "nc-formh" }, nIc("task"), el("b", {}, "New task in " + p.title), el("span", { class: "spacer" }), close),
+      el("input", { id: "nc-tt", class: "nc-in", placeholder: "What needs doing?", maxlength: "140", dir: "auto", onkeydown: e => { if (e.key === "Enter") { e.preventDefault(); add() } } }),
+      el("div", { class: "nc-row2" }, who, el("input", { id: "nc-td", type: "date", class: "nc-in", "aria-label": "Due date" }), el("span", { class: "spacer" }), el("button", { type: "button", class: "btn small primary", onclick: add }, "Add task"))));
+  }
+}
+// @ picker: shows the people in this chat while you type @name
+let mentionSel = 0, mentionList = [];
+function closeMentions() { const b = $("#nc-mentions"); b.hidden = true; b.replaceChildren(); mentionList = [] }
+function mentionCheck() {
+  const k = chatKey(), ta = $("#chat-input"), before = ta.value.slice(0, ta.selectionStart), mm = before.match(/(^|\s)@([\p{L}\p{N}_]*)$/u);
+  if (!k || !mm || k.startsWith("dm:")) { closeMentions(); return }
+  const q = mm[2].toLowerCase();
+  mentionList = [{ k: "everyone", l: "Everyone", s: "Rings everyone in this chat" }, ...chatMembers(k).filter(u => u !== me).map(u => ({ k: atName(u), l: chatName(u), s: isOnline(u) ? "Online" : lastSeenText(u), u }))]
+    .filter(x => x.l.toLowerCase().split(/\s+/).some(w => w.startsWith(q)) || x.k.toLowerCase().startsWith(q)).slice(0, 7);
+  if (!mentionList.length) { closeMentions(); return }
+  mentionSel = Math.min(mentionSel, mentionList.length - 1);
+  const b = $("#nc-mentions"); b.hidden = false;
+  b.replaceChildren(el("div", { class: "nc-ph" }, "Mention"), ...mentionList.map((x, i) => el("button", { type: "button", class: "nc-it" + (i === mentionSel ? " on" : ""), onmousedown: e => e.preventDefault(), onclick: () => insertMention(x.k) },
+    x.u ? ncAv(x.u, "sm") : el("span", { class: "ic" }, nIc("bell")), el("span", {}, x.l, el("small", {}, x.s || "")))));
+}
+function insertMention(word) {
+  const ta = $("#chat-input"), pos = ta.selectionStart, before = ta.value.slice(0, pos).replace(/@([\p{L}\p{N}_]*)$/u, "@" + word + " ");
+  ta.value = before + ta.value.slice(pos); ta.focus(); ta.setSelectionRange(before.length, before.length); closeMentions(); autoGrow(ta); updateSendBtn();
+}
+
+/* tap a message: reactions on top, then what you can do with it */
+function openSheet(id) { ncSheet = id; chatDel = null; ncFwd = null; chatReactPick = null; ncPlusOpen = false; render() }
+function closeSheet() { ncSheet = null; chatDel = null; ncFwd = null; chatReactPick = null; render() }
+function renderSheet(k) {
+  const sh = $("#nc-sheet"), sc = $("#nc-scrim"), m = ncSheet ? listOf(k).find(x => x.id === ncSheet) : null;
+  if (!m) ncSheet = null;
+  sh.hidden = sc.hidden = !m;
+  if (!m) { sh.replaceChildren(); return }
+  const mine = m.by === me, p = projOfKey(k), has = e => !!(((m.reacts || {})[emojiKey(e)]) || {})[me];
+  const react = (e, on) => { closeSheet(); write(() => updateDoc(chatRef(k, m.id), { [`reacts.${emojiKey(e)}.${me}`]: on ? true : DEL() })) };
+  if (ncFwd) {
+    const rows = chatRows().filter(r => r.kind !== "pgroup" && r.k !== k && (r.kind !== "project" || inTeam(projOfKey(r.k))));
+    sh.replaceChildren(el("div", { class: "nc-grab" }), el("div", { class: "nc-sheeth" }, el("button", { type: "button", class: "nc-ib sm", "aria-label": "Back", onclick: () => { ncFwd = null; render() } }, nIc("back")), el("b", {}, "Forward to")),
+      el("div", { class: "nc-fwdlist" }, rows.map(r => el("button", { type: "button", class: "nc-row", onclick: async () => {
+        const data = { fwd: true, ...(m.text ? { text: m.text } : {}), ...(m.file ? { file: m.file } : {}), ...(m.poll ? { text: "Poll: " + m.poll.q } : {}), ...(m.task ? { text: "Task: " + m.task.text } : {}) };
+        closeSheet(); if (await sendMsg(r.k, data)) toast("Forwarded to " + r.title);
+      } }, rowAv(r), el("span", { class: "nc-rmain" }, el("span", { class: "nc-cname" }, el("span", { class: "t" }, r.title)))))));
+    return;
+  }
+  const A = (icon, label, fn, sub, cls = "") => el("button", { type: "button", class: cls, onclick: fn }, nIc(icon), label, sub ? el("small", {}, sub) : null);
+  const pinned = (pinOf(k) || {}).id === m.id;
+  sh.replaceChildren(...[el("div", { class: "nc-grab" }),
+    el("div", { class: "nc-emorow" }, QUICK_REACTS.map(e => el("button", { type: "button", class: has(e) ? "on" : "", "aria-label": "React " + e, onclick: () => react(e, !has(e)) }, e)),
+      el("button", { type: "button", class: "plus", "aria-label": "More emoji", onclick: () => { chatReactPick = chatReactPick ? null : m.id; render() } }, nIc("plus"))),
+    chatReactPick ? el("div", { class: "nc-emopick" }, emojiPanel(e => react(e, !has(e)))) : null,
+    el("div", { class: "nc-acts" },
+      A("reply", "Reply", () => startReply(m.id), matchMedia("(hover: none)").matches ? "or swipe right" : ""),
+      m.text ? A("copy", "Copy", () => { copyText(m.text, "Copied"); closeSheet() }) : null,
+      A("task", p && canPlan(p) ? "Make it a task" : "Save as my task", () => { closeSheet(); makeTask(k, m) }),
+      A("pin", pinned ? "Unpin" : k.startsWith("dm:") ? "Pin for both of you" : "Pin for everyone", () => { closeSheet(); setPin(k, pinned ? null : m) }),
+      A("fwd", "Forward", () => { ncFwd = m.id; render() }),
+      canUseAssistant() ? A("sparkle", "Ask the assistant about it", () => { closeSheet(); askAboutMsg(m) }) : null,
+      mine ? el("div", { class: "quietline" }) : null,
+      mine && m.text && !m.poll ? A("edit", "Edit", () => { chatEdit = m.id; chatReply = null; ncSheet = null; const i = $("#chat-input"); i.value = m.text; autoGrow(i); render(); i.focus(); i.setSelectionRange(i.value.length, i.value.length) }) : null,
+      mine ? (chatDel === m.id
+        ? A("trash", "Tap again to delete for everyone", () => { const was = m; closeSheet(); if (chatEdit === was.id) { chatEdit = null; $("#chat-input").value = "" } write(() => deleteMessage(was), "Message deleted") }, null, "del sure")
+        : A("trash", "Delete for everyone", () => { chatDel = m.id; render() }, null, "del")) : null)].filter(Boolean));
+}
+
+/* chat info: notifications, people, and everything shared */
+function renderInfo(k) {
+  const box = $("#nc-info");
+  if (!ncInfo || !k) { box.replaceChildren(); return }
+  const p = projOfKey(k), u = chatWith(), list = listOf(k), members = chatMembers(k), level = notifyOf(k);
+  const desc = p ? "Everyone on this project's team is in this chat automatically. When someone joins or leaves the team, they join or leave the chat."
+    : u ? `Only you and ${firstOf(u)} see this chat.` : "The whole team. Partners and clients never see it.";
+  const levels = u ? [["all", "Every message", "Your phone rings for each new message"], ["off", "Off", "Still shows the unread count"]]
+    : [["all", "Every message", "Your phone rings for each new message"], ["mentions", "Only when someone @mentions me", "And private messages, always"], ["off", "Off", "Still shows the unread count"]];
+  const photos = list.filter(m => m.file && m.file.thumb), files = list.filter(m => m.file && !m.file.thumb && !m.file.voice);
+  const links = []; for (const m of list) for (const url of String(m.text || "").match(/https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g) || []) links.push({ url, m });
+  const role = x => p ? (plannerIds(p).includes(x) ? ["Planner", " proj"] : ["Team", ""]) : isPartnerUid(x) ? ["Partner", ""] : ["Team", ""];
+  let shared;
+  if (ncInfoTab === "photos") shared = photos.length ? el("div", { class: "nc-grid3" }, photos.slice(-30).reverse().map(m => el("button", { type: "button", class: "ph", onclick: () => openViewer(m.file) }, el("img", { src: m.file.thumb, alt: m.file.name })))) : el("p", { class: "nc-sub" }, "No photos yet.");
+  else if (ncInfoTab === "files") shared = files.length ? el("div", { class: "nc-flist" }, files.slice(-30).reverse().map(m => attachmentEl(m.file))) : el("p", { class: "nc-sub" }, "No files yet.");
+  else shared = links.length ? el("div", { class: "nc-flist" }, links.slice(-30).reverse().map(({ url, m }) => el("a", { class: "nc-filecard", href: url, target: "_blank", rel: "noopener noreferrer", onclick: previewClick(url, hostOf(url)) }, el("span", { class: "fileic" }, "URL"), el("span", { class: "fmain" }, el("span", { class: "fn" }, url.replace(/^https?:\/\/(www\.)?/, "")), el("span", { class: "fs" }, `${firstOf(m.by)} · ${whenShort(m.at)}`))))) : el("p", { class: "nc-sub" }, "No links yet.");
+  box.replaceChildren(
+    el("div", { class: "nc-ihead" }, el("button", { type: "button", class: "nc-ib", "aria-label": "Close chat info", onclick: () => { ncInfo = false; render() } }, nIc("back")), el("b", {}, "Chat info")),
+    el("div", { class: "nc-ibody" },
+      el("div", { class: "nc-ihero" }, keyAv(k, "lg"), el("h2", {}, keyTitle(k)), el("p", {}, u ? [nIc("lock", "sm"), " " + desc] : desc),
+        el("div", { class: "nc-row2" }, p ? el("button", { type: "button", class: "btn small", onclick: () => { location.hash = "project-" + p.id } }, nIc("folder"), "Open project") : null,
+          el("button", { type: "button", class: "btn small", onclick: () => toggleFind(true) }, nIc("search"), "Search"))),
+      el("div", { class: "nc-card" }, el("h3", {}, "Notifications"), el("div", { class: "nc-notif" }, levels.map(([v, l, s]) => el("label", {},
+        el("input", { type: "radio", name: "nc-nt", value: v, checked: level === v, onchange: () => setNotify(k, v) }), el("span", {}, l, el("small", {}, s)))))),
+      u ? null : el("div", { class: "nc-card" }, el("h3", {}, `People · ${members.length}`), members.map(x => el("div", { class: "nc-mem" }, ncAv(x), el("span", { class: "nm" }, x === me ? "You" : chatName(x), el("small", {}, x === me || isOnline(x) ? "Online" : lastSeenText(x))), el("span", { class: "nc-tag" + role(x)[1] }, role(x)[0])))),
+      el("div", { class: "nc-card" }, el("h3", {}, "Shared in this chat"),
+        el("div", { class: "nc-tabs" }, [["photos", "Photos"], ["files", "Files"], ["links", "Links"]].map(([v, l]) => el("button", { type: "button", "aria-pressed": String(ncInfoTab === v), onclick: () => { ncInfoTab = v; render() } }, l))), shared)));
+}
+
+/* in-page pop-ups for project chats (team chat and private ones pop up where they load) */
+const pcLastPing = {};
+function pcPings(rows) {
+  for (const r of rows) {
+    if (r.kind !== "project" || !r.last) continue;
+    const before = pcLastPing[r.k]; pcLastPing[r.k] = r.last.at;
+    if (before === undefined || r.last.at <= before || r.last.by === me) continue;
+    const lvl = notifyOf(r.k), ment = Array.isArray(r.last.mentions) && (r.last.mentions.includes(me) || r.last.mentions.includes("all"));
+    if (lvl === "off" && !ment || lvl === "mentions" && !ment) continue;
+    if (chatKey() === r.k && !document.hidden) continue;
+    chime(); ping({ key: "pc:" + r.k.slice(2) + ":" + r.last.at, who: r.last.by, title: realName(r.last.by) || r.title, sub: r.title, text: (ment ? "Mentioned you: " : "") + (r.last.text || ""), go: chatHash(r.k), at: r.last.at });
+  }
+}
+
+function renderChat() {
+  heartbeat();
+  const k = chatKey(), onChat = route().view === "chat", rows = chatRows();
+  const unread = rows.reduce((s, r) => s + (r.muted ? 0 : r.unread || 0), 0);
+  const badge = $("#c-chat"); badge.hidden = !unread; badge.textContent = unread;
+  pcPings(rows);
+  watchDm(k && k.startsWith("dm:") ? k.slice(3) : null);
+  watchPc(k && k.startsWith("p:") ? k.slice(2) : null);
+  const nc = $("#nc");
+  document.documentElement.classList.toggle("nc-full", onChat && !!k && !wideChat());
+  if (!onChat) { if (ncCur) { ncDrafts[ncCur] = $("#chat-input").value; ncCur = null; stopTyping(); if (rec) stopRec(false) } return }
+  if (k === "dm:" + me) { location.hash = "chat"; return }
+  // switching chats: keep each chat's unfinished message, and remember where "New messages" starts
+  let fresh = false;
+  if (k !== ncCur) {
+    if (ncCur) ncDrafts[ncCur] = $("#chat-input").value;
+    if (rec) stopRec(false);
+    stopTyping();
+    ncCur = k; fresh = true; ncDividerSet = false; ncDivider = 0;
+    chatSel = chatReply = chatEdit = chatDel = ncSheet = ncFwd = null; ncForm = null; ncPlusOpen = false; ncFindOpen = false; ncFind = ""; $("#nc-find").hidden = true; $("#nc-fq").value = "";
+    const inp = $("#chat-input"); inp.value = (k && ncDrafts[k]) || ""; autoGrow(inp); closeMentions();
+    if (!wideChat()) ncInfo = false;
+  }
+  if (k && listOf(k).length === 0 && ((k.startsWith("p:") && !pcMsgs[k.slice(2)]) || (k.startsWith("dm:") && !dmMsgs[dmId(k.slice(3))]))) fresh = true;   // still loading: decide where to scroll once it's here
+  nc.dataset.screen = !k ? "list" : ncInfo && !wideChat() ? "info" : "conv";
+  nc.classList.toggle("info-open", !!(k && ncInfo));
+  nc.classList.toggle("has-chat", !!k);
+  renderChatList(k, rows);
+  if (!k) { $("#chat-head").replaceChildren(); $("#chatlog").replaceChildren(); renderInfo(null); return }
+  if (!ncDividerSet && people[me]) { ncDivider = seenOf(k); ncDividerSet = true; fresh = true }
+  if (!fresh && ncDividerSet) markRead(k);
+  renderHead(k); renderPin(k); renderLog(k, fresh); renderComposer(k); renderSheet(k); renderInfo(k);
+  if (fresh && ncDividerSet) markRead(k);
+  // redraw when someone stops typing
+  clearTimeout(typingTimer); if (rows.some(r => r.typers.length)) typingTimer = setTimeout(render, 3500);
+  ncSize();
+}
+// the chat fills the screen down to the bottom (or to the menu bar on a phone)
+function ncSize() {
+  const nc = $("#nc"); if (!nc || $("#view-chat").hidden) return;
+  if (document.documentElement.classList.contains("nc-full")) { nc.style.height = ""; return }
+  const top = nc.getBoundingClientRect().top + scrollY, nav = document.querySelector("#app .nav"), nr = nav && nav.getBoundingClientRect();
+  const bottom = nr && nr.top > innerHeight / 2 ? innerHeight - nr.top + 10 : 20;
+  nc.style.height = Math.max(420, innerHeight - top - bottom) + "px";
+}
+addEventListener("resize", () => { if (route().view === "chat") render() });
+
+/* the message box and list: set up once */
+$("#chatform").addEventListener("submit", e => { e.preventDefault(); ncSend() });
+$("#chat-emoji").onclick = () => { chatEmojiOpen = !chatEmojiOpen; const host = $("#chat-emoji-panel"); host.hidden = !chatEmojiOpen; host.replaceChildren(chatEmojiOpen ? emojiPanel(e => { insertAtCursor($("#chat-input"), e); updateSendBtn() }) : "") };
+$("#chat-input").addEventListener("input", () => { autoGrow($("#chat-input")); updateSendBtn(); mentionCheck(); if ($("#chat-input").value.trim()) sendTyping(chatKey()) });
+$("#chat-input").addEventListener("click", mentionCheck);
+$("#chat-input").addEventListener("keydown", e => {
+  if (mentionList.length && !$("#nc-mentions").hidden) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); mentionSel = (mentionSel + (e.key === "ArrowDown" ? 1 : -1) + mentionList.length) % mentionList.length; mentionCheck(); return }
+    if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertMention(mentionList[mentionSel].k); return }
+    if (e.key === "Escape") { e.preventDefault(); closeMentions(); return }
+  }
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && matchMedia("(hover: hover)").matches) { e.preventDefault(); ncSend() }
+  if (e.key === "Escape" && (chatReply || chatEdit)) { e.preventDefault(); cancelChatMode() }
+});
+$("#chat-input").addEventListener("blur", () => setTimeout(closeMentions, 150));
+$("#chat-attach").onclick = e => { e.stopPropagation(); ncPlusOpen = !ncPlusOpen; closeMentions(); renderPlus() };
+document.addEventListener("click", e => { if (ncPlusOpen && !e.target.closest("#nc-plusmenu, #chat-attach")) { ncPlusOpen = false; renderPlus() } });
+for (const id of ["#chat-file", "#chat-photo", "#chat-camera"]) $(id).onchange = e => { addFiles([...e.target.files]); e.target.value = ""; updateSendBtn() };
+$("#chat-input").addEventListener("paste", e => { const fs = [...((e.clipboardData && e.clipboardData.files) || [])]; if (fs.length) { e.preventDefault(); addFiles(fs); updateSendBtn() } });
+const chatboxEl = document.querySelector(".nc-conv");
+chatboxEl.addEventListener("dragover", e => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); chatboxEl.classList.add("dropping") } });
+chatboxEl.addEventListener("dragleave", e => { if (!chatboxEl.contains(e.relatedTarget)) chatboxEl.classList.remove("dropping") });
+chatboxEl.addEventListener("drop", e => { e.preventDefault(); chatboxEl.classList.remove("dropping"); addFiles([...e.dataTransfer.files]); updateSendBtn() });
+$("#nc-q").addEventListener("input", () => render());
+$("#nc-new").onclick = () => { ncFilter = "dm"; $("#nc-q").value = ""; render(); toast("Pick someone to message") };
+$("#nc-fq").addEventListener("input", e => { ncFind = e.target.value; ncFindJump = true; render() });
+$("#nc-fq").addEventListener("keydown", e => { if (e.key === "Escape") toggleFind(false) });
+$("#nc-fx").onclick = () => toggleFind(false);
+$("#nc-jump").onclick = () => { const l = $("#chatlog"); l.scrollTo({ top: l.scrollHeight, behavior: "smooth" }) };
+$("#chatlog").addEventListener("scroll", () => { const l = $("#chatlog"); $("#nc-jump").hidden = l.scrollHeight - l.scrollTop - l.clientHeight < 160 });
+$("#nc-scrim").onclick = closeSheet;
+$("#nc-rec-x").onclick = () => stopRec(false);
+$("#nc-rec-send").onclick = () => stopRec(true);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && route().view === "chat") { if (ncSheet) closeSheet(); else if (ncInfo) { ncInfo = false; render() } } });
+// swipe a message to the right to reply, like WhatsApp
+(() => {
+  const log = $("#chatlog"); let sw = null;
+  log.addEventListener("pointerdown", e => { if (e.pointerType === "mouse") return; const m = e.target.closest("[data-m]"); if (!m || e.target.closest("button, a")) return; sw = { m, x: e.clientX, y: e.clientY, dx: 0, bw: m.querySelector(".nc-bw"), hint: m.querySelector(".nc-swipe") } });
+  const reset = () => { if (!sw) return; sw.bw.style.transition = ""; sw.bw.style.transform = ""; if (sw.hint) sw.hint.style.opacity = ""; sw = null };
+  log.addEventListener("pointermove", e => {
+    if (!sw) return; const dx = e.clientX - sw.x, dy = Math.abs(e.clientY - sw.y);
+    if (dy > 24 && sw.dx < 10) { reset(); return }
+    if (dx > 6) { sw.dx = Math.min(dx, 80); sw.bw.style.transition = "none"; sw.bw.style.transform = `translateX(${sw.dx}px)`; if (sw.hint) sw.hint.style.opacity = Math.min(1, sw.dx / 60) }
+  });
+  log.addEventListener("pointerup", () => { if (sw && sw.dx >= 60) { const id = sw.m.dataset.m; reset(); log.addEventListener("click", ev => { ev.stopPropagation(); ev.preventDefault() }, { capture: true, once: true }); startReply(id); return } reset() });
+  log.addEventListener("pointercancel", reset);
+})();
 
 /* ----- chat attachments (stored in the database in pieces, since free Firebase has no file storage) ----- */
 
@@ -2244,18 +2919,14 @@ let pending = [];                     // files waiting to be sent: {f, key, url}
 const fmtSize = n => n < 1024 ? n + " B" : n < 1048576 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(1) + " MB";
 const extOf = name => ((name || "").split(".").pop() || "file").slice(0, 4).toUpperCase();
 function msgSummary(m) {
+  if (m.poll) return "Poll: " + m.poll.q;
+  if (m.task) return "Task: " + m.task.text;
+  if (m.file && m.file.voice) return "Voice message " + fmtSecs(m.file.voice);
   if (m.text) return snippet(m.text);
   if (m.file) return m.file.thumb ? "Photo" : "File: " + m.file.name;
   return "";
 }
 
-$("#chat-attach").onclick = () => $("#chat-file").click();
-$("#chat-file").onchange = e => { addFiles([...e.target.files]); e.target.value = "" };
-$("#chat-input").addEventListener("paste", e => { const fs = [...((e.clipboardData && e.clipboardData.files) || [])]; if (fs.length) { e.preventDefault(); addFiles(fs) } });
-const chatboxEl = document.querySelector(".chatbox");
-chatboxEl.addEventListener("dragover", e => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); chatboxEl.classList.add("dropping") } });
-chatboxEl.addEventListener("dragleave", e => { if (!chatboxEl.contains(e.relatedTarget)) chatboxEl.classList.remove("dropping") });
-chatboxEl.addEventListener("drop", e => { e.preventDefault(); chatboxEl.classList.remove("dropping"); addFiles([...e.dataTransfer.files]) });
 
 function addFiles(fs) {
   for (const f of fs) {
@@ -2490,107 +3161,6 @@ function jumpTo(id) {
   const n = document.getElementById("msg-" + id); if (!n) return;
   n.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   n.classList.remove("flash"); void n.offsetWidth; n.classList.add("flash");
-}
-
-function renderChat() {
-  const latest = chat.length ? chat[chat.length - 1].at : 0;
-  const onChat = route().view === "chat", dm = onChat ? chatWith() : null;
-  if (onChat && !dm && latest > getSeen()) setSeen(latest);
-  const teamUnread = chat.filter(m => m.at > getSeen() && m.by !== me).length;
-  const dmCount = dmThreads.filter(t => dmUnread(t) && !(dm && otherOf(t) === dm)).length;
-  const unread = teamUnread + dmCount;
-  const badge = $("#c-chat"); badge.hidden = !unread; badge.textContent = unread;
-  watchDm(dm);
-  if (!onChat) return;
-  if (dm === me) { location.hash = "chat"; return }
-  // mark a private conversation as read
-  if (dm) { const t = dmThreads.find(x => x.id === dmId(dm)); if (t && dmUnread(t)) { t.seen = { ...(t.seen || {}), [me]: Date.now() }; setDoc(doc(db, "dms", t.id), { seen: { [me]: Date.now() } }, { merge: true }).catch(() => {}) } }
-
-  /* who you're talking to: the team, or one person privately */
-  const head = $("#chat-head"); head.replaceChildren();
-  const lastWith = u => (dmThreads.find(t => t.id === dmId(u)) || {}).lastAt || 0;
-  const others = teamIds().filter(u => u !== me && people[u]);   // team members only: partners are never in the team chat
-  // partners you can message: they have signed in at least once, or already wrote to you
-  const partners = [...new Set([...pMembers.filter(m => m.uid && m.active !== false).map(m => m.uid), ...dmThreads.filter(t => Object.values(t.roles || {}).includes("partner")).map(otherOf)])].filter(u => u !== me && !others.includes(u));
-  if (dm && !others.includes(dm) && !partners.includes(dm)) (isPartnerUid(dm) ? partners : others).push(dm);
-  const byRecent = (a, b) => lastWith(b) - lastWith(a) || chatName(a).localeCompare(chatName(b));
-  others.sort(byRecent); partners.sort(byRecent);
-  const chip = u => { const t = dmThreads.find(x => x.id === dmId(u)); const n = t && dmUnread(t) && dm !== u;
-    return el("button", { class: "pchip" + (isPartnerUid(u) ? " partnerchip" : ""), role: "tab", "aria-pressed": String(dm === u), title: "Private chat with " + chatName(u), onclick: () => { location.hash = "dm-" + u } }, chatAv(u), chatName(u).split(" ")[0], n ? el("span", { class: "count" }, "1") : null) };
-  head.append(el("div", { class: "chatrow" }, el("span", { class: "chatrow-l" }, "Team"), el("div", { class: "pchips chat-people", role: "tablist", "aria-label": "Team chats" },
-    el("button", { class: "pchip", role: "tab", "aria-pressed": String(!dm), onclick: () => { location.hash = "chat" } }, el("span", { class: "teamdot", "aria-hidden": "true" }, "#"), "Everyone", teamUnread && dm ? el("span", { class: "count" }, teamUnread) : null),
-    others.map(chip))));
-  if (partners.length) head.append(el("div", { class: "chatrow partners" }, el("span", { class: "chatrow-l" }, "Partners"), el("div", { class: "pchips chat-people", role: "tablist", "aria-label": "Private chats with partners" }, partners.map(chip))));
-  head.append(el("div", { class: "chat-who" }, dm
-    ? [chatAv(dm), el("span", { class: "who-n" }, el("b", {}, chatName(dm)), roleBadge(dm)), el("span", { class: "who-lock" }, "🔒 only you two see this")]
-    : [el("span", { class: "teamdot big", "aria-hidden": "true" }, "#"), el("span", { class: "who-n" }, el("b", {}, "Team chat"), el("span", { class: "label" }, `${teamIds().length} team members · tap a name to talk privately`))]));
-  $("#chat-input").placeholder = dm ? "Message " + chatName(dm).split(" ")[0] : "Message everyone";
-
-  /* reply / edit bar above the input */
-  if (chatReply && !msgById(chatReply)) chatReply = null;
-  if (chatEdit && !msgById(chatEdit)) chatEdit = null;
-  const ctx = $("#chat-context"); ctx.replaceChildren();
-  const ctxMsg = msgById(chatEdit || chatReply);
-  ctx.hidden = !ctxMsg;
-  if (ctxMsg) ctx.append(
-    el("div", { style: "flex:1;min-width:0" },
-      el("div", { class: "ctx-title" }, chatEdit ? "Editing your message" : `Replying to ${name(ctxMsg.by)}`),
-      el("div", { class: "ctx-text" }, msgSummary(ctxMsg))),
-    el("button", { type: "button", class: "x", title: "Cancel", "aria-label": "Cancel", onclick: cancelChatMode }, "✕"));
-  $("#chat-send").textContent = chatEdit ? "Save" : "Send";
-
-  const list = curList();
-  const log = $("#chatlog");
-  if (log.dataset.chan !== (dm || "team")) { log.dataset.chan = dm || "team"; log.scrollTop = 0; chatSel = null; chatReply = null; chatDel = null; if (chatEdit) { chatEdit = null; $("#chat-input").value = "" } }
-  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
-  const prevTop = log.scrollTop;
-  log.replaceChildren();
-  if (dm && dmOff) log.append(el("div", { class: "empty", style: "margin:auto;display:grid;gap:8px;justify-items:center" }, isAdmin
-    ? [el("span", {}, "Private chats" + (isPartnerUid(dm) ? " with partners" : "") + " need the latest database rules. Copy them, paste them in Firebase › Firestore › Rules, and press Publish."), el("button", { class: "btn small primary", onclick: () => copyText(PARTNER_RULES, "Rules copied. Paste them in Firebase › Firestore › Rules, then Publish") }, "Copy the rules"), el("a", { class: "btn small", href: "https://console.firebase.google.com/project/the-office-ab723/firestore/rules", target: "_blank", rel: "noopener noreferrer" }, "Open Firebase rules")]
-    : `Private chats aren't switched on yet. Ask ${ADMIN_NAME} to update the database rules.`));
-  else if (!list.length) log.append(el("div", { class: "empty", style: "margin:auto" }, dm ? `No messages with ${chatName(dm).split(" ")[0]} yet. Say hi, only you two will see it.` : "No messages yet. Say hi to the team."));
-  // in a private chat: has the other person seen my last message?
-  const dmT = dm ? dmThreads.find(t => t.id === dmId(dm)) : null, lastMine = dm ? [...list].reverse().find(m => m.by === me) : null;
-  const seenLast = !!(dmT && lastMine && ((dmT.seen || {})[dm] || 0) >= lastMine.at);
-  let lastDay = "", lastBy = "", lastAt = 0;
-  for (const m of list) {
-    const day = new Date(m.at).toDateString();
-    if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
-    if (m.system === "weekly") { log.append(el("div", { class: "weekly", id: "msg-" + m.id }, el("div", { class: "weekly-h" }, "Weekly summary \u00b7 " + new Date(m.at).toLocaleDateString(undefined, { day: "numeric", month: "short" })), el("div", { class: "pre" }, m.text))); lastBy = ""; lastDay = day; continue }
-    const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60 * 1000 && !m.replyTo;
-    if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, chatName(m.by), dm && isPartnerUid(m.by) ? el("span", { class: "rolebadge partner" }, "Partner") : null));
-    const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    const orig = m.replyTo ? msgById(m.replyTo) : null;
-    const quote = m.replyTo ? el("button", { type: "button", class: "quote", onclick: e => { e.stopPropagation(); if (orig) jumpTo(orig.id) } },
-      el("strong", {}, orig ? chatName(orig.by) : "Message"), el("span", {}, orig ? msgSummary(orig) : "This message was deleted")) : null;
-    const sel = chatSel === m.id;
-    const bubble = el("div", { class: "bubble" + (isEmojiOnly(m.text) && !m.file && !quote ? " emoji-only" : ""), tabindex: "0", role: "button", "aria-label": "Message options", "aria-expanded": String(sel),
-      onclick: () => { if (String(getSelection())) return; chatSel = sel ? null : m.id; chatDel = null; render() },
-      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); chatSel = sel ? null : m.id; chatDel = null; render() } } },
-      quote, m.file ? attachmentEl(m.file) : null, m.text ? msgBody(m.text) : null, el("span", { class: "msg-time" }, (m.edited ? "edited · " : "") + time));
-    const react = (e, on) => write(() => updateDoc(msgRef(m.id), { [`reacts.${emojiKey(e)}.${me}`]: on ? true : DEL() }));
-    const row = el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") + (sel ? " selected" : ""), id: "msg-" + m.id },
-      mine ? null : (grouped ? el("span", { class: "av-space" }) : chatAv(m.by)), el("div", { class: "bubwrap" }, bubble, reactRow(m, react)));
-    log.append(row);
-    if (lastMine === m && seenLast) log.append(el("div", { class: "seen" }, "Seen"));
-    if (sel) {
-      const act = (label, fn, cls = "") => el("button", { type: "button", class: "act " + cls, onclick: e => { e.stopPropagation(); fn() } }, label);
-      const has = e => !!((m.reacts || {})[emojiKey(e)] || {})[me];
-      log.append(el("div", { class: "reactbar" + (mine ? " mine" : "") }, QUICK_REACTS.map(e => el("button", { type: "button", class: "emo" + (has(e) ? " on" : ""), "aria-label": "React " + e, onclick: ev => { ev.stopPropagation(); chatSel = null; react(e, !has(e)) } }, e)),
-        el("button", { type: "button", class: "emo more", "aria-label": "More emoji", onclick: ev => { ev.stopPropagation(); chatReactPick = chatReactPick === m.id ? null : m.id; render() } }, "+")));
-      if (chatReactPick === m.id) log.append(el("div", { class: "msg-actions" + (mine ? " mine" : "") }, emojiPanel(e => { chatReactPick = null; chatSel = null; react(e, !has(e)) })));
-      log.append(el("div", { class: "msg-actions" + (mine ? " mine" : "") },
-        m.text ? act("Copy", () => { copyText(m.text, "Copied"); chatSel = null; render() }) : null,
-        act("Reply", () => { chatReply = m.id; chatEdit = null; chatSel = null; render(); $("#chat-input").focus() }),
-        mine ? act("Edit", () => { chatEdit = m.id; chatReply = null; chatSel = null; $("#chat-input").value = m.text; render(); const i = $("#chat-input"); i.focus(); i.setSelectionRange(i.value.length, i.value.length) }) : null,
-        mine ? (chatDel === m.id
-          ? act("Tap again to delete", () => { chatSel = null; chatDel = null; if (chatEdit === m.id) { chatEdit = null; $("#chat-input").value = "" } write(() => deleteMessage(m), "Message deleted") }, "danger")
-          : act("Delete", () => { chatDel = m.id; render() }, "danger")) : null,
-        act("Close", () => { chatSel = null; chatDel = null; render() }, "quiet")));
-    }
-    lastDay = day; lastBy = m.by; lastAt = m.at;
-  }
-  log.scrollTop = atBottom || !prevTop ? log.scrollHeight : prevTop;
 }
 
 /* ----- chat kit: emoji, reactions and a chat view shared by the team chat, partner groups and partner messages ----- */
@@ -2926,7 +3496,9 @@ function buildAlerts() {
   if (isAdmin && (people[me] || {}).rulesPublished !== RULES_VERSION) add("rulesdb:" + RULES_VERSION, dayStart(), null, "New database rules are ready. Copy and publish them in Settings \u203a Database rules", "settings-rules");
   if (isAdmin && live && Date.now() - ((people[me] || {}).lastBackup || 0) > 30 * 864e5) add("backup:" + thisMonth(), dayStart(), null, "Time for this month's backup: Settings \u203a Backup", "settings-backup");
   for (const t of dmThreads) if (dmUnread(t)) add("dm:" + t.id + ":" + t.lastAt, t.lastAt, people[t.lastBy] ? t.lastBy : null, `${chatName(t.lastBy)}${isPartnerUid(t.lastBy) ? " (partner)" : ""} sent you a private message: ${(t.lastText || "").slice(0, 60)}`, "dm-" + t.lastBy);
-  for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat") }
+  for (const m of chat) { if (m.by === me || !m.replyTo) continue; const o = chat.find(x => x.id === m.replyTo); if (o && o.by === me) add("reply:" + m.id, m.at, m.by, `${name(m.by)} replied to you: ${msgSummary(m)}`, "chat-team") }
+  for (const m of chat) if (mentionsMe(m)) add("chat:" + m.id, m.at, m.by, `${name(m.by)} mentioned you in the team chat: ${msgSummary(m)}`, "chat-team");
+  for (const p of ideas) { const l = p.status === "approved" && p.chat && p.chat.last; if (l && l.by !== me && Array.isArray(l.mentions) && (l.mentions.includes(me) || l.mentions.includes("all"))) add("pc:" + p.id + ":" + l.at, l.at, l.by, `${name(l.by)} mentioned you in ${p.title}: ${l.text || ""}`, "pc-" + p.id) }
   return out.sort((a, b) => b.at - a.at).slice(0, 50);
 }
 function renderAlerts() {
@@ -3697,7 +4269,7 @@ How Pitch Room works:
 - Team fund: pays subscriptions and saves for goals. Goals can be added without a price, researched, then priced. If someone pays for the team from their own pocket, the fund owes it back.
 - Partners: lead finders abroad in country groups. They call numbers, post updates, chat with the team and see their earnings. A number marked Client can become a project with their commission set.
 - Clients: see their project's stage, progress, next step, payments and a chat with the team.
-- Chat: team chat, private chats (with team members or partners), emoji reactions; a summary is posted every Monday.
+- Chat: one list of all chats: the team chat (Everyone), a chat for every project (its team is in it automatically), private chats with team members or partners, and partner groups. In a chat: @mention someone (they get an alert even if muted), voice messages, photos, files, polls, tasks made from a message (planners), pins, forward, reply (tap or swipe right), reactions, edit and delete; read ticks, typing and online; each chat's info has notification choices (every message, only @mentions, off) and the photos, files and links shared. A summary is posted in the team chat every Monday.
 - Settings: the \u22EF button at the top right. Alerts setup, install as an app, appearance, help and fixes are there. Search with the magnifier or Ctrl K.`;
 
 async function runAssistant(userText, opts = {}) {
@@ -5621,7 +6193,7 @@ $("#asst-btn").onclick = () => { asstOpen = !asstOpen; alertsOpen = false; rende
 $("#brand").onclick = () => { location.hash = "me" };
 
 /* ----- backup: everything on the board in one file ----- */
-const RULES_VERSION = "2026-11-16";
+const RULES_VERSION = "2026-11-24";
 function downloadBackup() {
   const strip = o => { const x = { ...o }; delete x.pushSubs; return x };
   const data = { app: "Pitch Room", at: new Date().toISOString(), by: myProfile && myProfile.email,
@@ -5724,7 +6296,7 @@ function welcomeCard() {
     ["Turn on alerts", "On your phone and your computer", pushOn || Object.keys(prof.pushSubs || {}).length > 0, () => { location.hash = "settings-alerts" }],
     ["Install the app", "Home Screen, Dock or desktop", isHomeScreenApp() || !!prof.installed, () => { location.hash = "settings-install" }],
     ["Agree to the money rules", "How we share what we earn", ((prof.moneyAgreed || {}).version === ver), () => { moneyTab = "rules"; location.hash = "money" }],
-    ["Say hi in the team chat", "", chat.some(m => m.by === me && !m.system), () => { location.hash = "chat" }],
+    ["Say hi in the team chat", "", chat.some(m => m.by === me && !m.system), () => { location.hash = "chat-team" }],
     ["Join a project", "Open one and tap Ask to join the team", ideas.some(p => (p.members || {})[me]), () => { location.hash = "projects" }],
   ];
   const n = steps.filter(x => x[2]).length; if (n === steps.length) return null;

@@ -52,6 +52,14 @@ service cloud.firestore {
     match /chat/{id} {
       allow read, write: if isTeam();
     }
+    // each project's chat: the whole team can read it (like the project itself); writing new messages is checked
+    // on the site (only the project's team), and only the sender or the admin can delete a message
+    match /ideas/{pid}/chat/{id} {
+      allow read: if isTeam();
+      allow create: if isTeam() && request.resource.data.by == request.auth.uid;
+      allow update: if isTeam();
+      allow delete: if isTeam() && (resource.data.by == request.auth.uid || isAdmin());
+    }
     // the team list, the money rules and the fund's money are the admin's; anyone on the team can add and research goals
     match /meta/{name} {
       allow read: if isTeam();
