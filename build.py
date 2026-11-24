@@ -18,8 +18,17 @@ build_id = time.strftime("%Y%m%d%H%M%S")
 name = f"assets/app-{build_id}.js"
 assets = root / "assets"; assets.mkdir(exist_ok=True)
 (root / name).write_text(config + "\n" + f'const BUILD_ID = "{build_id}";\n' + app)
-# keep the 4 newest builds' code, remove older ones
-for old in sorted(assets.glob("app-*.js"))[:-4]: old.unlink()
+# Keep the newest 4 published builds (pages already open or cached use them) and this one.
+# Local builds that were never published are removed.
+import subprocess
+try: published = set(subprocess.run(["git", "ls-files", "assets"], cwd=root, capture_output=True, text=True).stdout.split())
+except Exception: published = None
+files = sorted(assets.glob("app-*.js"))
+if published is None: keep = set(f.name for f in files[-4:])
+else: keep = set(sorted(f.name for f in files if "assets/" + f.name in published)[-4:])
+keep.add(Path(name).name)
+for f in files:
+    if f.name not in keep: f.unlink()
 page = page.replace("__BUILD_ID__", build_id)
 tag = '<script type="module">\n/*APP*/\n</script>'
 assert page.count(tag) == 1, "src/page.html must contain the app script placeholder once"

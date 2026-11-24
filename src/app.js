@@ -1261,6 +1261,7 @@ function planBody(p, opts = {}) {
       el("p", {}, "Split the project into phases, the big stages it goes through. Then add tasks inside each phase and give each one to someone. Start from scratch, or use one of these as a starting point and change anything:"),
       el("div", { class: "row", style: "gap:8px" }, PLAN_TEMPLATES.map(tp => el("button", { class: "btn" + (tp === suggested ? " primary" : ""), title: tp.phases.join(" → "), onclick: () => usePlanTemplate(p, tp) }, tp.name))),
       el("p", { style: "font-size:13px" }, "Each one only adds phase names, like " + suggested.phases.join(" → ") + ". You add the tasks."),
+      clientSeesNote(p, "plan"),
       addPhaseRow(p, phases, "Or type your first phase, e.g. Brainstorm"),
       el("div", { class: "row", style: "gap:8px" }, el("span", { class: "label" }, "Planned it with Claude or the assistant?"), el("button", { class: "btn small", onclick: () => openImport(p) }, "Import a plan")));
     if ((importState[p.id] || {}).open) wrap.append(importPanel(p));
@@ -1278,6 +1279,7 @@ function planBody(p, opts = {}) {
     el("button", { class: "btn small" + (editing ? " primary" : ""), onclick: () => { planEdit = editing ? null : p.id; render() } }, editing ? "Done editing" : "Edit phases")));
   if (planner && (importState[p.id] || {}).open) wrap.append(importPanel(p));
   if (suggestions[p.id]) wrap.append(suggestPanel(p));
+  if (planner && !opts.filter) { const cs = clientSeesNote(p, "plan"); if (cs) wrap.append(cs) }
   if (planner && !opts.filter) { const rf = reviewFoldBox(p); if (rf) wrap.append(rf) }
 
   const show = t => !opts.filter || isAssignee(t, opts.filter);
@@ -1292,7 +1294,7 @@ function planBody(p, opts = {}) {
   });
   if (loose.length) wrap.append(phaseCard(p, { id: "__loose", name: "Not in a phase" }, -1, phases, loose, { editing, filtered: !!opts.filter }));
   if (opts.filter && !shown && !loose.length) wrap.append(el("div", { class: "empty" }, (opts.filter === me ? "You don't" : name(opts.filter) + " doesn't") + " have any tasks in this project yet."));
-  if (editing) wrap.append(el("section", { class: "idea addphase" }, el("h3", {}, "Add a phase"), addPhaseRow(p, phases, "Phase name, e.g. Filming")));
+  if (editing) wrap.append(el("section", { class: "idea addphase" }, el("h3", {}, "Add a phase"), clientLiveFor(p) ? el("span", { class: "label clientsees-mini" }, nIc("eye"), "The client sees phase names live") : null, addPhaseRow(p, phases, "Phase name, e.g. Filming")));
   return wrap;
 }
 
@@ -5422,10 +5424,19 @@ function openPhaseEditor(p, ph) {
   phaseDraft = { pid: p.id, isNew: !ph, v: 0, id: base.id, name: base.name || "", links: linkedPhases(base).filter(x => phs.some(y => y.id === x)), price: Number(base.price) || 0, agreed: base.agreed !== false, steps };
   render(); scrollTo(0, 0);
 }
+// A project whose client page has a client on it: what planners name there shows on the client's page, live
+function clientLiveFor(p) { const cp = typeof cpOf === "function" ? cpOf(p.id) : null; return cp && (cp.clients || []).length ? cp : null }
+function clientSeesNote(p, what) {
+  const cp = clientLiveFor(p); if (!cp) return null;
+  const text = what === "pay"
+    ? "Your client sees these payment names and amounts on their page as soon as you save (when Payments is on). Name them the way you'd say them to the client."
+    : "Your client sees these phase names on their page as soon as you save: it shows which phase the team is working on. Name them the way you'd say them to the client.";
+  return el("div", { class: "clientsees", role: "note" }, nIc("eye"), el("div", {}, el("b", {}, "The client sees this live"), el("span", {}, text)));
+}
 function phaseEditor(p, r) {
   const d = phaseDraft, m = p.money, cur = r.currency, f = x => fmtCur(toP(x), cur), phs = getPhases(p), v = d.v, list = (m.phases || []).filter(Boolean);
   const got = r.schedule.filter(x => x.part === d.id).reduce((a, x) => a + x.received, 0);
-  const box = el("section", { class: "idea mform mplan" }, el("h3", {}, d.isNew ? "Add the next phase" : "Edit phase"));
+  const box = el("section", { class: "idea mform mplan" }, el("h3", {}, d.isNew ? "Add the next phase" : "Edit phase"), clientSeesNote(p, "pay"));
   const nm = el("input", { id: `phe-${v}-name`, class: "noteinput", maxlength: "50", placeholder: "e.g. Social media", value: d.name, oninput: e => { d.name = e.target.value } });
   const link = phs.length ? el("div", { class: "finders" }, phs.map(x => el("label", { class: "share" },
     el("input", { type: "checkbox", id: `phe-${v}-l-${x.id}`, checked: d.links.includes(x.id), onchange: e => { d.links = e.target.checked ? [...new Set([...d.links, x.id])] : d.links.filter(y => y !== x.id); render() } }), el("span", { class: "mname" }, x.name))))

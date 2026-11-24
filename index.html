@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261124223946">
+<meta name="build" content="20261124224823">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -42,7 +42,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://firestore.googleapis.com">
-<link rel="modulepreload" href="assets/app-20261124223946.js">
+<link rel="modulepreload" href="assets/app-20261124224823.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
@@ -1769,6 +1769,53 @@ button.ph-ccard:hover{border-color:var(--fill)}
   .ph-sheetcard .onelead{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){.ld,.ld-scrim{transition:none}}
+
+/* ===== client page: what the team is working on, and payments made simple ===== */
+.cworking{display:flex;align-items:center;gap:12px;background:var(--accent-soft);border-radius:16px;padding:14px 16px}
+.cworking .label{display:block;text-transform:none;letter-spacing:0;font-size:13px;color:var(--accent);font-weight:600}
+.cworking b{font:800 22px/1.2 var(--display);color:var(--ink)}
+.cworking .pulse{width:12px;height:12px;border-radius:50%;background:var(--fill);flex:none;box-shadow:0 0 0 0 color-mix(in srgb,var(--fill) 45%,transparent);animation:cpulse 2.2s ease-out infinite}
+@keyframes cpulse{70%{box-shadow:0 0 0 10px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media (prefers-reduced-motion:reduce){.cworking .pulse{animation:none}}
+.paycard2{display:grid;gap:10px}
+.paycard2 .pchip{font-size:12.5px;font-weight:700;border-radius:999px;padding:4px 12px;background:var(--accent-soft);color:var(--accent)}
+.paycard2 .pchip.due{background:var(--ph-gr);color:var(--ph-on)}
+.paycard2 .pfor{text-transform:none;letter-spacing:0;font-size:13px;margin-top:-6px}
+.paycard2 .pbig{margin:4px 0 0;font-size:16px;color:var(--muted)}
+.paycard2 .pbig b{font:800 30px/1.1 var(--display);color:var(--ink)}
+.paycard2 .pbar{height:10px;border-radius:6px;background:var(--field);overflow:hidden}
+.paycard2 .pbar i{display:block;height:100%;background:var(--fill);border-radius:6px}
+.paycard2 .psub{text-transform:none;letter-spacing:0;font-size:13px}
+.paycard2 .pnext{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:baseline;background:var(--field);border-radius:14px;padding:12px 14px}
+.paycard2 .pnext span:first-child{font-size:13px;font-weight:700;color:var(--accent)}
+.paycard2 .pnext.due{background:var(--ph-gr);color:var(--ph-on)}
+.paycard2 .pnext.due span,.paycard2 .pnext.due .label{color:var(--ph-on)}
+.paycard2 .pnext b{font:800 18px/1.2 var(--display);justify-self:end}
+.paycard2 .pnext .label{grid-column:1/-1;text-transform:none;letter-spacing:0;font-size:13px}
+.paycard2 .plist{list-style:none;margin:0;padding:0;display:grid;border-top:1px solid var(--line)}
+.paycard2 .plist li{display:grid;grid-template-columns:18px 1fr auto auto;gap:10px;align-items:center;padding:10px 2px;border-bottom:1px solid var(--line);font-size:14px}
+.paycard2 .plist .tick{color:var(--accent);font-weight:800}
+.paycard2 .plist .pl{min-width:0;overflow-wrap:anywhere}
+.paycard2 .plist .pa{font-weight:600;white-space:nowrap}
+.paycard2 .plist .ps{font-size:12px;font-weight:700;color:var(--muted);min-width:34px;text-align:right}
+.paycard2 .plist li.paid .ps{color:var(--accent)}
+.paycard2 .plist li.late .ps,.paycard2 .plist li.due .ps{color:var(--ink)}
+.cbar{display:flex;align-items:center;gap:12px}
+.cbar .track{flex:1;height:12px;border-radius:7px;background:var(--field);overflow:hidden}
+.cbar .fill{height:100%;border-radius:7px;background:var(--fill);transition:width 600ms cubic-bezier(.2,.7,.2,1)}
+.cbar b{font:800 20px/1 var(--display);min-width:3.2em;text-align:right}
+.cdots{list-style:none;margin:4px 0 2px;padding:0;display:flex;align-items:center;gap:0}
+.cdots li{flex:1;height:6px;border-radius:3px;background:var(--field);margin-right:6px}
+.cdots li:last-child{margin-right:0}
+.cdots li.done{background:var(--fill)}
+.cdots li.now{background:color-mix(in srgb,var(--fill) 45%,var(--field))}
+/* planners: names here show on the client's page, live */
+.clientsees{display:flex;gap:10px;align-items:flex-start;background:var(--accent-soft);border-left:4px solid var(--fill);border-radius:12px;padding:10px 12px;font-size:13.5px}
+.clientsees .nic{width:18px;height:18px;color:var(--accent);flex:none;margin-top:1px}
+.clientsees b{display:block;color:var(--accent);font-size:14px}
+.clientsees span{color:var(--ink)}
+.clientsees-mini{display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;color:var(--accent);font-weight:600}
+.clientsees-mini .nic{width:15px;height:15px}
 </style>
 </head>
 <body>
@@ -2017,7 +2064,7 @@ button.ph-ccard:hover{border-color:var(--fill)}
   // Returning visitors skip the loading screen and see their page right away.
   try { if (localStorage.getItem("pitchroom-cache-v1")) { document.getElementById("boot").hidden = true; document.getElementById("app").hidden = false } } catch (e) {}
 </script>
-<script type="module" src="assets/app-20261124223946.js"></script>
+<script type="module" src="assets/app-20261124224823.js"></script>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true" id="nc-icons">
       <symbol id="ni-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
       <symbol id="ni-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
@@ -2051,7 +2098,7 @@ button.ph-ccard:hover{border-color:var(--fill)}
       <symbol id="ni-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></symbol>
       <symbol id="ni-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.1 2.2h5c0-.8.4-1.6 1.1-2.2A6 6 0 0 0 12 3Z"/></symbol>
       <symbol id="ni-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
-      <symbol id="ni-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/></symbol><symbol id="ni-phone" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"/></symbol><symbol id="ni-wa" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-13.2 8L3 21l1.1-4.6A9 9 0 1 1 21 12Z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 1a4 4 0 0 1-2-2l1-1-1-2Z"/></symbol><symbol id="ni-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol><symbol id="ni-flame" viewBox="0 0 24 24"><path d="M12 3s5 4 5 9a5 5 0 0 1-10 0c0-2 1-3 1-3s0 2 2 2c0-4 2-8 2-8Z"/></symbol><symbol id="ni-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol><symbol id="ni-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/></symbol><symbol id="ni-no" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m6 6 12 12"/></symbol><symbol id="ni-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z"/></symbol><symbol id="ni-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol><symbol id="ni-board" viewBox="0 0 24 24"><rect x="3" y="3" width="5" height="18" rx="1.5"/><rect x="10" y="3" width="5" height="12" rx="1.5"/><rect x="17" y="3" width="4" height="8" rx="1.5"/></symbol><symbol id="ni-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14a5 5 0 0 1 5 5"/></symbol>
+      <symbol id="ni-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/></symbol><symbol id="ni-phone" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"/></symbol><symbol id="ni-wa" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-13.2 8L3 21l1.1-4.6A9 9 0 1 1 21 12Z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 1a4 4 0 0 1-2-2l1-1-1-2Z"/></symbol><symbol id="ni-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol><symbol id="ni-flame" viewBox="0 0 24 24"><path d="M12 3s5 4 5 9a5 5 0 0 1-10 0c0-2 1-3 1-3s0 2 2 2c0-4 2-8 2-8Z"/></symbol><symbol id="ni-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol><symbol id="ni-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/></symbol><symbol id="ni-no" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m6 6 12 12"/></symbol><symbol id="ni-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z"/></symbol><symbol id="ni-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol><symbol id="ni-board" viewBox="0 0 24 24"><rect x="3" y="3" width="5" height="18" rx="1.5"/><rect x="10" y="3" width="5" height="12" rx="1.5"/><rect x="17" y="3" width="4" height="8" rx="1.5"/></symbol><symbol id="ni-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14a5 5 0 0 1 5 5"/></symbol><symbol id="ni-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
     </svg>
 </body>
 </html>
