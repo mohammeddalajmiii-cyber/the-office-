@@ -142,6 +142,9 @@ function pushAlertsFor(u) {
     if (pl && typeof pl === "object" && pl.by === me) add("planner:" + p.id, pl.at, `Made you a planner of ${p.title}`, "plan-" + p.id);
     if (p.status !== "approved") continue;
     for (const t of tasksOf(p)) {
+      if (inCheck(t) && t.checker === u && t.review.by === me) add("chk:" + t.id + ":" + t.review.at, t.review.at, `Finished "${t.text}". Please check it (${p.title})`, taskLink(p, t));
+      if (isAssignee(t, u) && !t.done && !inCheck(t) && t.changes && t.changes.by === me) add("chg:" + t.id + ":" + t.changes.at, t.changes.at, `Asked for changes on "${t.text}": ${t.changes.text}`, taskLink(p, t));
+      if (isAssignee(t, u) && t.done && t.checked && t.checked.by === me) add("ok:" + t.id + ":" + t.checked.at, t.checked.at, `Checked "${t.text}" ✓ (${p.title})`, taskLink(p, t));
       if (!isAssignee(t, u)) {
         // a task they gave out: tell them when I finish it or leave a note
         if (t.assignedBy !== u || !isAssignee(t, me)) continue;
@@ -157,7 +160,7 @@ function pushAlertsFor(u) {
         const w = waitInfo(p, t);
         if (w.deps.length && !w.open.length) {
           const last = w.deps.reduce((a, d) => (d.doneAt || 0) > (a.doneAt || 0) ? d : a, w.deps[0]);
-          if (last.doneBy === me) add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, `Finished "${last.text}", so you can start "${t.text}"`, taskLink(p, t));
+          if ((last.checked ? last.checked.by : last.doneBy) === me) add("ready:" + p.id + ":" + t.id + ":" + (last.doneAt || 0), last.doneAt, `Finished "${last.text}", so you can start "${t.text}"`, taskLink(p, t));
         }
       }
     }
