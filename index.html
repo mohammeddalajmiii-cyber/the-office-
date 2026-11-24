@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261124181312">
+<meta name="build" content="20261124182119">
 <link rel="manifest" href="manifest.json?v=4">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -2027,7 +2027,7 @@ const firebaseConfig = {
   measurementId: "G-92X06VK2PV"
 };
 
-const BUILD_ID = "20261124181312";
+const BUILD_ID = "20261124182119";
 /* ----- money engine: the split maths (pure functions, no page code) -----
    All amounts are handled in piasters (1 EGP = 100) so totals always add up exactly.
 
@@ -7252,7 +7252,7 @@ async function startRec() {
     const s = (Date.now() - rec.start) / 1000; $("#nc-rect").textContent = fmtSecs(s);
     let lvl = Math.random() * .5; if (rec.an) { rec.an.getByteTimeDomainData(buf); lvl = Math.min(1, buf.reduce((a, v) => Math.max(a, Math.abs(v - 128)), 0) / 64) }
     const bars = [...wave.children]; bars.forEach((b, i) => { b.style.height = (i === bars.length - 1 ? 4 + lvl * 20 : parseFloat((bars[i + 1] || b).style.height)) + "px" });
-    if (s >= 300) stopRec(true);
+    if (s >= 290) stopRec(true);
   }, 120);
 }
 function stopRec(send) {
@@ -7262,10 +7262,13 @@ function stopRec(send) {
   r.mr.onstop = async () => {
     r.stream.getTracks().forEach(t => t.stop()); try { r.ac && r.ac.close() } catch { }
     if (!send || !k) { if (!send) toast("Voice message deleted"); return }
-    const type = (r.type || "audio/webm").split(";")[0], blob = new Blob(r.chunks, { type });
-    if (blob.size > MAX_FILE) { toast("That voice message is too long. Keep it under 10 minutes"); return }
+    let type = (r.type || "audio/webm").split(";")[0], blob = new Blob(r.chunks, { type }), len = secs;
     setUploadStatus("Sending voice message…");
-    try { const file = await uploadFile({ blob, name: "Voice message." + (/mp4|aac/.test(type) ? "m4a" : /ogg/.test(type) ? "ogg" : "webm"), type }, null, extraFor(k)); file.voice = secs; ncToBottom = true; await sendMsg(k, { file }) }
+    // Every phone records in its own format, and some can't play the others'. So the recording is turned into
+    // a plain sound file (WAV, voice quality) that every phone and browser plays, before it's sent.
+    try { const w = await voiceToWav(blob); if (w) { blob = w.blob; type = "audio/wav"; len = Math.max(1, Math.round(w.secs)) } } catch { }
+    if (blob.size > MAX_FILE) { setUploadStatus(""); toast("That voice message is too long. Keep it under 5 minutes"); return }
+    try { const file = await uploadFile({ blob, name: "Voice message." + (type === "audio/wav" ? "wav" : /mp4|aac/.test(type) ? "m4a" : /ogg/.test(type) ? "ogg" : "webm"), type }, null, extraFor(k)); file.voice = len; ncToBottom = true; await sendMsg(k, { file }) }
     catch { toast("The voice message didn't send. Check your connection and try again", 5000) }
     setUploadStatus("");
   };
@@ -7297,8 +7300,10 @@ async function toggleVoice(f) {
   try { a.src = SILENT_WAV; a.play().catch(() => {}) } catch { }   // unlocks sound inside the tap
   voiceUi();
   const go = async url => { a.src = url; a.playbackRate = ncAudio.rate; await a.play() };
+  let url;
+  try { url = ncAudio.alt[f.id] || await loadFile(f) }
+  catch { if (ncAudio.id === f.id) { ncAudio.id = null; ncAudio.loading = null; voiceUi(); toast("That voice message didn't load. Check your connection and tap play again") } return }
   try {
-    const url = ncAudio.alt[f.id] || await loadFile(f);
     if (ncAudio.id !== f.id) return;
     try { await go(url) }
     catch (e) {
@@ -7308,18 +7313,33 @@ async function toggleVoice(f) {
       await go(ncAudio.alt[f.id]);
     }
     ncAudio.loading = null; voiceUi();
-  } catch (e) { if (ncAudio.id === f.id) { ncAudio.id = null; ncAudio.loading = null; voiceUi(); toast(e && e.name === "NotAllowedError" ? "Tap play again to listen" : "That voice message couldn't be played on this device") } }
+  } catch (e) { if (ncAudio.id === f.id) { ncAudio.id = null; ncAudio.loading = null; voiceUi(); toast(e && e.name === "NotAllowedError" ? "Tap play again to listen" : "This older voice message was recorded in a format this browser can't play. Open it on the phone that sent it. New voice messages play everywhere.", 6000) } }
+}
+async function decodeSound(buf) {
+  const AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
+  try { return await new Promise((ok, no) => { const p = ac.decodeAudioData(buf, ok, no); if (p && p.then) p.then(ok, no) }) }
+  finally { try { ac.close() } catch { } }
+}
+// a recording as a mono 16 kHz WAV: clear for voice, about 2 MB a minute, plays everywhere
+async function voiceToWav(blob) {
+  const audio = await decodeSound(await blob.arrayBuffer()), rate = 16000, OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OAC || !audio.duration) return null;
+  const off = new OAC(1, Math.max(1, Math.ceil(audio.duration * rate)), rate), src = off.createBufferSource();
+  src.buffer = audio; src.connect(off.destination); src.start(0);
+  const out = await new Promise((ok, no) => { off.oncomplete = e => ok(e.renderedBuffer); const p = off.startRendering(); if (p && p.then) p.then(ok, no) });
+  return { blob: wavBlob(out.getChannelData(0), rate), secs: audio.duration };
 }
 async function toWav(url) {
-  const buf = await (await fetch(url)).arrayBuffer(), AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
-  const audio = await new Promise((ok, no) => { const p = ac.decodeAudioData(buf, ok, no); if (p && p.then) p.then(ok, no) });
-  try { ac.close() } catch { }
-  const rate = audio.sampleRate, ch = audio.getChannelData(0), n = ch.length, out = new DataView(new ArrayBuffer(44 + n * 2));
+  const audio = await decodeSound(await (await fetch(url)).arrayBuffer());
+  return URL.createObjectURL(wavBlob(audio.getChannelData(0), audio.sampleRate));
+}
+function wavBlob(ch, rate) {
+  const n = ch.length, out = new DataView(new ArrayBuffer(44 + n * 2));
   const s = (o, t) => [...t].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
   s(0, "RIFF"); out.setUint32(4, 36 + n * 2, true); s(8, "WAVE"); s(12, "fmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
   out.setUint32(24, rate, true); out.setUint32(28, rate * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true); s(36, "data"); out.setUint32(40, n * 2, true);
   for (let i = 0; i < n; i++) out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, ch[i])) * 0x7fff, true);
-  return URL.createObjectURL(new Blob([out], { type: "audio/wav" }));
+  return new Blob([out], { type: "audio/wav" });
 }
 // voice notes start loading as soon as they scroll into view, so play starts right away
 const voiceIO = "IntersectionObserver" in window ? new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting) { voiceIO.unobserve(e.target); const f = e.target._file; if (f && (f.size || 0) < 3e6) (window.requestIdleCallback || setTimeout)(() => loadFile(f).catch(() => {})) } }, { rootMargin: "300px" }) : null;
