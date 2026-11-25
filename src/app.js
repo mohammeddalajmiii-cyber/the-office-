@@ -1547,13 +1547,15 @@ function addTaskRow(p, ph) {
   const tid = `add-${p.id}-${ph.id}`;
   const inp = el("input", { id: tid, placeholder: "Add a task to " + ph.name, maxlength: "140", "aria-label": "Add a task to " + ph.name });
   const who = el("select", { class: "mini", id: tid + "-who", "aria-label": "Who does it" }, el("option", { value: "" }, "Who?"), teamOf(p).map(u => el("option", { value: u }, name(u))));
+  const size = canPlan(p) ? el("select", { class: "mini", id: tid + "-size", "aria-label": "Size" }, el("option", { value: "" }, "Size?"), TASK_SIZES.map(z => el("option", { value: z.id }, `${z.id} · ${ptsText(z.pts)} (${z.time.replace("More than ", "over ").toLowerCase()})`))) : null;
   const add = () => {
     const text = inp.value.trim(); if (!text) return; inp.value = "";
-    write(() => upd(p.id, { ["tasks." + uid()]: { text, phase: ph.id, skill: null, owner: who.value || null, assignedBy: me, assignedAt: Date.now(), done: false, order: Date.now(), due: null } }));
+    const sz = size && size.value ? { size: size.value, sizeBy: me, sizeAt: Date.now() } : {};
+    write(() => upd(p.id, { ["tasks." + uid()]: { text, phase: ph.id, skill: null, owner: who.value || null, assignedBy: me, assignedAt: Date.now(), done: false, order: Date.now(), due: null, ...sz } }));
   };
   inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add() } });
   return el("div", { class: "padd", style: "margin:6px 0 0" }, el("div", { class: "addtask", style: "margin:0;flex-wrap:nowrap" }, inp, el("button", { class: "btn", onclick: add }, "Add")),
-    el("div", { class: "padd-more row", style: "gap:8px;font-size:13px;color:var(--muted)" }, el("label", { for: who.id }, "Who does it?"), who));
+    el("div", { class: "padd-more row", style: "gap:8px;font-size:13px;color:var(--muted)" }, el("label", { for: who.id }, "Who does it?"), who, size ? el("label", { for: size.id }, "Size") : null, size));
 }
 
 function addPhaseRow(p, phases, placeholder) {
@@ -1768,6 +1770,59 @@ function linkify(text) {
 const canWork = (p, t) => inTeam(p) && (canPlan(p) || isAssignee(t, me));
 // Task money as it would be by task prices, even while the money is still kept in the fund
 const taskMoneyOf = p => { const m = p.money || {}; return m.hold ? computeMoney({ ...p, money: { ...m, hold: null, split: "tasks" } }, todayStr(), rulesNow(), { team: projTeam(p) }) : moneyOf(p) };
+/* ----- task sizes and points: a planner sizes a task, the project's team agrees -----
+   S 1, M 3, L 8, XL 15 points (TASK_SIZES, in the money engine). Whoever sizes it agrees by sizing it. Each person on
+   the project's team taps Agree or suggests another size. Most of the team agreeing settles it; after a day,
+   anyone who didn't answer counts as agreeing. A new size from a planner starts the agreeing again. */
+const sizeState = (p, t) => {
+  if (!sizeOf(t.size)) return null;
+  const team = projTeam(p), n = Math.max(1, team.length), votes = t.sizeVotes || {};
+  const agree = new Set(Object.entries(votes).filter(([u, v]) => v === "ok" && team.includes(u)).map(([u]) => u));
+  if (t.sizeBy && team.includes(t.sizeBy)) agree.add(t.sizeBy);
+  const asks = Object.entries(votes).filter(([u, v]) => v !== "ok" && sizeOf(v) && v !== t.size && team.includes(u) && !agree.has(u)).map(([u, v]) => ({ u, size: v }));
+  const quiet = Date.now() - (t.sizeAt || 0) > 864e5;
+  const agreed = agree.size * 2 > n || (quiet && asks.length * 2 < n);
+  return { team, n, agree, asks, agreed, disputed: !agreed && asks.length * 2 >= n, quiet, mine: t.sizeBy === me ? "ok" : votes[me] || null, canVote: inTeam(p) && team.includes(me) && t.sizeBy !== me };
+};
+const needsMySize = (p, t) => { const st = sizeState(p, t); return !!st && !t.done && st.canVote && !st.mine && !st.agreed };
+const byPointsDeal = p => !!(p && p.money && p.money.split === "points");
+const ptsText = n => `${n} pt${n === 1 ? "" : "s"}`;
+// The size on a task row: "L · 8 pts", and whether the team agreed
+function sizeChip(p, t) {
+  const st = sizeState(p, t);
+  if (!st) return byPointsDeal(p) && canPlan(p) ? el("span", { class: "tbit sizebit none", title: "Give it a size so its points count" }, "No size yet") : null;
+  const sz = sizeOf(t.size), tip = `${sz.name}: ${sz.time.toLowerCase()}`;
+  if (st.agreed) return el("span", { class: "tbit sizebit", title: tip + ". The team agreed" }, `${sz.id} · ${ptsText(sz.pts)}`);
+  if (needsMySize(p, t)) return el("span", { class: "tbit sizebit strong", title: tip + ". Open it to agree or suggest another size" }, `${sz.id} · ${ptsText(sz.pts)} · Agree?`);
+  return el("span", { class: "tbit sizebit", title: tip }, `${sz.id} · ${ptsText(sz.pts)} · ` + (st.disputed ? "size not agreed" : `${st.agree.size} of ${st.n} agree`));
+}
+let sizeAsk = null;   // "<where>:<taskId>" while picking another size to suggest
+function sizeField(p, t, key, field, set) {
+  const planner = canPlan(p) && inTeam(p), st = sizeState(p, t), sz = sizeOf(t.size), kids = [];
+  const pick = id => { if (id === t.size) return; const z = sizeOf(id); set({ [t.path + ".size"]: id, [t.path + ".sizeBy"]: me, [t.path + ".sizeAt"]: Date.now(), [t.path + ".sizeVotes"]: DEL() }, `${z.name}, ${ptsText(z.pts)}. The team is asked to agree`) };
+  if (planner) kids.push(el("div", { class: "sizepick", role: "group", "aria-label": "Task size" }, TASK_SIZES.map(z =>
+    el("button", { type: "button", class: "qd", "aria-pressed": String(t.size === z.id), title: z.time, onclick: () => pick(z.id) }, el("b", {}, z.id), " · " + ptsText(z.pts)))));
+  kids.push(el("span", { class: "label sizehint" }, sz ? `${sz.name}: ${sz.time.toLowerCase()}` : planner ? "Pick how long it takes. Longer than a week? Split it into smaller tasks" : "No size yet. A planner gives it one"));
+  if (sz && byPointsDeal(p) && !p.money.hold) {
+    const P = moneyOf(p).points, v = P && (P.estValue || P.value), n = Math.max(1, assignees(t).length);
+    if (v) kids.push(el("span", { class: "label sizehint" }, `Worth about ${fmtEGP(Math.floor(v * sz.pts / n))}${n > 1 ? " each" : ""} (1 point ≈ ${fmtEGP(Math.floor(v))}). Points count once it's done${t.checker ? " and checked" : ""}`));
+  }
+  if (st) {
+    const line = st.agreed ? `Agreed${st.agree.size < st.n && st.quiet ? " (the others didn't answer within a day)" : ""}` : st.disputed ? "Not agreed yet: a planner picks another size" : `${st.agree.size} of ${st.n} on the team agree. Most of the team has to agree, or nobody objects within a day`;
+    kids.push(el("div", { class: "sizeagree" }, el("span", { class: "stack" }, [...st.agree].slice(0, 5).map(av)), el("span", { class: "label" }, line)));
+    for (const a of st.asks) kids.push(el("div", { class: "sizeask" }, av(a.u), el("span", {}, `${a.u === me ? "You suggest" : cap(firstName(a.u)) + " suggests"} `, el("b", {}, `${a.size} · ${ptsText(sizePts(a.size))}`)),
+      planner && a.u !== me ? el("button", { class: "btn small", onclick: () => pick(a.size) }, "Change to " + a.size) : null));
+    if (st.canVote && !t.done) {
+      const vote = v => set({ [`${t.path}.sizeVotes.${me}`]: v }, v === "ok" ? "You agreed on the size" : `You suggested ${v}. A planner can change it`);
+      if (st.mine === "ok") kids.push(el("div", { class: "row", style: "gap:8px" }, el("span", { class: "label ok" }, nIc("check", "sm"), "You agreed"), el("button", { class: "linkbtn", onclick: () => set({ [`${t.path}.sizeVotes.${me}`]: DEL() }) }, "Take it back")));
+      else if (st.mine) kids.push(el("button", { class: "linkbtn", onclick: () => set({ [`${t.path}.sizeVotes.${me}`]: DEL() }) }, "Take back your suggestion"));
+      else if (sizeAsk === key) kids.push(el("div", { class: "sizepick" }, TASK_SIZES.filter(z => z.id !== t.size).map(z => el("button", { type: "button", class: "qd", title: z.time, onclick: () => { sizeAsk = null; vote(z.id) } }, el("b", {}, z.id), " · " + ptsText(z.pts))),
+        el("button", { class: "linkbtn", onclick: () => { sizeAsk = null; render() } }, "Cancel")));
+      else kids.push(el("div", { class: "row", style: "gap:8px" }, el("button", { class: "btn small primary", onclick: () => vote("ok") }, "Agree"), el("button", { class: "btn small", onclick: () => { sizeAsk = key; render() } }, "Suggest another size")));
+    }
+  }
+  return field("Size", ...kids);
+}
 // A task's price, when the deal shares money by task prices
 function priceChip(p, t) {
   const m = p && p.money; if (!m || m.split !== "tasks" || m.type === "monthly") return null;
@@ -1803,6 +1858,7 @@ function taskItem(p, t, where, opts = {}) {
       opts.phase ? bit(opts.phase) : null,
       showPeople ? (people.length ? el("span", { class: "tbit tpeople", title: people.map(name).join(", ") }, el("span", { class: "stack" }, people.slice(0, 3).map(av)), people.length === 1 ? (people[0] === me ? "You" : cap(firstName(people[0]))) : `${people.length} people`) : bit("Nobody yet")) : null,
       status,
+      sizeChip(p, t),
       !t.done && t.due ? bit(late ? "Late · " + fmtDate(t.due) : dueText(t.due, false), late ? "strong" : "") : null,
       !t.done && (t.priority === "urgent" || t.priority === "high") ? bit(t.priority === "urgent" ? "Urgent" : "High priority", "strong") : null),
     doneAnyway === key ? el("div", { class: "waitwarn" },
@@ -1883,6 +1939,8 @@ function taskDetail(p, t, key) {
     box.append(field("Details", el("span", { class: "row", style: "gap:6px" },
       el("span", { class: "prio prio-" + (t.priority || "medium") }, PRIORITIES.find(x => x.id === (t.priority || "medium")).name), dueChip(t) || el("span", { class: "label" }, "No due date"))));
   }
+
+  box.append(sizeField(p, t, key, field, set));
 
   /* waiting for other tasks, and who's waiting on this one */
   {
@@ -4045,6 +4103,9 @@ function buildAlerts() {
       if (inCheck(t) && isMyCheck(p, t) && t.review.by !== me) add("chk:" + t.id + ":" + t.review.at, t.review.at, t.review.by, `${name(t.review.by)} finished "${t.text}". Please check it (${p.title})`, go);
       if (isAssignee(t, me) && !t.done && !inCheck(t) && t.changes && t.changes.by !== me) add("chg:" + t.id + ":" + t.changes.at, t.changes.at, t.changes.by, `${name(t.changes.by)} asked for changes on "${t.text}": ${t.changes.text}`, go);
       if (isAssignee(t, me) && t.done && t.checked && t.checked.by !== me) add("ok:" + t.id + ":" + t.checked.at, t.checked.at, t.checked.by, `${name(t.checked.by)} checked "${t.text}" ✓ (${p.title})`, go);
+      // a size the team is asked to agree on, and suggestions for the planner who sized it
+      if (needsMySize(p, t) && t.sizeBy) add("size:" + t.id + ":" + t.sizeAt, t.sizeAt, t.sizeBy, `${name(t.sizeBy)} sized "${t.text}" ${t.size} (${ptsText(sizePts(t.size))}). Do you agree? (${p.title})`, go);
+      if (t.sizeBy === me) for (const [u, v] of Object.entries(t.sizeVotes || {})) if (v !== "ok" && sizeOf(v) && v !== t.size) add("sizeask:" + t.id + ":" + u + ":" + v + ":" + t.sizeAt, t.sizeAt, u, `${name(u)} suggests "${t.text}" should be ${v}, not ${t.size} (${p.title})`, go);
       if (!isAssignee(t, me)) {
         // tasks you gave someone else: hear when they finish it or leave a note
         if (t.assignedBy !== me) continue;
@@ -4445,6 +4506,11 @@ function guidePage() {
       ["Take the skills quiz", "(Me › Skills and team, about 6 minutes). It finds your main role, other roles you fit and your hidden skill, so the right tasks come to you."],
       ["Done tasks fold away", "at the bottom of their phase under ✓ done. Tap it to review them; untick one to bring it back."],
       ["Checks instead of review tasks:", "open a task and pick a planner to check it, or Any planner. Ticking it sends it to them; it only counts as done when a planner taps Looks good. Needs changes sends it back with a note. Things to check show in Me under To check. Planners see a tidy-up box that turns old review tasks into checks."]]),
+    card("\u{1F3AF}", "Task sizes and points", [
+      ["Every task has a size:", "S (up to 2 hours) 1 point · M (up to 1 day) 3 · L (1 to 3 days) 8 · XL (3 days to a week) 15. Longer than a week gets split into smaller tasks."],
+      ["Planners pick the size, the team agrees:", "open the task and tap Agree, or Suggest another size. Most of the team agreeing settles it. If nobody objects within a day, it counts as agreed."],
+      ["You earn the points", "once the task is done and a planner has checked it. People on the same task share its points."],
+      ["Money by points:", `after costs, the finder's fee (by how the client came: 8%, 18%, 4% or 8%) and the team fund (${R.fundPct}%), the rest is shared by points. Everything that came in is split by the points done so far, so everyone always has their fair part.`]]),
     card("\u{1F4B5}", "Your money", [
       ["Task prices:", "when a project shares money by task prices, a task shows 💵 and what you get (≈). You earn it once the task is ticked done and the client has paid for it."],
       ["Not every task has a price.", "The part that isn't priced is shared by the team, by % or equally."],
@@ -4476,7 +4542,8 @@ function guidePage() {
       ["Set a weekly goal", "on the Week tab: one clear thing everyone pushes for."]]),
     card("\u{1F4B0}", "Setting up the money", [
       ["1. Set up the money:", "on a project's Money tab, answer three questions: what the client agreed to pay, how they'll pay it, and how we share it. Everything else (currency, who brought the client, a partner, the team fund %) is in Edit deal › More options."],
-      ["2. How the team's money is shared:", "By task prices (best for one-time work) or By % shares. Monthly deals use % shares, and you can change them for one month with Who worked?"],
+      ["2. How the team's money is shared:", "By points (our way now: every task has a size and the money follows the points), by task prices or by % shares. With points, set How the client came in Edit deal › More options, so the finder's fee is right."],
+      ["Sizing tasks:", "give every task a size when you add it, or open it and pick S, M, L or XL. The team is asked to agree. When someone suggests another size, you see it on the task with a Change button."],
       ["3. Payment plan:", "split the price into a deposit and the rest, and link the tasks each payment pays for. The plan tells you when it's time to ask the client for the next payment."],
       ["Which tasks finish which money?", "When a deal is in phases, tap Edit phases on the Tasks tab and pick the money phase each task phase finishes. The Tasks tab then shows each money phase with its task phases, and the Money tab knows when to ask for the final payment."],
       ["Client working step by step?", "Split the deal into phases (Money tab › Payment plan). Each money phase has its own price, deposit and final payment. Money phases are separate from task phases: tick the task phases a money phase pays for (one, several or none). When a phase is done and paid, tap + Add the next phase. A phase that's only offered stays Not agreed yet until you tap The client agreed."],
@@ -4962,6 +5029,7 @@ How Pitch Room works:
 - Project teams: each project has its own team. Planners are always on it. Others tap "Ask to join the team" and wait for a planner to accept, or a planner invites them and they accept. Someone not on the team can look and leave notes on tasks, but can't take, tick or change tasks, check in or add files. Only the team can be given tasks and get money from the project. Leaving or being taken off frees your open tasks.
 - Tasks: status (not started, in progress, done), priority, due date, steps (ticking the first step starts the task), notes for the team, "waiting for" (a task can't start until another is done; finishing one tells the next person), and "checked by" (project planners check tasks: a named planner or "any planner". Ticking it sends it for the check, and it only counts as done once a planner taps Looks good; Needs changes sends it back with a note. Use this instead of separate review tasks). My tasks groups them into To check, Now, Next and Waiting on others.
 - Money: for each deal, costs people paid are paid back first, then a partner's commission if a partner abroad brought the client, then the team fund % (40% now), then the finder's fee, then the shares. Deals can be in any currency; each payment saves its rate. Proposals have nothing due. One-time deals can have a payment plan (a deposit, then the rest), and each payment says which tasks it pays for. Every money change is in the project's change log. Everyone agrees to the money rules. Sharing the team's money: by % shares, or by task prices (one-time and paid-over-months deals): a task can have a price (its part of the client's price). Whoever does a priced task earns its share once the task is done and the payment that covers it is in; not every task needs a price, the unpriced part is shared by the % shares or equally by the project's team.
+- Points (the team's main way now): every task has a size: S up to 2 hours = 1 point, M up to 1 day = 3, L 1 to 3 days = 8, XL 3 days to 1 week = 15 (1 point is about 2 hours; anything longer than a week is split). A planner sizes the task and the project's team agrees (Agree or Suggest another size; most of the team agreeing settles it, and silence for a day counts as agreeing). Points count once the task is done and checked; people on one task share its points. A points deal goes: costs paid back, then the finder's fee by how the client came (our lead and they closed it 8%; they found the client and closed it 18%; our lead, they set up the meeting and Ardent closed it 4%; they found the client and Ardent closed it 8%; not closed 0%; a partner abroad or team members, shared equally; on monthly deals only the setup fee and the first months), then the team fund %, then the rest by points. One-time deals: everything shared so far is split by the points done so far. Monthly deals: each month's fee by the points finished that month. When planning tasks, suggest a size for each (S, M, L or XL) and split anything longer than a week.
 - Team fund: pays subscriptions and saves for goals. Goals can be added without a price, researched, then priced. If someone pays for the team from their own pocket, the fund owes it back.
 - Partners: lead finders abroad in country groups. They call numbers, post updates, chat with the team and see their earnings. A number marked Client can become a project with their commission set.
 - Clients: see their project's stage, progress, next step, payments and a chat with the team.
@@ -5530,6 +5598,12 @@ function renderMoney(box, p) {
   if (r.unassigned > 0) warn.push(r.byTasks ? `${fmtEGP(r.unassigned)} isn't going to anyone yet: a done task has nobody on it, or the project has no team. Give the task to someone, or add people to the team.` : `${fmtEGP(r.unassigned)} isn't assigned to anyone yet. Set the shares in Edit deal.`);
   if (r.byTasks && r.taskHeld > 0) warn.push(`${fmtEGP(r.taskHeld)} is paid for but waiting: its tasks aren't done yet. It goes to the people on them when they tick them done.`);
   if (r.byTasks && r.pricedOver) warn.push("The task prices add up to more than a payment covers, so they're scaled down to fit. Check the prices below.");
+  if (r.byPoints) {
+    const P = r.points;
+    if (P.held > 0) warn.push(`${fmtEGP(P.held)} is waiting: no task with a size is done yet${m.type === "monthly" ? " for that month" : ""}. It's shared by points once tasks are done and checked.`);
+    if (P.unsized) warn.push(`${P.unsized} task${P.unsized > 1 ? "s have" : " has"} no size yet, so ${P.unsized > 1 ? "they don't" : "it doesn't"} earn points. A planner gives each task a size.`);
+    if (!r.finderCase && (r.finders.length || r.finderTeam || r.partner)) warn.push("Someone brought the client, but how they came isn't set, so there's no finder's fee yet. Pick it in Edit deal.");
+  }
   if (warn.length) box.append(el("div", { class: "notice", style: "margin:0 0 12px" }, warn.map(w => el("div", {}, w))));
 
   /* actions: one big button for money that came in; the rest are smaller */
@@ -5550,20 +5624,21 @@ function renderMoney(box, p) {
     const tr = r.holding ? taskMoneyOf(p) : r;
     box.append(fold("tp-" + p.id, "Task prices", tr.priced ? `${fmtCur(tr.priced, cur)} of ${fmtCur(r.expected, cur)} is on tasks` : "no prices yet", taskPricesBlock(p, tr, r.holding), priceEdit === p.id));
   }
+  if (r.byPoints) box.append(pointsBlock(p, r));
 
   /* where the money goes, then who gets what */
   const split = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "Where the money goes"), el("span", { class: "spacer" }), el("span", { class: "label" }, "In EGP")));
   split.append(flowList(p, r));
-  if (r.pending || (r.byTasks && r.preview && r.received < r.expected)) {
+  if ((r.pending && r.preview) || ((r.byTasks || r.byPoints) && r.preview && r.received < r.expected)) {
     const pv = r.preview, pe = Object.entries(pv.people).sort((a, b) => b[1].earned - a[1].earned);
     if (pe.length) {
-      split.append(el("div", { class: "tlabel", style: "margin-top:10px" }, r.byTasks ? "When it's all paid and done, each person gets" : "Each person will get"));
+      split.append(el("div", { class: "tlabel", style: "margin-top:10px" }, r.byPoints ? "When it's all paid and every task is done, each person gets about" : r.byTasks ? "When it's all paid and done, each person gets" : "Each person will get"));
       for (const [u, v] of pe) split.append(el("div", { class: "mrow" }, av(u), el("span", { class: "mname" }, name(u)), el("span", { class: "mval" }, fmtEGP(v.earned))));
     }
   }
   const people = Object.entries(r.people).filter(([, v]) => v.earned || v.back || v.paid).sort((a, b) => b[1].balance - a[1].balance);
   if (people.length) {
-    split.append(el("div", { class: "tlabel", style: "margin-top:10px" }, r.pending ? "So far (costs paid back)" : r.byTasks && r.received < r.expected ? "Earned so far" : "Each person"));
+    split.append(el("div", { class: "tlabel", style: "margin-top:10px" }, r.pending && !r.byPoints ? "So far (costs paid back)" : (r.byTasks || r.byPoints) && r.received < r.expected ? "Earned so far" : "Each person"));
     split.append(el("div", { class: "mhead" }, el("span", {}, "In EGP"), el("span", {}, "Their money"), el("span", {}, "Handed over"), el("span", {}, "Still owed")));
     for (const [u, v] of people) split.append(el("div", { class: "mrow4" },
       el("span", { class: "by" }, av(u), el("span", { class: "mname" }, name(u))),
@@ -6070,7 +6145,7 @@ function holdBlock(p, r) {
   sec.append(el("div", { class: "tlabel" }, "How should we split it?"));
   for (const [v, l, d] of SPLIT_WAYS.filter(w => w[0] !== "hold" && !(m.type === "monthly" && w[0] === "tasks"))) {
     const x = tryWay(v), ppl = Object.entries(x.people).filter(([, y]) => y.earned > 0).sort((a, b) => b[1].earned - a[1].earned);
-    const now = [x.fund ? `fund ${fmtEGP(x.fund)}` : null, ...ppl.map(([u, y]) => `${firstName(u)} ${fmtEGP(y.earned)}`), x.taskHeld ? `${fmtEGP(x.taskHeld)} waits for tasks` : null, x.pending ? "split once the client has paid everything" : null].filter(Boolean).join(" · ");
+    const now = [x.fund ? `fund ${fmtEGP(x.fund)}` : null, ...ppl.map(([u, y]) => `${firstName(u)} ${fmtEGP(y.earned)}`), x.taskHeld ? `${fmtEGP(x.taskHeld)} waits for tasks` : null, x.byPoints && x.points.held ? `${fmtEGP(x.points.held)} waits for tasks with a size to be done` : null, x.pending && !x.byPoints ? "split once the client has paid everything" : null].filter(Boolean).join(" · ");
     const blocked = v === "shares" && !hasShares;
     sec.append(el("div", { class: "way decide" }, el("span", { style: "flex:1;min-width:0;display:grid;gap:2px" }, el("b", {}, l), el("span", { class: "label" }, d), el("span", { class: "label" }, blocked ? "Set the shares in Edit deal first." : "From what came in so far: " + (now || "nothing yet"))),
       blocked ? el("button", { class: "btn small", onclick: () => { holdDecide = null; editDeal = p.id; dealSplitDraft[p.id] = "shares"; render() } }, "Set shares")
@@ -6151,10 +6226,53 @@ function taskMoneyField(p, t) {
   return el("span", { style: "display:grid;gap:2px" }, el("span", {}, el("b", {}, fmtCur(info.price, cur)), " of the price. ", say), go);
 }
 
+// By points: what a point is worth, and everyone's points and money
+const fmtPts = v => String(Math.round((v || 0) * 10) / 10);
+function pointsBlock(p, r) {
+  const P = r.points, m = p.money || {};
+  const sec = el("section", { class: "idea" }, el("div", { class: "row" }, el("h3", {}, "Points"), el("span", { class: "spacer" }),
+    el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, TASK_SIZES.map(z => `${z.id} ${z.pts}`).join(" · "))));
+  const val = el("div", { class: "ptsvalue" });
+  if (P.value) val.append(el("span", {}, "1 point ="), el("b", {}, fmtEGP(Math.floor(P.value))), el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, m.type === "monthly" ? "last month paid" : "right now"));
+  if (m.type !== "monthly" && P.estValue && r.received < r.expected) val.append(el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, `${P.value ? "· " : ""}about ${fmtEGP(Math.floor(P.estValue))} a point when it's all paid and done`));
+  if (!val.childNodes.length) val.append(el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, "A point gets its value once money comes in and tasks with a size are done."));
+  sec.append(val);
+  sec.append(el("p", { class: "label", style: "margin:0 0 10px;text-transform:none;letter-spacing:0" },
+    `${fmtPts(P.doneTotal)} of ${fmtPts(P.total)} points done` + (P.unsized ? ` · ${P.unsized} task${P.unsized > 1 ? "s" : ""} without a size` : "") +
+    (m.type === "monthly" ? ". Each month's fee is shared by the points of the tasks finished that month." : ". Everything shared so far is split by the points done so far, so everyone always has their fair part.")));
+  const rows = Object.entries(P.people).filter(([, v]) => v.pts || v.estPts || v.earned).sort((a, b) => b[1].pts - a[1].pts || b[1].estPts - a[1].estPts);
+  if (rows.length) {
+    const g = el("div", { class: "ptsgrid" }, el("span", { class: "hd" }, "Person"), el("span", { class: "hd num" }, "Points"), el("span", { class: "hd num" }, "From points (EGP)"));
+    for (const [u, v] of rows) g.append(el("span", { class: "who" }, av(u), el("span", { class: "mname" }, name(u))),
+      el("span", { class: "num" }, fmtPts(v.pts), v.estPts > v.pts ? el("small", { class: "label", style: "text-transform:none;letter-spacing:0" }, ` +${fmtPts(v.estPts - v.pts)} to do`) : null),
+      el("span", { class: "num" }, fmtN(v.earned)));
+    sec.append(g);
+  } else sec.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, "Nobody has points yet. Give tasks a size and people, and points count once they're done."));
+  if (m.type === "monthly") {
+    const months = Object.entries(P.months).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6);
+    if (months.length) sec.append(el("div", { class: "tlabel", style: "margin-top:12px" }, "By month"),
+      ...months.map(([mm, x]) => el("div", { class: "mrow" }, el("span", { class: "mname" }, monthLabel(mm)), el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, x.pts ? `${fmtPts(x.pts)} pts · 1 point = ${fmtEGP(Math.floor(x.value))}` : "no points that month yet"), el("span", { class: "mval" }, fmtN(x.pot)))));
+  }
+  return sec;
+}
+
 // Where the money goes, step by step, in the order the rules take it.
 function flowList(p, r) {
-  const m = p.money, pv = r.pending ? r.preview : null, fl = pv ? pv.flow : r.flow, whole = pv ? pv.whole : r.receivedEGP;
+  const m = p.money, pv = r.pending && !r.byPoints ? r.preview : null, fl = pv ? pv.flow : r.flow, whole = pv ? pv.whole : r.receivedEGP;
   const wrap = el("div", { class: "flow" });
+  if (r.byPoints) {
+    // by points: costs, then the finder's fee, then the fund, then points
+    const prow = (sign, label, sub, amt, cls) => el("div", { class: "frow" + (cls ? " " + cls : "") },
+      el("span", { class: "fsign" }, sign), el("div", { class: "fmain" }, el("div", {}, label), sub ? el("div", { class: "label" }, sub) : null),
+      el("span", { class: "famt" }, fmtN(amt), whole && sign === "−" ? el("small", {}, ` ${pctOfPrice(amt, whole)}%`) : null));
+    const fc = r.finderCase, who = [r.partner ? r.partner.name : null, ...r.finders.map(firstName)].filter(Boolean);
+    wrap.append(prow("", "Money in so far", r.currency !== "EGP" ? "at each payment's rate" : null, whole, "fin"));
+    if (fl.costs) wrap.append(prow("−", "Costs paid back", "to whoever paid from their own pocket", fl.costs));
+    if (fl.finder || fl.partner) wrap.append(prow("−", `Finder's fee (${r.findPct}%)`, (fc ? fc.from + ", " + (fc.closer === "Ardent" ? "Ardent closed it" : "they closed it") : "") + (r.finderTeam && !who.length ? ", goes to the team fund" : who.length ? ", to " + who.join(" & ") : ""), fl.finder + fl.partner));
+    wrap.append(prow("−", `Team fund (${r.fundPct}%)`, "of what's left, for the office and our subscriptions", fl.fund));
+    wrap.append(prow("=", "Shared by points", r.points && r.points.value ? `1 point = ${fmtEGP(Math.floor(r.points.value))} right now` : "once tasks with a size are done", fl.shares, "fout"));
+    return wrap;
+  }
   const share = Object.entries((m.type === "monthly" ? m.monthlyShares : null) || m.shares || {}).filter(([, v]) => Number(v) > 0).map(([u, v]) => `${firstName(u)} ${v}%`).join(" · ");
   const finderTo = r.finderTeam ? "goes to the team fund" : r.finders.length ? "to " + r.finders.map(firstName).join(" & ") : "";
   const row = (sign, label, sub, amt, cls) => el("div", { class: "frow" + (cls ? " " + cls : "") },
@@ -6328,8 +6446,9 @@ function sharesEditor(prefix, p, current, suggestBtn, optional) {
   return wrap;
 }
 
-let dealTypeDraft = {}, dealCurDraft = {}, dealSplitDraft = {}, moreOptsOpen = {};
+let dealTypeDraft = {}, dealCurDraft = {}, dealSplitDraft = {}, dealCaseDraft = {}, moreOptsOpen = {};
 const SPLIT_WAYS = [
+  ["points", "By points", "Every task has a size: S 1, M 3, L 8, XL 15 points. Whoever does it earns its points once it's done and checked. After costs, the finder's fee and the team fund, the money is shared by points."],
   ["tasks", "By task prices", "Whoever does a priced task earns it once it's done and paid for. The unpriced part is shared by the team."],
   ["shares", "By % shares", "Each person on the project's team gets the % you type."],
   ["fund", "All to the team fund", "After costs, the partner and the finder, everything goes to the team fund."],
@@ -6363,16 +6482,28 @@ function dealForm(p) {
     el("label", { class: "row", style: "gap:8px;font-size:14px" }, ads, "The client also pays their ad budget through us (tracked separately, never split)"));
 
   // how the team's money is shared: by task prices, by % shares, all to the fund, or kept in the fund until we decide
-  let split = dealSplitDraft[p.id] || (m.hold ? "hold" : m.split) || (m.type ? "shares" : "tasks");
+  let split = dealSplitDraft[p.id] || (m.hold ? "hold" : m.split) || (m.type ? "shares" : "points");
   if (type === "monthly" && split === "tasks") split = "shares";
   box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "How the team's money is shared"),
     el("div", { class: "waylist", role: "radiogroup", "aria-label": "How the team's money is shared" }, SPLIT_WAYS.filter(w => !(type === "monthly" && w[0] === "tasks")).map(([v, l, d]) =>
       el("button", { type: "button", role: "radio", class: "way", "aria-checked": String(split === v), onclick: () => { dealSplitDraft[p.id] = v; render() } }, el("span", { class: "waydot" }), el("span", {}, el("b", {}, l), el("span", { class: "label" }, d))))));
-  const sharesOptional = split !== "shares";
-  box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, type === "monthly" ? "Who built it (setup fee shares)" : split === "tasks" ? "Shares for the unpriced part (optional)" : split === "shares" ? "Who gets what (shares)" : "Shares (optional, for later)"));
-  const shares = sharesEditor("sh-" + p.id, p, m.shares, true, sharesOptional); box.append(shares);
+  const sharesOptional = split !== "shares", byPts = split === "points";
+  const shLabel = el("div", { class: "tlabel", style: "margin-top:6px" }, type === "monthly" ? "Who built it (setup fee shares)" : split === "tasks" ? "Shares for the unpriced part (optional)" : split === "shares" ? "Who gets what (shares)" : "Shares (optional, for later)");
+  const shares = sharesEditor("sh-" + p.id, p, m.shares, true, sharesOptional);
+  // by points, nobody types shares: the points decide. (Old shares are kept, in case the deal changes back.)
+  if (byPts) box.append(el("p", { class: "label", style: "margin:0;text-transform:none;letter-spacing:0" }, type === "monthly"
+    ? "The setup fee is shared by all the points; each month's fee by the points of the tasks finished that month. Planners give each task a size, and the team agrees on it."
+    : "Everything that comes in is shared by the points done so far. Planners give each task a size, and the team agrees on it."));
+  else box.append(shLabel, shares);
   let mshares = null;
-  if (type === "monthly") { box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "Who runs it each month (monthly fee shares)")); mshares = sharesEditor("msh-" + p.id, p, m.monthlyShares || m.shares, false); box.append(mshares, el("p", { class: "label", style: "margin:0" }, "You can change this for a single month later with “Who worked?”.")) }
+  if (type === "monthly") { mshares = sharesEditor("msh-" + p.id, p, m.monthlyShares || m.shares, false, byPts); if (!byPts) box.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "Who runs it each month (monthly fee shares)"), mshares, el("p", { class: "label", style: "margin:0" }, "You can change this for a single month later with “Who worked?”.")) }
+  // the finder's fee by how the client came (points deals)
+  const caseOf = el("div", { class: "casetable waylist", role: "radiogroup", "aria-label": "How the client came" });
+  let caseV = dealCaseDraft[p.id] !== undefined ? dealCaseDraft[p.id] : (m.finderCase || 0);
+  const drawCases = () => caseOf.replaceChildren(...[...FINDER_CASES, { id: 0, from: "Nobody brought it, or the deal wasn't closed", closer: "", pct: 0 }].map(c =>
+    el("button", { type: "button", role: "radio", class: "way", "aria-checked": String(caseV === c.id), onclick: () => { caseV = dealCaseDraft[p.id] = c.id; drawCases() } },
+      el("span", { class: "waydot" }), el("span", {}, el("b", {}, `${c.pct}% · ${c.from}`), el("span", { class: "label" }, c.closer ? (c.closer === "Ardent" ? "Ardent closed the deal" : "They closed the deal themselves") : "No finder's fee")))));
+  drawCases();
 
   const curFinders = new Set(m.finderTeam ? [] : (Array.isArray(m.finders) ? m.finders : (m.finder ? [m.finder] : [])));
   const fMode = el("select", { class: "mini", id: "deal-fmode" }, el("option", { value: "people" }, "These people"), el("option", { value: "team" }, "The team in general (fee goes to the fund)"), el("option", { value: "none" }, "Nobody"));
@@ -6380,7 +6511,8 @@ function dealForm(p) {
   const fBoxes = el("div", { class: "finders" }, teamChoices(p).map(u => el("label", { class: "share" }, el("input", { type: "checkbox", id: "deal-f-" + u, value: u, checked: curFinders.has(u) }), av(u), el("span", { class: "mname" }, realName(u) || "Someone"))));
   const syncF = () => { fBoxes.hidden = fMode.value !== "people" }; fMode.addEventListener("change", syncF); syncF();
   more.append(fieldRow("Who brought the client?", fMode), fBoxes,
-    el("p", { class: "label", style: "margin:0" }, `Finder's fee ${m.findCustom && m.findPct != null ? m.findPct : R.findPct}%` + (type === "monthly" ? ` on the setup fee and first ${R.finderMonths} months` : "") + ". If several people brought it in, they share it equally."));
+    byPts ? el("p", { class: "label", style: "margin:0" }, "With points, the finder's fee depends on how the client came (below). It comes off first, before the team fund" + (type === "monthly" ? `, on the setup fee and the first ${R.finderMonths} months` : "") + ". If several people brought it in (a partner counts too), they share it equally.")
+      : el("p", { class: "label", style: "margin:0" }, `Finder's fee ${m.findCustom && m.findPct != null ? m.findPct : R.findPct}%` + (type === "monthly" ? ` on the setup fee and first ${R.finderMonths} months` : "") + ". If several people brought it in, they share it equally."));
   // a partner abroad who brought the client: their commission comes first, before the fund and the shares
   const pm0 = (m.partner || {}).email || "";
   const paSel = el("select", { class: "mini", id: "deal-partner" }, el("option", { value: "" }, "No partner"), [...pMembers].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(x => el("option", { value: x.id, selected: x.id === pm0 }, `${x.name || x.id} (${groupName(x.gid)})`)));
@@ -6388,7 +6520,9 @@ function dealForm(p) {
   const paVal = moneyInput("deal-pval", (m.partner || {}).value != null ? m.partner.value : 10, "10");
   const paBox = el("div", { class: "row", style: "gap:8px" }, paMode, paVal);
   const syncPa = () => { paBox.hidden = !paSel.value }; paSel.addEventListener("change", syncPa); syncPa();
-  more.append(fieldRow("Partner who brought it", paSel), paBox, el("p", { class: "label", style: "margin:0" }, "Their commission is taken first, after costs. A % applies like the finder's fee; a fixed amount is paid from the first money until it's done."));
+  if (byPts) paBox.style.display = "none";
+  more.append(fieldRow("Partner who brought it", paSel), paBox, el("p", { class: "label", style: "margin:0" }, byPts ? "A partner who brought the client gets the finder's fee for how the client came (below)." : "Their commission is taken first, after costs. A % applies like the finder's fee; a fixed amount is paid from the first money until it's done."));
+  if (byPts) more.append(el("div", { class: "tlabel", style: "margin-top:6px" }, "How the client came (the finder's fee)"), caseOf);
   let fundIn = null, findIn = null;
   if (isAdmin) { fundIn = el("input", { id: "deal-fundpct", class: "mini pct", type: "number", min: "0", max: "80", step: "1", value: m.fundCustom && m.fundPct != null ? m.fundPct : R.fundPct }); findIn = el("input", { id: "deal-findpct", class: "mini pct", type: "number", min: "0", max: "30", step: "1", value: m.findCustom && m.findPct != null ? m.findPct : R.findPct });
     more.append(fieldRow("Team fund %", fundIn, el("span", { class: "label" }, "team rule: " + R.fundPct + "%")), fieldRow("Finder %", findIn, el("span", { class: "label" }, "team rule: " + R.findPct + "%"))) }
@@ -6403,6 +6537,7 @@ function dealForm(p) {
     const n = x => Math.round((Number(x.value) || 0) * 100) / 100;
     const finders = fMode.value === "people" ? [...fBoxes.querySelectorAll("input:checked")].map(i => i.value) : [];
     if (fMode.value === "people" && !finders.length) { toast("Tick who brought the client, or choose Nobody"); return }
+    if (byPts && !caseV && (finders.length || fMode.value === "team" || paSel.value) && !prop) { more.open = moreOptsOpen[p.id] = true; toast("Pick how the client came, so the finder's fee is right"); caseOf.scrollIntoView({ block: "center" }); return }
     // a deal only keeps its own % if the admin set one different from the team rule
     const fundV = fundIn ? Number(fundIn.value) : null, findV = findIn ? Number(findIn.value) : null;
     const pmx = paSel.value ? pMembers.find(x => x.id === paSel.value) : null, pv = Number(paVal.value) || 0;
@@ -6412,12 +6547,12 @@ function dealForm(p) {
     const data = { type, currency: cur, rate: rt, partner: pmx ? { email: pmx.id, name: pmx.name || pmx.id, gid: pmx.gid || "", mode: paMode.value, value: pv } : null, client: client.value.trim(), stage: stage.value, shares: s.shares, finder: null, finders, finderTeam: fMode.value === "team",
       fundCustom: fundIn ? fundV !== R.fundPct : !!m.fundCustom, fundPct: fundIn ? fundV : (m.fundPct != null ? m.fundPct : null),
       findCustom: findIn ? findV !== R.findPct : !!m.findCustom, findPct: findIn ? findV : (m.findPct != null ? m.findPct : null),
-      monthShares: m.monthShares || {}, plan: Array.isArray(m.plan) ? m.plan : [], split: split === "hold" ? (m.split || (type === "monthly" ? "shares" : "tasks")) : split, hold: split === "hold" ? (m.hold || { by: me, at: Date.now() }) : null, prices: m.prices || {}, setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
+      monthShares: m.monthShares || {}, plan: Array.isArray(m.plan) ? m.plan : [], split: split === "hold" ? (m.split || (type === "monthly" ? "shares" : "tasks")) : split, hold: split === "hold" ? (m.hold || { by: me, at: Date.now() }) : null, prices: m.prices || {}, finderCase: byPts ? (caseV || null) : (m.finderCase || null), setAt: m.setAt || Date.now(), setBy: m.setBy || me, editedAt: Date.now() };
     if (type === "one" && isPhased(m)) { data.phases = m.phases; data.price = phasesPrice(m) }
     else if (type === "one") { if (!(n(price) > 0)) { toast("Enter the price"); return } data.price = n(price) }
     if (type === "installments") { if (!(n(price) > 0)) { toast("Enter the total price"); return } Object.assign(data, { price: n(price), installments: Math.max(2, Math.round(Number(months.value) || 3)), startMonth: start.value || thisMonth(), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)) }) }
     if (type === "monthly") { if (!(n(fee) > 0)) { toast("Enter the monthly fee"); return } Object.assign(data, { monthlyFee: n(fee), setupFee: n(setup), startMonth: start.value || thisMonth(), endMonth: end.value || (stage.value === "ended" ? thisMonth() : ""), dueDay: Math.min(28, Math.max(1, Number(dueDay.value) || 5)), adBudget: ads.checked, monthlyShares: ms.shares }) }
-    editDeal = null; delete dealTypeDraft[p.id]; delete dealCurDraft[p.id]; delete dealSplitDraft[p.id];
+    editDeal = null; delete dealTypeDraft[p.id]; delete dealCurDraft[p.id]; delete dealSplitDraft[p.id]; delete dealCaseDraft[p.id];
     // log what changed, in words, so nobody is surprised by a new split
     const ch = [];
     if (!m.type) ch.push("Deal set up");
@@ -6430,6 +6565,7 @@ function dealForm(p) {
       if ((m.stage || "agreed") !== data.stage) ch.push("Stage: " + (STAGES.find(x => x[0] === data.stage) || [, data.stage])[1]);
       if (JSON.stringify(m.partner || null) !== JSON.stringify(data.partner)) ch.push(data.partner ? `Partner: ${data.partner.name} ${data.partner.mode === "fixed" ? data.partner.value + " EGP" : data.partner.value + "%"}` : "Partner removed");
       if (data.fundCustom && Number(m.fundPct) !== Number(data.fundPct)) ch.push(`Team fund: ${data.fundPct}%`);
+      if ((m.finderCase || null) !== data.finderCase) { const fc = finderCase(data.finderCase); ch.push(fc ? `Finder's fee: ${fc.pct}% (${fc.from.toLowerCase()}, ${fc.closer === "Ardent" ? "Ardent closed it" : "they closed it"})` : "No finder's fee") }
     }
     moneyUpd(p, { money: data }, ch.join(" \u00b7 ") || "Deal saved (no changes)", ch.length ? "deal" : "entry", "Deal saved");
   };
@@ -6557,6 +6693,7 @@ function moneyRulesText(R) {
       `4. The finder: ${R.findPct}% to whoever on the team brought the client (shared equally if several of us did; to the fund if it came through the team in general). On monthly deals it applies to the setup fee and the first ${R.finderMonths} months.`,
       `5. The rest goes to the people on the project, the way the deal says it's shared.`]],
     ["How the team's part is shared (each deal picks one)", [
+      `By points (our main way): every task has a size, S 1 point (up to 2 hours), M 3 (up to 1 day), L 8 (1 to 3 days), XL 15 (3 days to a week). Longer tasks are split. A planner sizes each task and the project's team agrees. Points count once the task is done and checked. On these deals the finder's fee comes first, by how the client came: 8% our lead and they closed it, 18% they found the client and closed it, 4% our lead and they set up the meeting for Ardent to close, 8% they found the client and Ardent closed it, 0% if the deal wasn't closed. Then the team fund's % of what's left, then the rest by points: everything shared so far is split by the points done so far (monthly deals: each month's fee by that month's points).`,
       `By task prices: a task can have a price, its part of the client's price. Whoever does it earns its share once the task is done and the payment that covers it has come in. People on the same task share it equally. Not every task needs a price: the unpriced part goes by the % shares, or equally to the project's team.`,
       `By % shares: each person on the project's team gets the % agreed. One-time deals are split once the client has paid everything (in phases: once each phase is fully paid). Monthly deals and deals paid over months are split as each payment comes in; each month's fee goes to who ran it that month.`,
       `All to the team fund: after costs, the partner and the finder, everything goes to the fund.`,
