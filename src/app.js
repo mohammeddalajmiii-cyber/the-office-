@@ -3961,7 +3961,7 @@ function personalTaskRow(t) {
       t.priority && t.priority !== "medium" && !t.done ? el("span", { class: "prio prio-" + t.priority }, PRIORITIES.find(x => x.id === t.priority).name) : null,
       dueChip(t),
       taskFilesOf(t).length ? null : taskUpKey === pkey ? el("span", { class: "label", id: "tup-" + pkey, style: "text-transform:none;letter-spacing:0" }, taskUpMsg)
-        : el("button", { class: "linkbtn", style: "font-size:12.5px", title: "Attach a PDF or file", "aria-label": "Attach a file to " + t.text, onclick: () => pickFiles(addP) }, "\u{1F4CE} Attach")),
+        : el("button", { class: "linkbtn", style: "font-size:12.5px", title: "Attach a PDF or file", "aria-label": "Attach a file to " + t.text, onclick: () => pickFiles(addP) }, "Attach")),
     taskFilesOf(t).length ? el("div", { class: "meta" }, fileRow(taskFilesOf(t), pkey, () => true,
       f => setDoc(ref(), { files: { [f.id]: DEL() } }, { merge: true }).then(() => dropFileParts(f)), addP)) : null);
 }
@@ -4141,62 +4141,165 @@ function notifyDevice(list) {
 
 let meTab = "tasks";
 function greeting() { const h = new Date().getHours(); return h < 5 ? "Up late" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening" }
+/* ----- Me: your day at a glance (Nov 2026 redesign) -----
+   Top card with today's progress, a week strip, setup in one line, the one thing to do now, checks waiting for you,
+   the day you picked, your projects, everything else grouped under Coming up, and a notepad. */
+let meDay = null, meOpen = {}, meAdd = false, meSkip = 0, meNotesAll = false;
+const meIc = d => { const s = document.createElementNS("http://www.w3.org/2000/svg", "svg"); s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true"); s.setAttribute("class", "me2-ic"); s.innerHTML = d; return s };
+const ME_IC = { tick: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m9 6 6 6-6 6"/>', down: '<path d="m6 9 6 6 6-6"/>', lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', sun: '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>', x: '<path d="M6 6l12 12M18 6 6 18"/>' };
+// a ring that fills up: done of total
+function meRing(done, total, size, label) {
+  const C = 163.36, f = total ? done / total : 0;
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg"); s.setAttribute("viewBox", "0 0 64 64"); s.setAttribute("width", size); s.setAttribute("height", size); s.setAttribute("aria-hidden", "true");
+  s.innerHTML = `<circle cx="32" cy="32" r="26" fill="none" stroke="currentColor" stroke-opacity=".18" stroke-width="7"/><circle class="me2-ringfill" cx="32" cy="32" r="26" fill="none" stroke-width="7" stroke-linecap="round" stroke-dasharray="${(C * f).toFixed(1)} ${C}" transform="rotate(-90 32 32)"/>`;
+  return el("span", { class: "me2-ring", role: "img", "aria-label": label }, s);
+}
+function meSetupLine() {
+  const prof = people[me] || {}; if (prof.welcomeHidden) return null;
+  const ver = rulesNow().version || 1;
+  const steps = [
+    ["take the skills quiz", !!prof.skills, () => { location.hash = "skills" }],
+    ["turn on alerts", pushOn || Object.keys(prof.pushSubs || {}).length > 0, () => { location.hash = "settings-alerts" }],
+    ["install the app", isHomeScreenApp() || !!prof.installed, () => { location.hash = "settings-install" }],
+    ["agree to the money rules", (prof.moneyAgreed || {}).version === ver, () => { moneyTab = "rules"; location.hash = "money" }],
+    ["say hi in the team chat", chat.some(m => m.by === me && !m.system), () => { location.hash = "chat-team" }],
+    ["join a project", ideas.some(p => (p.members || {})[me]), () => { location.hash = "projects" }]];
+  const n = steps.filter(x => x[1]).length; if (n === steps.length) return null;
+  const next = steps.find(x => !x[1]);
+  return el("div", { class: "me2-card me2-setup" },
+    el("div", { class: "me2-setup-t" }, el("span", {}, el("b", {}, `Setup ${n} of ${steps.length}`), el("span", { class: "mut" }, ` · Next: ${next[0]}`)),
+      el("span", { class: "me2-bar" }, el("i", { style: `width:${Math.round(n / steps.length * 100)}%` }))),
+    el("button", { class: "btn small", onclick: next[2] }, "Go"),
+    el("button", { class: "me2-x", "aria-label": "Hide setup", title: "Hide", onclick: () => write(() => setDoc(doc(db, "users", me), { welcomeHidden: true }, { merge: true })) }, meIc(ME_IC.x)));
+}
 function renderMe() {
   const box = $("#me"); box.replaceChildren();
-  const prof = people[me] || {}, tops = topSkills(me);
-  const fullName = realName(me) || (myProfile && myProfile.name) || "";
-  const all = myTasks(), open = all.filter(x => !x.t.done && !x.closed), today = todayStr();
-  const overdue = open.filter(x => x.t.due && x.t.due < today).length;
-  const weekAgo = Date.now() - 7 * 864e5;
-  const doneWeek = all.filter(x => x.t.done && (x.t.doneAt || 0) > weekAgo).length;
-  const building = activeProjects();
+  const prof = people[me] || {}, fullName = realName(me) || (myProfile && myProfile.name) || "";
+  const today = todayStr(); if (!meDay) meDay = today;
+  const t0 = new Date(); t0.setHours(0, 0, 0, 0); const dayStart = t0.getTime();
+  const all = myTasks().filter(x => !x.closed);
+  const checks = all.filter(x => x.check);
+  const work = all.filter(x => !x.check);
+  const waiting = x => !x.personal && (isBlocked(x.p, x.t) || inCheck(x.t));
+  const openW = work.filter(x => !x.t.done && !waiting(x)), waitList = work.filter(x => !x.t.done && waiting(x));
+  const forDay = (x, d) => d === today ? ((x.t.due && x.t.due <= today) || x.t.status === "doing") : x.t.due === d;
+  const doneToday = x => x.t.done && (x.t.doneAt || 0) >= dayStart;
+  const order = (a, b) => taskPrioRank(a.t) - taskPrioRank(b.t) || prioRank(a.p) - prioRank(b.p) || ((a.t.due || "9999") < (b.t.due || "9999") ? -1 : (a.t.due || "9999") > (b.t.due || "9999") ? 1 : 0) || (a.t.order || 0) - (b.t.order || 0);
+  const todayOpen = openW.filter(x => forDay(x, today)).sort(order);
+  const todayDone = work.filter(x => doneToday(x) && (!x.t.due || x.t.due <= today));
+  const total = todayOpen.length + todayDone.length;
 
-  box.append(el("section", { class: "profile" },
-    el("img", { class: "av av-lg", src: prof.pic || (myProfile && myProfile.photo) || prof.photo || AV, alt: "", referrerpolicy: "no-referrer" }),
-    el("div", { class: "profile-main" },
-      el("div", { class: "hello" }, greeting() + ","),
-      el("h1", {}, fullName.split(" ")[0] || "you"),
-      el("div", { class: "row", style: "gap:6px;margin-top:8px" },
-        tops.length ? tops.map(s => el("span", { class: "chip" }, SKILLS[s].name)) : el("button", { class: "linkbtn", onclick: () => { location.hash = "skills" } }, "Take the skills quiz \u2192")),
-      el("button", { class: "btn small brief-btn", style: "margin-top:10px", onclick: () => { asstOpen = true; alertsOpen = false; useTemplate(ASST_TEMPLATES[0], null) } }, "Morning brief"))),
-    el("div", { class: "stats" },
-      el("div", { class: "stat" }, el("b", {}, open.length), el("span", {}, "to do")),
-      el("div", { class: "stat" + (overdue ? " late" : "") }, el("b", {}, overdue), el("span", {}, "overdue")),
-      el("div", { class: "stat" }, el("b", {}, doneWeek), el("span", {}, "done this week"))));
+  // the top card
+  const left = todayOpen.length;
+  const summary = (left ? `${left} ${left === 1 ? "thing" : "things"} for today` : total ? "Today is done" : "Nothing due today")
+    + (checks.length ? `${left || total ? " and" : ","} ${checks.length} ${checks.length === 1 ? "check" : "checks"} waiting for you.` : ".");
+  const dateLine = dtf({ weekday: "long", day: "numeric", month: "long" }).format(new Date());
+  const avSrc = prof.pic || (myProfile && myProfile.photo) || prof.photo || "";
+  const wrapA = el("div", { class: "me2-col me2-a" }), wrapB = el("div", { class: "me2-col me2-b" });
+  wrapA.append(el("section", { class: "me2-hero me2-o1" },
+    el("div", { class: "me2-hero-top" },
+      el("div", { class: "me2-hero-t" }, el("span", { class: "me2-date" }, dateLine),
+        el("h1", {}, `${greeting()}, ${fullName.split(" ")[0] || "you"}`), el("span", { class: "me2-sum" }, summary)),
+      total ? el("span", { class: "me2-ringbox" }, meRing(todayDone.length, total, 76, `${todayDone.length} of ${total} done today`),
+        el("span", { class: "me2-ringtxt" }, el("b", {}, `${todayDone.length}/${total}`), el("small", {}, "today")))
+        : el("button", { class: "me2-av", "aria-label": "Your profile and settings", onclick: () => { location.hash = "settings" } }, avSrc ? el("img", { src: avSrc, alt: "", referrerpolicy: "no-referrer" }) : (fullName || "?").slice(0, 1))),
+    el("button", { class: "me2-brief", onclick: () => { asstOpen = true; alertsOpen = false; useTemplate(ASST_TEMPLATES[0], null) } }, meIc(ME_IC.sun), "My day in 30 seconds")));
 
-  { const wc = welcomeCard(); if (wc) box.append(wc) }
-  if (isHomeScreenApp() && !(people[me] || {}).installed && live) setDoc(doc(db, "users", me), { installed: true }, { merge: true }).catch(() => {});
-  { const nc = newsCard(); if (nc) box.append(nc) }
-  if (dealProjects().length || isAdmin) {
-    const all = allMoney();
-    box.append(el("button", { class: "nowcard moneycard", onclick: () => { location.hash = "money" } },
-      el("span", { class: "now-label" }, "Money"),
-      el("span", { class: "now-title" }, all.me.balance > 0 ? `You're owed ${fmtEGP(all.me.balance)}` : `Team fund ${fmtEGP(fundState(all).balance)}`),
-      el("span", { class: "now-sub" }, (all.late.length ? `${all.late.length} late payment${all.late.length > 1 ? "s" : ""} \u00b7 ` : "") + "Open money \u2192")));
-  }
-  for (const p of building) {
-    const left = tasksOf(p).filter(t => t.owner === me && !t.done).length;
-    box.append(el("button", { class: "nowcard", onclick: () => { location.hash = "build-" + p.id } },
-      el("span", { class: "now-label" }, "We're building"),
-      el("span", { class: "now-title" }, p.title),
-      el("span", { class: "now-sub" }, left ? `${left} of your tasks left \u2192` : "Open the project \u2192")));
-  }
-
-  if (privErr) box.append(el("div", { class: "notice" }, privErr === "rules"
+  if (isHomeScreenApp() && !prof.installed && live) setDoc(doc(db, "users", me), { installed: true }, { merge: true }).catch(() => {});
+  if (privErr) wrapA.append(el("div", { class: "notice me2-o1" }, privErr === "rules"
     ? "Your personal tasks and notes can't load yet. Mohammed needs to publish the latest database rules in Firebase. This page will try again by itself."
-    : "Your personal tasks and notes can't load right now. Check your connection. Trying again\u2026"));
+    : "Your personal tasks and notes can't load right now. Check your connection. Trying again…"));
 
-  box.append(el("div", { class: "seg seg-wide", role: "group", "aria-label": "Show", style: "margin:18px 0 12px" },
-    el("button", { "aria-pressed": String(meTab === "tasks"), onclick: () => { meTab = "tasks"; render() } }, "My tasks"),
-    el("button", { "aria-pressed": String(meTab === "notes"), onclick: () => { meTab = "notes"; render() } }, "My notes")));
-  const body = el("div");
-  if (meTab === "notes") renderNotes(body); else renderMine(body);
-  box.append(body);
+  // the week: Monday to Sunday, dots for what's due
+  const mon = new Date(); mon.setHours(12, 0, 0, 0); mon.setDate(mon.getDate() - (mon.getDay() + 6) % 7);
+  const week = el("div", { class: "me2-week me2-o2", role: "group", "aria-label": "Pick a day" });
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mon); d.setDate(mon.getDate() + i); const k = ymd(d), sel = k === meDay, n = openW.filter(x => forDay(x, k)).length;
+    week.append(el("button", { class: "me2-day" + (sel ? " on" : "") + (k === today ? " today" : ""), "aria-pressed": String(sel), "aria-label": `${dtf({ weekday: "long", day: "numeric" }).format(d)}, ${n} due`, onclick: () => { meDay = k; meAdd = false; render() } },
+      el("span", { class: "wd" }, dtf({ weekday: "short" }).format(d)), el("b", {}, d.getDate()),
+      el("span", { class: "dots" }, Array.from({ length: Math.min(n, 3) }, () => el("i")))));
+  }
+  wrapB.append(week);
+  { const s = meSetupLine(); if (s) { s.classList.add("me2-o3"); wrapB.append(s) } }
 
-  box.append(el("div", { class: "me-foot" },
-    el("button", { class: "btn", onclick: () => { location.hash = "skills" } }, prof.skills ? "Skills & team" : "Skills quiz"),
-    el("span", { class: "spacer" }),
-    el("button", { class: "btn", onclick: () => { location.hash = "settings" } }, isAdmin ? "Settings & team" : "Settings")));
+  // do this now: the most important open task (today first, then anything ready)
+  const pool = todayOpen.length ? todayOpen : openW.slice().sort(order);
+  if (pool.length) {
+    const i = meSkip % pool.length, x = pool[i], t = x.t;
+    const due = t.due ? (t.due < today ? "Was due " + fmtDate(t.due) : t.due === today ? "Due today" : "Due " + fmtDate(t.due)) : t.status === "doing" ? "In progress" : "No date";
+    const finish = () => { meSkip = 0; if (x.personal) write(() => setDoc(doc(db, "private", me, "tasks", t.id), { done: true, doneAt: Date.now() }, { merge: true }), "Done"); else toggleDone(x.p, t, true, null) };
+    wrapA.append(el("section", { class: "me2-focus me2-o4" },
+      el("div", { class: "me2-focus-h" }, el("span", { class: "k" }, "Do this now"), el("span", { class: "spacer" }), pool.length > 1 ? el("span", { class: "n" }, `${i + 1} of ${pool.length}`) : null),
+      el("button", { class: "me2-focus-t", onclick: () => { if (!x.personal) location.hash = taskLink(x.p, t) } }, t.text),
+      el("div", { class: "me2-chips" }, el("span", {}, x.personal ? "Just for you" : x.p.title), el("span", {}, due), t.priority === "high" || t.priority === "urgent" ? el("span", { class: "hi" }, "High priority") : null),
+      el("div", { class: "me2-focus-a" }, el("button", { class: "me2-done", onclick: finish }, meIc(ME_IC.tick), "Mark done"),
+        pool.length > 1 ? el("button", { class: "me2-later", onclick: () => { meSkip++; render() } }, "Later") : null)));
+  } else if (all.length || personal.length) {
+    wrapA.append(el("section", { class: "me2-card me2-clear me2-o4" }, el("span", { class: "me2-okc" }, meIc(ME_IC.tick)), el("b", {}, "All clear"), el("span", { class: "mut" }, "Nothing is waiting on you. Take a break, or add something below.")));
+  }
+
+  // checks waiting for you
+  checks.slice(0, 3).forEach(x => {
+    const by = (x.t.review && x.t.review.by) || x.t.doneBy || x.t.owner;
+    wrapA.append(el("div", { class: "me2-card me2-check me2-o5" }, el("span", { class: "me2-ava" }, (realName(by) || "?").slice(0, 2).toUpperCase()),
+      el("span", { class: "me2-check-t" }, el("b", {}, `${by ? firstName(by) : "Someone"} finished “${x.t.text}”`), el("span", { class: "mut" }, `${x.p.title} · waiting for your check`)),
+      el("button", { class: "btn small me2-dark", onclick: () => { location.hash = taskLink(x.p, x.t) } }, "Check")));
+  });
+  if (checks.length > 3) wrapA.append(el("p", { class: "label me2-o5", style: "margin:0 4px" }, `${checks.length - 3} more ${checks.length - 3 === 1 ? "check" : "checks"} on the Projects page`));
+
+  // the day you picked
+  const isToday = meDay === today, tomorrow = plusDays(1);
+  const dayList = work.filter(x => isToday ? (forDay(x, today) && !x.t.done && !waiting(x)) || todayDone.includes(x) : x.t.due === meDay).sort((a, b) => (a.t.done - b.t.done) || order(a, b));
+  const dayTitle = isToday ? "Today" : meDay === tomorrow ? "Tomorrow" : dtf({ weekday: "long", day: "numeric", month: "short" }).format(new Date(meDay + "T12:00:00"));
+  const dayBox = el("section", { class: "me2-card me2-list me2-o6" },
+    el("div", { class: "me2-h" }, el("span", { class: "kick" }), el("h2", {}, dayTitle), el("span", { class: "mut" }, dayList.length ? `${dayList.filter(x => !x.t.done).length} left` : ""), el("span", { class: "spacer" }),
+      el("button", { class: "btn small me2-add", "aria-expanded": String(meAdd), onclick: () => { meAdd = !meAdd; render(); if (meAdd) setTimeout(() => { const d = $("#ptask-due"); if (d && meDay !== today) d.value = meDay; const n = $("#ptask-text"); if (n) n.focus() }, 0) } }, meIc(meAdd ? ME_IC.x : ME_IC.plus), meAdd ? "Close" : "Add")));
+  if (meAdd) dayBox.append(addPersonalTaskRow());
+  if (dayList.length) dayList.forEach(x => dayBox.append(myTaskRow(x)));
+  else dayBox.append(el("p", { class: "me2-empty" }, isToday ? "Nothing due today." : "Nothing due this day."));
+  wrapA.append(dayBox);
+
+  // your projects
+  const mine = ideas.filter(p => p.status === "approved" && projTeam(p).includes(me)).sort((a, b) => (isActive(b) ? 1 : 0) - (isActive(a) ? 1 : 0) || prioRank(a) - prioRank(b));
+  if (mine.length) {
+    const row = el("div", { class: "me2-projs" });
+    for (const p of mine) {
+      const ts = tasksOf(p), dn = ts.filter(t => t.done).length, pct = ts.length ? Math.round(dn / ts.length * 100) : 0;
+      const myLeft = ts.filter(t => !t.done && isAssignee(t, me)).length, st = stageMap(p);
+      row.append(el("button", { class: "me2-proj", onclick: () => { location.hash = "project-" + p.id } },
+        el("span", { class: "me2-pring" }, meRing(dn, ts.length || 1, 44, `${pct}% done`), el("small", {}, pct + "%")),
+        el("b", {}, p.title), el("span", { class: "mut" }, [myLeft ? `${myLeft} yours left` : "Nothing for you", isPaused(p) ? "On hold" : st.cur ? st.cur.ph.name : ""].filter(Boolean).join(" · "))));
+    }
+    wrapB.append(el("section", { class: "me2-sec me2-o7" }, el("div", { class: "me2-h" }, el("span", { class: "kick" }), el("h2", {}, "Your projects"), el("span", { class: "spacer" }), el("a", { href: "#projects", class: "me2-link" }, "All")), row));
+  }
+
+  // coming up: everything else, grouped by project
+  const later = openW.filter(x => !forDay(x, today) && !(meDay !== today && x.t.due === meDay));
+  if (later.length || waitList.length) {
+    const groups = {}; later.forEach(x => { const k = x.personal ? "__me" : x.p.id; (groups[k] = groups[k] || { name: x.personal ? "Just for you" : x.p.title, list: [] }).list.push(x) });
+    const sec = el("section", { class: "me2-card me2-list me2-o8" }, el("div", { class: "me2-h" }, el("span", { class: "kick" }), el("h2", {}, "Coming up"), el("span", { class: "mut" }, `${later.length} ${later.length === 1 ? "task" : "tasks"}`)));
+    const grp = (k, nm, list, cls) => {
+      const open = !!meOpen[k];
+      sec.append(el("button", { class: "me2-grp" + (cls ? " " + cls : ""), "aria-expanded": String(open), onclick: () => { meOpen[k] = !open; render() } }, el("span", { class: "nm" }, nm), el("span", { class: "mut" }, list.length), meIc(open ? ME_IC.down : ME_IC.chev)));
+      if (open) list.sort(order).forEach(x => sec.append(myTaskRow(x)));
+    };
+    Object.entries(groups).sort((a, b) => b[1].list.length - a[1].list.length).forEach(([k, g]) => grp(k, g.name, g.list));
+    if (waitList.length) grp("__wait", "Waiting for someone else first", waitList, "wait");
+    wrapB.append(sec);
+  }
+
+  // notepad
+  const np = el("section", { class: "me2-card me2-notes me2-o9" }, el("div", { class: "me2-h" }, el("span", { class: "kick" }), el("h2", {}, "Notepad"), el("span", { class: "spacer" }), el("span", { class: "mut me2-only" }, meIc(ME_IC.lock), "Only you")));
+  if (meNotesAll) { const b = el("div"); renderNotes(b); np.append(b, el("button", { class: "linkbtn", onclick: () => { meNotesAll = false; render() } }, "Show less")) }
+  else {
+    const n = myNotes[0];
+    if (n) np.append(el("textarea", { class: "pnote me2-pad", id: "pn-" + n.id, rows: "3", placeholder: "Jot something down…", "aria-label": "Your latest note", value: n.text || "", oninput: e => savePrivateNote(n.id, e.target.value) }), el("span", { class: "label", id: "pns-" + n.id }));
+    else np.append(el("button", { class: "me2-pad me2-padbtn", onclick: newPrivateNote }, "Jot something down…"));
+    np.append(el("div", { class: "row", style: "gap:10px" }, myNotes.length > 1 ? el("button", { class: "linkbtn", onclick: () => { meNotesAll = true; render() } }, `All notes (${myNotes.length})`) : null, el("span", { class: "spacer" }), n ? el("button", { class: "linkbtn", onclick: newPrivateNote }, "New note") : null));
+  }
+  wrapB.append(np);
+
+  box.append(el("div", { class: "me2" }, wrapA, wrapB));
 }
 
 /* ----- account settings (everyone) and team access (admin only) ----- */
@@ -6890,7 +6993,7 @@ function searchResults(q) {
   for (const l of pLeads) if (has(l.name) || has(l.biz) || has(l.city) || (digits.length > 3 && leadDigits(l.phone).includes(digits))) push("Number", leadTitle(l), `${l.phone || ""} · ${groupName(l.gid)} · ${LEAD_NAME[l.status] || "New"}`, "partners", () => { phTab = "leads"; leadOut = null; leadNote = ""; leadDue = ""; leadLang = null; leadDel = false; leadOpen = l.id });
   for (const m of pMembers) if (has(m.name) || has(m.id)) push("Partner", m.name || m.id, groupName(m.gid), "partners", () => { phTab = "people" });
   for (const g of (fundDoc && fundDoc.goals ? Object.values(fundDoc.goals) : [])) if (g && (has(g.name) || has(g.details))) push("Goal", g.name, "Team fund goal", "money", () => { moneyTab = "fund" });
-  for (const x of myNotes) if (has(x.text)) push("My note", x.text.slice(0, 90), "Only you see this", "me", () => { meTab = "notes" });
+  for (const x of myNotes) if (has(x.text)) push("My note", x.text.slice(0, 90), "Only you see this", "me", () => { meNotesAll = true });
   for (const t of personal) if (has(t.text)) push("My task", t.text, "Just for me", "me", () => { meTab = "tasks" });
   return out;
 }

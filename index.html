@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261125112758">
+<meta name="build" content="20261125124839">
 <link rel="manifest" href="manifest.json?v=5">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -42,7 +42,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://firestore.googleapis.com">
-<link rel="modulepreload" href="assets/app-20261125112758.js">
+<link rel="modulepreload" href="assets/app-20261125124839.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
@@ -1239,6 +1239,92 @@ input,select,textarea{background-color:var(--field)}
   .alerts,.asst{top:76px}
 }
 
+/* ===== Me page (Nov 2026 redesign): your day at a glance ===== */
+.me2{display:flex;flex-direction:column;gap:12px}
+.me2-col{display:contents}
+.me2-o1{order:1}.me2-o2{order:2}.me2-o3{order:3}.me2-o4{order:4}.me2-o5{order:5}.me2-o6{order:6}.me2-o7{order:7}.me2-o8{order:8}.me2-o9{order:9}
+@media (min-width:1000px){.me2{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}.me2-col{display:flex;flex-direction:column;gap:14px;min-width:0}}
+.me2 .mut{color:var(--muted)}
+.me2 button{-webkit-tap-highlight-color:transparent;transition:transform 140ms cubic-bezier(.2,.7,.2,1),background 140ms cubic-bezier(.2,.7,.2,1)}
+.me2 button:active{transform:scale(.97)}
+.me2-ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.me2-card{background:var(--surface);border:1px solid var(--line);border-radius:18px}
+.me2-hero{background:var(--ph-gr);color:var(--ph-on);border-radius:22px;padding:20px;display:grid;gap:16px}
+.me2-hero-top{display:flex;align-items:center;gap:16px}
+.me2-hero-t{flex:1;min-width:0;display:grid;gap:6px}
+.me2-date{font-size:14px;opacity:.72}
+.me2-hero h1{font:800 clamp(26px,7vw,34px)/1.05 var(--display);letter-spacing:-.01em;margin:0}
+.me2-sum{font-size:15px;line-height:1.4;opacity:.86}
+.me2-ring{display:block;line-height:0}
+.me2-ringfill{stroke:var(--fill);transition:stroke-dasharray 320ms cubic-bezier(.2,.7,.2,1)}
+.me2-hero .me2-ringfill{stroke:color-mix(in srgb,var(--fill) 62%,currentColor)}
+.me2-ringbox{position:relative;width:76px;height:76px;flex:none}
+.me2-ringtxt{position:absolute;inset:0;display:grid;place-content:center;text-align:center;line-height:1.05}
+.me2-ringtxt b{font:800 20px/1 var(--display)}.me2-ringtxt small{font-size:11px;opacity:.72}
+.me2-av{width:56px;height:56px;border-radius:50%;border:0;background:var(--accent-soft);color:var(--fill);font-weight:700;font-size:20px;flex:none;overflow:hidden;padding:0;cursor:pointer}
+.me2-av img{width:100%;height:100%;object-fit:cover;display:block}
+.me2-brief{height:44px;border-radius:14px;border:0;background:var(--fill);color:var(--on-accent);font:700 14.5px var(--body);display:flex;align-items:center;justify-content:center;gap:8px;width:100%;cursor:pointer}
+.me2-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.me2-day{height:66px;border-radius:16px;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:0;font:inherit;cursor:pointer;min-width:0}
+.me2-day .wd{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.me2-day b{font:800 18px/1 var(--display)}
+.me2-day .dots{display:flex;gap:3px;height:5px}.me2-day .dots i{width:5px;height:5px;border-radius:50%;background:var(--fill)}
+.me2-day.today:not(.on){border-color:var(--fill)}
+.me2-day.on{background:var(--ph-gr);color:var(--ph-on);border-color:transparent}.me2-day.on .wd{color:inherit;opacity:.75}.me2-day.on .dots i{background:currentColor}
+.me2-setup{display:flex;align-items:center;gap:8px;padding:12px 8px 12px 14px}
+.me2-setup-t{flex:1;min-width:0;display:grid;gap:7px;font-size:14px}
+.me2-bar{height:5px;border-radius:3px;background:var(--field);overflow:hidden;display:block}.me2-bar i{display:block;height:100%;background:var(--fill);border-radius:3px}
+.me2-x{width:34px;height:34px;border:0;background:none;color:var(--muted);display:grid;place-items:center;border-radius:10px;cursor:pointer;flex:none}
+.me2-x .me2-ic{width:15px;height:15px}
+.me2-focus{background:var(--fill);color:var(--on-accent);border-radius:22px;padding:18px;display:grid;gap:10px}
+.me2-focus-h{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.me2-focus-h .k{font-weight:700;letter-spacing:.1em;text-transform:uppercase;opacity:.8}.me2-focus-h .n{opacity:.8}
+.me2-focus-t{border:0;background:none;color:inherit;padding:0;text-align:left;cursor:pointer;font:800 clamp(21px,5.6vw,26px)/1.15 var(--display);overflow-wrap:anywhere}
+.me2-chips{display:flex;flex-wrap:wrap;gap:6px}
+.me2-chips span{font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:999px;background:color-mix(in srgb,currentColor 15%,transparent)}
+.me2-chips .hi{background:var(--on-accent);color:var(--fill);font-weight:700}
+.me2-focus-a{display:flex;gap:8px;margin-top:4px}
+.me2-done{flex:1;height:46px;border-radius:14px;border:0;background:var(--on-accent);color:var(--fill);font:700 15px var(--body);display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.me2-later{height:46px;padding:0 18px;border-radius:14px;border:1px solid color-mix(in srgb,currentColor 40%,transparent);background:transparent;color:inherit;font:600 14.5px var(--body);cursor:pointer}
+.me2-clear{padding:20px;display:grid;justify-items:center;text-align:center;gap:6px}
+.me2-clear b{font:800 19px/1.2 var(--display)}
+.me2-okc{width:46px;height:46px;border-radius:50%;background:var(--accent-soft);color:var(--fill);display:grid;place-items:center}
+.me2-check{display:flex;align-items:center;gap:12px;padding:12px 14px}
+.me2-ava{width:36px;height:36px;border-radius:50%;background:var(--accent-soft);color:var(--fill);font-weight:700;font-size:13px;display:grid;place-items:center;flex:none}
+.me2-check-t{flex:1;min-width:0;display:grid;gap:2px;font-size:14px;line-height:1.35}
+.me2-check-t b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.me2-dark{background:var(--ph-gr)!important;color:var(--ph-on)!important;border-color:transparent!important}
+.me2-list{padding:14px 8px 8px}
+.me2-h{display:flex;align-items:center;gap:10px;padding:0 8px 6px;min-width:0}
+.me2-h h2{font:800 18px/1.1 var(--display);margin:0;white-space:nowrap}
+.me2-h .kick{width:4px;height:18px;border-radius:2px;background:var(--fill);flex:none}
+.me2-h .mut{font-size:13px}
+.me2-add{display:inline-flex;align-items:center;gap:6px}.me2-add .me2-ic{width:14px;height:14px}
+.me2-list .padd{padding:0 8px 10px}
+.me2-empty{margin:4px 8px 10px;color:var(--muted);font-size:14px}
+.me2-sec{display:grid;gap:8px;min-width:0}.me2-sec>.me2-h{padding:6px 6px 0}
+.me2-link{font-weight:600;font-size:14px;color:var(--accent);text-decoration:none}
+.me2-projs{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;scroll-snap-type:x mandatory;padding-bottom:2px}
+.me2-projs::-webkit-scrollbar{display:none}
+.me2-proj{flex:none;width:158px;scroll-snap-align:start;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px;display:grid;gap:8px;align-content:start;font:inherit;color:inherit;cursor:pointer}
+.me2-proj b{font-size:15px;line-height:1.25}.me2-proj .mut{font-size:13px}
+.me2-pring{position:relative;width:44px;height:44px;display:block}
+.me2-pring small{position:absolute;inset:0;display:grid;place-items:center;font-size:11.5px;font-weight:700}
+.me2-grp{width:100%;display:flex;align-items:center;gap:10px;padding:12px 8px;border:0;background:none;border-radius:12px;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.me2-grp:hover{background:var(--field)}
+.me2-grp .nm{flex:1;min-width:0;font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.me2-grp .me2-ic{width:16px;height:16px;color:var(--muted)}
+.me2-grp.wait .nm{color:var(--muted);font-weight:500}
+.me2-notes{padding:14px 16px;display:grid;gap:8px}.me2-notes .me2-h{padding:0 0 2px}
+.me2-only{display:flex;align-items:center;gap:5px;font-size:12.5px}.me2-only .me2-ic{width:13px;height:13px}
+.me2-pad{width:100%;box-sizing:border-box;border:0;background:var(--field);border-radius:12px;padding:12px;font:inherit;font-size:15px;line-height:1.45;color:var(--ink);resize:vertical;min-height:84px;outline:0}
+.me2-padbtn{text-align:left;color:var(--muted);cursor:text}
+/* tasks in the Me lists follow the brand: no orange, urgency by weight */
+.me2 .task[class*="tp-"] .meta{gap:8px}
+.me2 .prio{background:var(--field)!important;color:var(--ink)!important;border-color:transparent!important;font-weight:700}
+.me2 .due.soon,.me2 .due.late{color:var(--ink)!important;background:none!important;font-weight:700}
+@media (prefers-reduced-motion:reduce){.me2 *{transition:none!important}}
+
 /* ===== Chat (matches the approved mockup) ===== */
 .nc{--t:var(--fill);--soft:var(--accent-soft);--soft2:color-mix(in srgb,var(--accent-soft) 45%,var(--surface));--mist:var(--bg);--faint:color-mix(in srgb,var(--muted) 72%,var(--surface));--graphite:#2A2D31;--hair:color-mix(in srgb,var(--line) 60%,transparent);--ez:cubic-bezier(.2,.7,.2,1);
   display:grid;grid-template-columns:340px 1fr;background:transparent;border:1px solid var(--line);border-radius:18px;overflow:hidden;position:relative;height:calc(100dvh - 140px);min-height:300px;font-family:var(--body);color:var(--ink)}
@@ -2273,7 +2359,7 @@ body.sheet-open{overflow:hidden}
   // Returning visitors skip the loading screen and see their page right away.
   try { if (localStorage.getItem("pitchroom-cache-v1")) { document.getElementById("boot").hidden = true; document.getElementById("app").hidden = false } } catch (e) {}
 </script>
-<script type="module" src="assets/app-20261125112758.js"></script>
+<script type="module" src="assets/app-20261125124839.js"></script>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true" id="nc-icons">
       <symbol id="ni-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
       <symbol id="ni-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
