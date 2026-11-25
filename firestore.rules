@@ -60,6 +60,17 @@ service cloud.firestore {
       allow update: if isTeam();
       allow delete: if isTeam() && (resource.data.by == request.auth.uid || isAdmin());
     }
+    // the agent's shared chats for a project, and the project's agent memory (_memory). Private agent chats live
+    // under private/{uid} with your notes. The page shows a project's shared chats only to its team.
+    match /ideas/{pid}/agent/{cid} {
+      allow read, write: if isTeam();
+      match /msgs/{mid} {
+        allow read: if isTeam();
+        allow create: if isTeam() && (request.resource.data.by == request.auth.uid || (request.resource.data.by == "agent" && request.resource.data.for == request.auth.uid));
+        allow update: if isTeam();
+        allow delete: if isTeam() && (resource.data.by == request.auth.uid || isAdmin());
+      }
+    }
     // the team list, the money rules and the fund's money are the admin's; anyone on the team can add and research goals
     match /meta/{name} {
       allow read: if isTeam();

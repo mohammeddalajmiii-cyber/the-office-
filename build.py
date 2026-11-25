@@ -13,7 +13,7 @@ page = (root / "src/page.html").read_text()
 config = (root / "firebase-config.js").read_text().replace("export const", "const")
 rules = (root / "firestore.rules").read_text().strip()
 assert "`" not in rules and "${" not in rules, "firestore.rules can't contain ` or ${"
-app = (root / "src/money-engine.js").read_text() + "\n" + (root / "src/quiz.js").read_text() + "\n" + (root / "src/partners.js").read_text().replace("/*RULES*/", rules) + "\n" + (root / "src/clients.js").read_text() + "\n" + (root / "src/push.js").read_text() + "\n" + (root / "src/app.js").read_text()
+app = (root / "src/money-engine.js").read_text() + "\n" + (root / "src/quiz.js").read_text() + "\n" + (root / "src/partners.js").read_text().replace("/*RULES*/", rules) + "\n" + (root / "src/clients.js").read_text() + "\n" + (root / "src/push.js").read_text() + "\n" + (root / "src/agent.js").read_text() + "\n" + (root / "src/app.js").read_text()
 build_id = time.strftime("%Y%m%d%H%M%S")
 name = f"assets/app-{build_id}.js"
 assets = root / "assets"; assets.mkdir(exist_ok=True)

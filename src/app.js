@@ -80,9 +80,12 @@ const pctOf = (d, t) => t ? Math.round(d / t * 100) : 0;
 
 /* ---------- routing ---------- */
 
-const VIEWS = ["me", "ideas", "projects", "chat", "partners", "skills", "settings", "money", "project"];
+const VIEWS = ["me", "ideas", "projects", "chat", "partners", "skills", "settings", "money", "project", "agent"];
 function route(hash) {
   const h = (hash == null ? location.hash : hash).replace(/^#/, "");
+  // the agent: #agent (all chats), #agent-p-<chat> (a private chat), #agent-s-<project>-<chat> (a project team's chat)
+  if (h.startsWith("agent-p-")) return { view: "agent", cid: h.slice(8) };
+  if (h.startsWith("agent-s-")) { const [pid, cid] = h.slice(8).split("-"); return { view: "agent", pid, cid } }
   if (h === "money-fund" || h === "money-rules") return { view: "money", tab: h.slice(6) };
   if (h.startsWith("settings-")) return { view: "settings", sub: h.slice(9) };
   if (h.startsWith("task-")) { const [id, task] = h.slice(5).split("-"); return { view: "project", id, task } }
@@ -121,7 +124,7 @@ function closeForms() {
   planEdit = null; renamingPhase = null; delPhase = null; addingLink = null; delLink = null; delFile = null; delTask = null; doneAnyway = null; waitPick = null; delNote = null; delTaskFile = null;
   confirmDone = null; confirmDelProject = null; confirmDelIdea = null; newCatFor = null; fundForm = null; goalEdit = null; subPay = null; subEdit = null; delFund = null; cvOpen = {};
 }
-const routeKey = h => { const r = route.call(null, h); return r.view + ":" + (r.id || r.sub || r.ch || r.dm || r.gid || "") };
+const routeKey = h => { const r = route.call(null, h); return r.view + ":" + (r.id || r.sub || r.ch || r.dm || r.gid || r.cid || "") };
 function leavePage() { closeForms(); showSettings = null; openTask = null; openNote = null; editCheckin = null; projTab = pendingTab || "tasks"; pendingTab = null }
 addEventListener("hashchange", () => {
   prevHash = curHash; curHash = location.hash;
@@ -393,6 +396,7 @@ function renderAll() {
   if (r.view === "settings") renderSettings();
   if (r.view === "money") renderMoneyPage();
   if (r.view === "me") renderMe();
+  if (r.view === "agent") { agWire(); renderAgent() } else if (document.documentElement.classList.contains("ag-lock")) { document.documentElement.classList.remove("ag-lock"); $("#view-agent").style.height = "" }
   if (r.view === "partners") renderPartnersTeam(r.gid); else if (leadOpen) renderLeadDrawer();
   { const pu = pGroups.reduce((a, g) => a + partnerUnread(g.id), 0); const pc = $("#c-partners"); pc.hidden = !pu; pc.textContent = pu > 9 ? "9+" : pu }
   { const v = rulesNow().version || 1, need = dealProjects().length && ((people[me] || {}).moneyAgreed || {}).version !== v ? 1 : 0;
@@ -7054,7 +7058,8 @@ function line(pr, unit) {
 
 $("#me-btn").onclick = () => { location.hash = "me" };
 $("#bell").onclick = e => { e.stopPropagation(); toggleAlerts() };
-$("#asst-btn").onclick = () => { asstOpen = !asstOpen; alertsOpen = false; render(); if (asstOpen) setTimeout(() => { const i = document.getElementById("asst-input"); if (i && matchMedia("(min-width:760px)").matches) i.focus() }, 0) };
+// the ✦ button opens the agent (the small assistant panel still opens for the morning brief and "Solve with AI")
+$("#asst-btn").onclick = () => { asstOpen = false; alertsOpen = false; location.hash = route().view === "agent" && route().cid ? "agent" : (route().view === "agent" ? location.hash : "agent"); render() };
 $("#brand").onclick = () => { location.hash = "me" };
 
 /* ----- backup: everything on the board in one file ----- */
