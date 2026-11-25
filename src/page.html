@@ -1228,8 +1228,11 @@ input,select,textarea{background-color:var(--field)}
 
 /* ===== Chat (matches the approved mockup) ===== */
 .nc{--t:var(--fill);--soft:var(--accent-soft);--soft2:color-mix(in srgb,var(--accent-soft) 45%,var(--surface));--mist:var(--bg);--faint:color-mix(in srgb,var(--muted) 72%,var(--surface));--graphite:#2A2D31;--hair:color-mix(in srgb,var(--line) 60%,transparent);--ez:cubic-bezier(.2,.7,.2,1);
-  display:grid;grid-template-columns:340px 1fr;background:transparent;border:1px solid var(--line);border-radius:18px;overflow:hidden;position:relative;height:calc(100dvh - 140px);min-height:420px;font-family:var(--body);color:var(--ink)}
+  display:grid;grid-template-columns:340px 1fr;background:transparent;border:1px solid var(--line);border-radius:18px;overflow:hidden;position:relative;height:calc(100dvh - 140px);min-height:300px;font-family:var(--body);color:var(--ink)}
 .nc.info-open{grid-template-columns:340px 1fr 320px}
+/* on the Chat page the page itself never scrolls: the frame stays in its place, only the lists and messages inside it scroll */
+html.nc-lock,html.nc-lock body{overflow:hidden;overscroll-behavior:none}
+.nc-chats,.nc-log,.nc-info{overscroll-behavior:contain}
 .nc button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform 140ms var(--ez),background 140ms var(--ez)}
 .nc button:active{transform:scale(.97)}
 .nc .spacer{flex:1}

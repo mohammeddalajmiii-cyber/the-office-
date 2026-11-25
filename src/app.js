@@ -3316,6 +3316,10 @@ function renderChat() {
   watchPc(k && k.startsWith("p:") ? k.slice(2) : null);
   const nc = $("#nc");
   document.documentElement.classList.toggle("nc-full", onChat && !!k && !wideChat());
+  // lock the page while Chat is open so the frame can't be dragged up and down
+  const root = document.documentElement;
+  if (onChat && !root.classList.contains("nc-lock")) { root.classList.add("nc-lock"); scrollTo(0, 0) }
+  else if (!onChat) root.classList.remove("nc-lock");
   if (!onChat) { if (ncCur) { ncDrafts[ncCur] = $("#chat-input").value; ncCur = null; stopTyping(); if (rec) stopRec(false) } return }
   if (k === "dm:" + me) { location.hash = "chat"; return }
   // switching chats: keep each chat's unfinished message, and remember where "New messages" starts
@@ -3352,7 +3356,7 @@ function ncSize() {
   if (document.documentElement.classList.contains("nc-full")) { nc.style.height = ""; return }
   const top = nc.getBoundingClientRect().top + scrollY, nav = document.querySelector("#app .nav"), nr = nav && nav.getBoundingClientRect();
   const bottom = nr && nr.top > innerHeight / 2 ? innerHeight - nr.top + 10 : 20;
-  nc.style.height = Math.max(420, innerHeight - top - bottom) + "px";
+  nc.style.height = Math.max(300, innerHeight - top - bottom) + "px";
 }
 addEventListener("resize", () => { if (route().view === "chat") render() });
 
