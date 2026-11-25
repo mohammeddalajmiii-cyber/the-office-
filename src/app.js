@@ -10,6 +10,8 @@ const fbReady = (async () => {
   db = fsM.initializeFirestore(fb, { localCache: fsM.persistentLocalCache({ tabManager: fsM.persistentMultipleTabManager() }) });
   authM.onAuthStateChanged(auth, onAuth);
 })();
+// date and time formats are made once and reused: making a new one for every message was slow on phones
+const dtfCache = new Map(), dtf = o => { const k = JSON.stringify(o); let f = dtfCache.get(k); if (!f) dtfCache.set(k, f = new Intl.DateTimeFormat(undefined, o)); return f };
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" }), dateFmt = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }), fmtMemo = new Map();
 const remember = v => { try { v ? localStorage.setItem("signedIn", "1") : localStorage.removeItem("signedIn") } catch { } };
@@ -2387,7 +2389,7 @@ function ago(at) {
   const s = Math.max(0, (Date.now() - at) / 1000);
   if (s < 60) return "just now"; if (s < 3600) return Math.floor(s / 60) + "m ago";
   if (s < 86400) return Math.floor(s / 3600) + "h ago"; if (s < 604800) return Math.floor(s / 86400) + "d ago";
-  return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return dtf({ day: "numeric", month: "short" }).format(new Date(at));
 }
 
 /* ----- chat ----- */
@@ -2928,7 +2930,7 @@ function chatRows() {
 }
 function whenShort(t) {
   const d = new Date(t), days = Math.round((new Date(new Date().toDateString()) - new Date(d.toDateString())) / 864e5);
-  return days <= 0 ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : days === 1 ? "Yesterday" : days < 7 ? d.toLocaleDateString(undefined, { weekday: "short" }) : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return days <= 0 ? dtf({ hour: "numeric", minute: "2-digit" }).format(d) : days === 1 ? "Yesterday" : days < 7 ? dtf({ weekday: "short" }).format(d) : dtf({ day: "numeric", month: "short" }).format(d);
 }
 const PREV_IC = [[/^Idea:/, "bulb"], [/^Voice message/, "mic"], [/^Photo/, "image"], [/^File:/, "file"], [/^Poll:/, "poll"], [/^Task:/, "task"]];
 function rowAv(r) { return r.kind === "ideas" ? keyAv("ideas") : r.kind === "team" ? el("span", { class: "nc-av team" }, "#") : r.kind === "dm" ? ncAv(r.u) : el("span", { class: "nc-av sq" + (r.kind === "pgroup" ? " pg" : "") }, initials(r.title)) }
@@ -3011,7 +3013,7 @@ let ncToBottom = false, ncKeepFromBottom = null;
 const ncShow = {};   // how many of the newest messages each chat draws (more load with "Show earlier messages")
 function dayLabel(t) {
   const d = new Date(t), days = Math.round((new Date(new Date().toDateString()) - new Date(d.toDateString())) / 864e5);
-  return days === 0 ? "Today" : days === 1 ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  return days === 0 ? "Today" : days === 1 ? "Yesterday" : dtf({ weekday: "short", day: "numeric", month: "short" }).format(d);
 }
 let ncNodes = new Map(), ncNodesFor = null;
 // a saved piece of the chat, built again only when what it shows changed
@@ -3320,6 +3322,7 @@ function renderChat() {
   const root = document.documentElement;
   if (onChat && !root.classList.contains("nc-lock")) { root.classList.add("nc-lock"); scrollTo(0, 0) }
   else if (!onChat) root.classList.remove("nc-lock");
+  ncFit();
   if (!onChat) { if (ncCur) { ncDrafts[ncCur] = $("#chat-input").value; ncCur = null; stopTyping(); if (rec) stopRec(false) } return }
   if (k === "dm:" + me) { location.hash = "chat"; return }
   // switching chats: keep each chat's unfinished message, and remember where "New messages" starts
@@ -3353,12 +3356,33 @@ function renderChat() {
 // the chat fills the screen down to the bottom (or to the menu bar on a phone)
 function ncSize() {
   const nc = $("#nc"); if (!nc || $("#view-chat").hidden) return;
-  if (document.documentElement.classList.contains("nc-full")) { nc.style.height = ""; return }
+  if (ncFit()) return;
   const top = nc.getBoundingClientRect().top + scrollY, nav = document.querySelector("#app .nav"), nr = nav && nav.getBoundingClientRect();
   const bottom = nr && nr.top > innerHeight / 2 ? innerHeight - nr.top + 10 : 20;
   nc.style.height = Math.max(300, innerHeight - top - bottom) + "px";
 }
 addEventListener("resize", () => { if (route().view === "chat") render() });
+// A chat that fills a phone's screen stays exactly in the part you can see. On iPhone the keyboard doesn't shrink
+// the page, it covers it and slides the view up, which pushed the chat's top bar off the screen and left a gap
+// above the keyboard. So the chat follows the visible area instead, and the newest messages stay in view.
+function ncFit() {
+  const nc = $("#nc"), root = document.documentElement, vv = window.visualViewport, full = root.classList.contains("nc-full");
+  root.classList.toggle("kb-open", !!(full && vv && innerHeight - vv.height > 120));
+  const moved = full && vv && (innerHeight - vv.height > 1 || vv.offsetTop > 0);
+  if (moved) { nc.style.top = Math.max(0, vv.offsetTop) + "px"; nc.style.bottom = "auto"; nc.style.setProperty("height", vv.height + "px", "important") }
+  else { nc.style.top = nc.style.bottom = ""; nc.style.removeProperty("height") }
+  return full;
+}
+if (window.visualViewport) {
+  let fitQ = 0;
+  const onVV = () => {
+    if (fitQ || !document.documentElement.classList.contains("nc-full")) return;
+    const log = $("#chatlog"), stay = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+    fitQ = requestAnimationFrame(() => { fitQ = 0; ncFit(); if (stay) log.scrollTop = log.scrollHeight });
+  };
+  visualViewport.addEventListener("resize", onVV);
+  visualViewport.addEventListener("scroll", onVV);
+}
 
 /* the message box and list: set up once */
 $("#chatform").addEventListener("submit", e => { e.preventDefault(); ncSend() });
@@ -3733,12 +3757,12 @@ function chatView(items, { onDelete, empty } = {}) {
   let lastDay = "", lastBy = "", lastAt = 0;
   for (const m of items) {
     const day = new Date(m.at).toDateString();
-    if (day !== lastDay) { log.append(el("div", { class: "day" }, new Date(m.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))); lastBy = "" }
+    if (day !== lastDay) { log.append(el("div", { class: "day" }, dtf({ weekday: "short", day: "numeric", month: "short" }).format(new Date(m.at)))); lastBy = "" }
     lastDay = day;
     if (m.system) { log.append(el("div", { class: "sysline" }, m.text)); lastBy = ""; continue }
     const mine = m.by === me, grouped = m.by === lastBy && m.at - lastAt < 5 * 60e3;
     if (!mine && !grouped) log.append(el("div", { class: "msg-name" }, m.name || "Someone", m.role === "team" ? el("span", { class: "rolebadge" }, "Ardent Creative Studios") : m.role === "client" ? el("span", { class: "rolebadge client" }, "Client") : el("span", { class: "rolebadge partner" }, "Partner")));
-    const time = new Date(m.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const time = dtf({ hour: "numeric", minute: "2-digit" }).format(new Date(m.at));
     log.append(el("div", { class: "msg" + (mine ? " mine" : "") + (grouped ? " grouped" : "") },
       mine ? null : (grouped ? el("span", { class: "av-space" }) : postAv(m.photo)),
       el("div", { class: "bubble" + (isEmojiOnly(m.text) && !m.file ? " emoji-only" : "") }, m.file ? attachmentEl(m.file) : null, m.text ? msgBody(m.text) : null,
@@ -5111,6 +5135,27 @@ setTimeout(checkForUpdate, 4000);
 setInterval(checkForUpdate, 5 * 60 * 1000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkForUpdate() });
 
+/* ----- phones in a browser: suggest opening Pitch Room as an app ----- */
+// In Safari the browser's own bar (with the web address) sits over the bottom of the site and above the keyboard.
+// Opened from the Home Screen, Pitch Room fills the whole screen like a real app: no browser bars, no address.
+// Shown once in a while, never in a chat, and "Not now" hides it for a week.
+function installNudge() {
+  const ex = document.getElementById("install-nudge");
+  const phone = matchMedia("(hover: none) and (pointer: coarse)").matches && innerWidth < 900;
+  let later = 0; try { later = +localStorage.getItem("installLater") || 0 } catch { }
+  const want = phone && me && !partnerMode && !clientMode && !$("#app").hidden && !isHomeScreenApp() && Date.now() > later && route().view !== "chat" && !route().sub;
+  if (!want) { if (ex) ex.remove(); return }
+  if (ex) return;
+  const hide = () => { try { localStorage.setItem("installLater", String(Date.now() + 7 * 864e5)) } catch { } document.getElementById("install-nudge")?.remove() };
+  document.body.append(el("div", { class: "install-nudge", id: "install-nudge", role: "region", "aria-label": "Open as an app" },
+    el("img", { src: "torch-192.png", alt: "", width: "40", height: "40" }),
+    el("div", { class: "in-t" }, el("b", {}, "Get the Pitch Room app"), el("span", {}, "Full screen, no browser bar")),
+    el("button", { class: "btn small primary", onclick: () => { document.getElementById("install-nudge")?.remove(); if (installEvt) { installEvt.prompt(); installEvt = null } else location.hash = "settings-install" } }, "Set up"),
+    el("button", { class: "x", "aria-label": "Not now", title: "Not now", onclick: hide }, "✕")));
+}
+setTimeout(installNudge, 6000);
+addEventListener("hashchange", () => setTimeout(installNudge, 0));
+
 /* ----- money: each project's Money tab ----- */
 
 let moneyRules = null, fundDoc = null;       // meta/money and meta/fund
@@ -5230,10 +5275,12 @@ function newsSettings() {
   return sec;
 }
 const rulesNow = () => ({ ...MONEY_DEFAULTS, ...(moneyRules || {}) });
-const fmtEGP = p => { const v = (p || 0) / 100; return (Math.round(v) === v ? v.toLocaleString("en") : v.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + " EGP" };
+// the two number formats are made once and reused (making one each time was slow on phones)
+const egpWhole = new Intl.NumberFormat("en"), egpCents = new Intl.NumberFormat("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtEGP = p => { const v = (p || 0) / 100; return (Math.round(v) === v ? egpWhole : egpCents).format(v) + " EGP" };
 const fmtN = p => fmtEGP(p).replace(" EGP", "");
 const thisMonth = () => todayStr().slice(0, 7);
-const monthLabel = ym => { if (!ym) return ""; const [y, m] = ym.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" }) };
+const monthLabel = ym => { if (!ym) return ""; const [y, m] = ym.split("-").map(Number); return dtf({ month: "short", year: "numeric" }).format(new Date(y, m - 1, 1)) };
 const DEAL_TYPES = [["one", "One-time"], ["monthly", "Monthly"], ["installments", "Paid over months"]];
 const STAGES = [["proposal", "Proposal sent"], ["agreed", "Deal agreed"], ["ended", "Ended"]];
 const METHODS = ["Cash", "InstaPay", "Vodafone Cash", "Bank transfer", "Other"];

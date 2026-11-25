@@ -4,7 +4,7 @@
   "start_url": "./#me",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0F5E57",
+  "background_color": "#2A2D31",
   "theme_color": "#2A2D31",
   "icons": [
     { "src": "torch-icon.svg", "sizes": "any", "type": "image/svg+xml" },
