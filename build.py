@@ -7,7 +7,7 @@ never be paired with code from another version. The last few builds' files are k
 still open or still cached somewhere.
 """
 from pathlib import Path
-import time
+import time, subprocess
 root = Path(__file__).parent
 page = (root / "src/page.html").read_text()
 config = (root / "firebase-config.js").read_text().replace("export const", "const")
@@ -18,6 +18,13 @@ build_id = time.strftime("%Y%m%d%H%M%S")
 name = f"assets/app-{build_id}.js"
 assets = root / "assets"; assets.mkdir(exist_ok=True)
 (root / name).write_text(config + "\n" + f'const BUILD_ID = "{build_id}";\n' + app)
+# Shrink the code (smaller download, quicker start on phones) when esbuild is on this computer.
+# Without it the site still builds and works, just a little bigger.
+import shutil
+esb = shutil.which("esbuild") or next((p for p in ["/opt/npm-tools/node_modules/.bin/esbuild", str(root / "node_modules/.bin/esbuild")] if Path(p).exists()), None)
+if esb and not __import__("os").environ.get("NO_MINIFY"):
+    r = subprocess.run([esb, str(root / name), "--minify", "--format=esm", "--target=es2020,safari15", "--legal-comments=none", "--log-level=warning", "--outfile=" + str(root / name), "--allow-overwrite"], capture_output=True, text=True)
+    if r.returncode: print("Couldn't shrink the code (the full-size code is used):", r.stderr.strip()[:500])
 # Keep the newest 4 published builds (pages already open or cached use them) and this one.
 # Local builds that were never published are removed.
 import subprocess
