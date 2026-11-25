@@ -29,9 +29,32 @@
      - All to the team fund (money.split === "fund"): costs, partner and finder as usual, the rest goes to the fund.
    Keep it in the fund, decide later (money.hold): the money that came in sits in the team fund, written down as this
    project's, and nothing is split yet (not even costs). It isn't the fund's own money. When the team decides,
-   the hold comes off and the chosen way runs over every payment, as if it had been chosen from the start. */
+   the hold comes off and the chosen way runs over every payment, as if it had been chosen from the start.
+
+   By points (money.split === "points") has its own order:
+     1. pay back costs   2. the finder's fee, by how the client came (FINDER_CASES), to whoever brought it
+     3. team fund % of what's left   4. the rest is shared by points
+   Every task has a size (S 1, M 3, L 8, XL 15 points). A task's points count once it's done (and checked, when it
+   has a check), shared equally by the people on it. One-time and paid-over-months deals: all the money shared so
+   far is split by all the points earned so far, so everyone always has their fair share of everything that came in.
+   Monthly deals: each month's fee is split by the points of the tasks finished that month; the setup fee by all points. */
 
 const MONEY_DEFAULTS = { fundPct: 40, findPct: 5, finderMonths: 3, pauseAfterLate: 2, reviewMonths: 2, version: 2 };
+// Task sizes: how long a task takes, and its points (1 point is about 2 hours of work). Longer than a week: split it.
+const TASK_SIZES = [
+  { id: "S", name: "Small", pts: 1, time: "Up to 2 hours" },
+  { id: "M", name: "Medium", pts: 3, time: "More than 2 hours, up to 1 day" },
+  { id: "L", name: "Large", pts: 8, time: "More than 1 day, up to 3 days" },
+  { id: "XL", name: "Extra large", pts: 15, time: "More than 3 days, up to 1 week" }];
+const sizeOf = id => TASK_SIZES.find(s => s.id === id) || null;
+const sizePts = id => (sizeOf(id) || { pts: 0 }).pts;
+// The finder's fee by where the client came from and who closed the deal (% of the money after costs)
+const FINDER_CASES = [
+  { id: 1, from: "Our lead", closer: "The finder", pct: 8 },
+  { id: 2, from: "They found the client themselves", closer: "The finder", pct: 18 },
+  { id: 3, from: "Our lead, they set up the meeting", closer: "Ardent", pct: 4 },
+  { id: 4, from: "They found the client themselves", closer: "Ardent", pct: 8 }];
+const finderCase = id => FINDER_CASES.find(c => c.id === Number(id)) || null;
 const toP = x => Math.round((Number(x) || 0) * 100);
 const monthOf = d => (d || "").slice(0, 7);
 function addMonths(ym, n) { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` }
@@ -73,10 +96,12 @@ function computeMoney(p, todayStr, rules, opts) {
   const proposal = m.stage === "proposal", ended = m.stage === "ended";
   const holding = !!m.hold, byFund = m.split === "fund" && !holding;
   const byTasks = m.split === "tasks" && type !== "monthly" && !holding, team = ((opts || {}).team || []).filter(Boolean);
+  const byPoints = m.split === "points" && !holding;
   const res = { type, currency: cur, rate: dealRate, receivedEGP: 0, partner: pa ? { email: pa.email, name: pa.name || pa.email, mode: paMode, value: paVal, earned: 0, paid: 0 } : null, proposal, ended, fundPct, findPct, finders, finderTeam: !!m.finderTeam, received: 0, expected: 0, costsTotal: 0, costsUnpaid: 0, fund: 0, finderAmt: 0, fundCover: 0,
     people: {}, unassigned: 0, pending: false, held: 0, preview: null, schedule: [], late: [], monthsUnpaid: 0, ads: { in: 0, spent: 0, held: 0 },
     flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 }, planned: false, planOff: 0,
-    byTasks, byFund, holding, holdAmt: 0, tasks: {}, taskHeld: 0, priced: 0, pricedOver: false };
+    byTasks, byFund, holding, holdAmt: 0, tasks: {}, taskHeld: 0, priced: 0, pricedOver: false,
+    byPoints, finderCase: null, points: null };
   const person = u => res.people[u] || (res.people[u] = { earned: 0, back: 0, paid: 0, balance: 0 });
   // deals in phases: what came in, went to the fund and went to each person, phase by phase
   res.parts = {};
@@ -184,6 +209,87 @@ function computeMoney(p, todayStr, rules, opts) {
     res.taskRate = total ? net / total : 0;   // EGP piasters a task gets for each piaster of its price, when all is paid
   }
 
+  // ---- sharing by points ----
+  function pointsSplit() {
+    const fc = finderCase(m.finderCase), feePct = fc ? fc.pct : 0;
+    // who gets the finder's fee: the partner abroad and/or the team members who brought the client, equally
+    const feeTo = [...(pa ? ["__partner"] : []), ...finders];
+    const feeOn = !!fc && (feeTo.length > 0 || !!m.finderTeam);
+    res.finderCase = fc; res.findPct = feeOn ? feePct : 0;
+    const P = res.points = { total: 0, doneTotal: 0, value: 0, estValue: 0, pot: 0, held: 0, unsized: 0, nobody: 0, people: {}, months: {}, tasks: {} };
+    const tl = [];
+    for (const field of ["tasks", "steps"]) for (const [id, t] of Object.entries(p[field] || {})) if (t && t.text) {
+      const who = [...new Set([t.owner, ...Object.entries(t.helpers || {}).filter(([, v]) => v).map(([u]) => u)].filter(Boolean))];
+      const size = sizeOf(t.size) ? t.size : null, d = t.doneAt ? new Date(t.doneAt) : null;
+      const x = { id, size, pts: sizePts(size), done: !!t.done, who, month: d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : "" };
+      tl.push(x); P.tasks[id] = x;
+      if (!size) { P.unsized++; continue }
+      P.total += x.pts; if (x.done) P.doneTotal += x.pts;
+    }
+    const pp = u => P.people[u] || (P.people[u] = { pts: 0, earned: 0, estPts: 0, est: 0 });
+    // each person's points from a list of tasks (people on the same task share its points equally)
+    const weights = (list, all) => {
+      const w = {};
+      for (const t of list) if (t.size && (all || t.done)) { if (t.who.length) for (const u of t.who) w[u] = (w[u] || 0) + t.pts / t.who.length; else w.__nobody = (w.__nobody || 0) + t.pts }
+      return w;
+    };
+    // one payment: the finder's fee comes off first, then the fund's %; the rest is shared by points
+    const cut = (avail, withFee, into) => {
+      const t = into || res; if (avail <= 0) return 0;
+      const fee = feeOn && withFee ? Math.round(avail * feePct / 100) : 0;
+      if (fee && !feeTo.length) { t.finderAmt += fee; t.flow.finder += fee; t.fund += fee }   // "the team in general": the fee goes to the fund
+      else if (fee) for (const [u, v] of Object.entries(splitByShares(fee, Object.fromEntries(feeTo.map(u => [u, 1]))))) {
+        if (u === "__partner") { if (into) into.partner = (into.partner || 0) + v; else res.partner.earned += v; t.flow.partner += v }
+        else { const x = into ? (into.people[u] || (into.people[u] = { earned: 0 })) : person(u); x.earned += v; t.finderAmt += v; t.flow.finder += v }
+      }
+      const left = avail - fee, fund = Math.round(left * fundPct / 100);
+      t.fund += fund; t.flow.fund += fund; t.flow.shares += left - fund;
+      return left - fund;
+    };
+    // share a pot by points; with no points yet, the money waits
+    const share = (pot, w, into) => {
+      if (pot <= 0) return 0;
+      const sum = Object.values(w).reduce((a, b) => a + b, 0);
+      if (!(sum > 0)) { if (!into) { P.held += pot; res.held += pot; res.pending = true } else into.unassigned += pot; return 0 }
+      for (const [u, v] of Object.entries(splitByShares(pot, w))) {
+        if (u === "__nobody") { if (into) into.unassigned += v; else { res.unassigned += v; P.nobody += v } continue }
+        if (into) { const x = into.people[u] || (into.people[u] = { earned: 0 }); x.earned += v; pp(u).est += v }
+        else { person(u).earned += v; pp(u).earned += v }
+      }
+      return pot / sum;
+    };
+    for (const [u, v] of Object.entries(weights(tl, false))) if (u !== "__nobody") pp(u).pts = v;
+    for (const [u, v] of Object.entries(weights(tl, true))) if (u !== "__nobody") pp(u).estPts = v;
+
+    if (type !== "monthly") {
+      for (const x of payments) P.pot += cut(reimburse(egp(x)), true);
+      P.value = share(P.pot, weights(tl, false));
+      // when the client has paid everything and every sized task is done (assuming no more costs)
+      const pv = { fund: 0, finderAmt: 0, unassigned: 0, partner: 0, people: {}, flow: { costs: 0, partner: 0, fund: 0, finder: 0, shares: 0 } };
+      const whole = Math.round(toP(m.price) * dealRate); pv.whole = whole; pv.flow.costs = Math.min(whole, res.costsTotal);
+      const restAll = cut(Math.max(0, whole - res.costsTotal), true, pv);
+      P.estValue = share(restAll, weights(tl, true), pv);
+      res.preview = pv;
+    } else {
+      // monthly: the setup fee is shared by all the points; each month's fee by the points of the tasks finished that month
+      const startM = m.startMonth || monthOf(todayStr);
+      const potM = {}; let potAll = 0;
+      for (const x of payments) {
+        const monthly = x.kind === "monthly" && x.month;
+        const rest = cut(reimburse(egp(x)), !monthly || monthsBetween(startM, x.month) < R.finderMonths);
+        if (monthly) potM[x.month] = (potM[x.month] || 0) + rest; else potAll += rest;
+        P.pot += rest;
+      }
+      share(potAll, weights(tl, false));
+      for (const [mm, pot] of Object.entries(potM).sort()) {
+        const w = weights(tl.filter(t => t.month === mm), false), pts = Object.values(w).reduce((a, b) => a + b, 0);
+        P.months[mm] = { pot, pts, value: share(pot, w) };
+      }
+      const last = Object.keys(P.months).sort().pop();
+      if (last) P.value = P.months[last].value;
+    }
+  }
+
   for (const x of payments) { res.received += toP(x.amount); res.receivedEGP += egp(x) }
 
   if (holding) {
@@ -193,6 +299,9 @@ function computeMoney(p, todayStr, rules, opts) {
   } else if (byTasks) {
     res.expected = toP(m.price);
     taskSplit();
+  } else if (byPoints) {
+    res.expected = type === "monthly" ? 0 : toP(m.price);
+    pointsSplit();
   } else if (byFund) {
     res.expected = type === "monthly" ? 0 : toP(m.price);
     for (const x of payments) splitProfit(reimburse(egp(x)), null, true);
