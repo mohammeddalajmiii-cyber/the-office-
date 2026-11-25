@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261125132319">
+<meta name="build" content="20261126010052">
 <link rel="manifest" href="manifest.json?v=5">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -42,7 +42,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://firestore.googleapis.com">
-<link rel="modulepreload" href="assets/app-20261125132319.js">
+<link rel="modulepreload" href="assets/app-20261126010052.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
@@ -1249,6 +1249,77 @@ input,select,textarea{background-color:var(--field)}
   .alerts,.asst{top:76px}
 }
 
+/* ===== Agent (Nov 2026): project chats with an assistant that remembers ===== */
+#agent .mut{color:var(--muted)}
+.ag-list{display:grid;gap:12px}
+.ag-top{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.ag-top-t{flex:1;min-width:220px}
+.ag-top h1{font:800 clamp(26px,6vw,34px)/1.05 var(--display);margin:0 0 6px}
+.ag-top p{margin:0;font-size:14.5px;max-width:52ch;line-height:1.45}
+.ag-new{padding:16px;display:grid;gap:10px}
+.ag-lbl{font-size:13px;font-weight:700;color:var(--muted)}
+.ag-new select{height:46px;border-radius:12px;border:1px solid var(--line);padding:0 12px;font:inherit;font-size:15px;background:var(--surface);color:var(--ink);width:100%}
+.ag-hint{margin:0;font-size:13.5px}
+.ag-empty{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:24px 18px;display:grid;gap:8px;justify-items:center;text-align:center}
+.ag-empty b{font:800 20px/1.2 var(--display)}
+.ag-sec{padding:14px 8px 6px}
+.ag-row{display:flex;gap:12px;align-items:center;padding:10px 8px;border-radius:14px;text-decoration:none;color:inherit}
+.ag-row:hover{background:var(--field)}
+.ag-ic{width:42px;height:42px;border-radius:13px;background:var(--accent-soft);color:var(--fill);display:grid;place-items:center;flex:none}
+.ag-ic.sh{background:var(--ph-gr);color:var(--ph-on)}
+.ag-row-t{flex:1;min-width:0;display:grid;gap:2px}
+.ag-row-h{display:flex;gap:8px;align-items:baseline;min-width:0}
+.ag-row-h b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.ag-row-h .mut{font-size:12px;flex:none}
+.ag-row-s{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-foot{margin:2px 6px;font-size:12.5px}
+#view-agent.ag-in:not([hidden]){display:flex;flex-direction:column}
+#view-agent.ag-in #agent{flex:1;min-height:0;display:flex;flex-direction:column}
+html.ag-lock,html.ag-lock body{overflow:hidden;overscroll-behavior:none}
+.ag-chat{flex:1;min-height:0;display:flex;flex-direction:column}
+.ag-head{display:flex;align-items:center;gap:10px;padding:2px 0 10px;border-bottom:1px solid var(--line)}
+.ag-back{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-size:28px;line-height:1;color:var(--ink);text-decoration:none;background:var(--surface);border:1px solid var(--line);flex:none}
+.ag-head-t{flex:1;min-width:0;display:grid;gap:1px}
+.ag-head-t b{font:800 18px/1.2 var(--display);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-head-t span{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-mem{padding:14px;display:grid;gap:8px;margin-top:10px;max-height:45vh;overflow:auto;flex:none}
+.ag-memtext{white-space:pre-wrap;margin:0;font-size:14px;line-height:1.5}
+.ag-log{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px 2px;display:flex;flex-direction:column;gap:10px}
+.ag-msg{display:flex;flex-direction:column;max-width:min(88%,660px);gap:3px}
+.ag-me{align-self:flex-end;align-items:flex-end}
+.ag-ai,.ag-them{align-self:flex-start}
+.ag-b{padding:10px 14px;border-radius:18px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.45}
+.ag-me .ag-b{background:var(--fill);color:var(--on-accent);border-bottom-right-radius:6px}
+.ag-them .ag-b,.ag-ai .ag-b{background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:6px}
+.ag-name{font-size:12px;font-weight:700;color:var(--muted);padding:0 6px}
+.ag-ai .ag-name{color:var(--fill)}
+.ag-time{font-size:11.5px;color:var(--muted);padding:0 6px}
+.ag-acts{border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:6px;display:grid;gap:0;width:100%;box-sizing:border-box}
+.ag-act{display:flex;gap:10px;align-items:flex-start;padding:8px}
+.ag-dot{width:10px;height:10px;border-radius:50%;margin-top:5px;flex:none;background:var(--line);box-sizing:border-box}
+.s-done .ag-dot{background:var(--fill)}
+.s-ask .ag-dot{background:var(--ph-gr)}
+.s-blocked .ag-dot,.s-failed .ag-dot,.s-cancelled .ag-dot,.s-undone .ag-dot{background:transparent;border:2px solid var(--muted)}
+.ag-act-t{flex:1;min-width:0;display:grid;gap:2px;font-size:14px;line-height:1.35}
+.ag-st{font-size:12.5px;color:var(--muted);font-weight:600}
+.s-ask .ag-st{color:var(--ink)}
+.ag-plan{display:grid;gap:3px;font-size:13px;margin:4px 0;padding:8px 10px;background:var(--field);border-radius:10px}
+.ag-approve{padding:4px 6px 4px;gap:8px}
+.ag-wait{margin:4px 8px 6px;font-size:13px}
+.ag-hello{margin:auto 0;display:grid;gap:8px;justify-items:center;text-align:center;padding:24px 12px}
+.ag-hello b{font:800 20px/1.2 var(--display)}
+.ag-sugs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:6px}
+.ag-sug{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:9px 14px;font:600 14px var(--body);cursor:pointer}
+.ag-sug:hover{border-color:var(--fill)}
+.ag-form{display:flex;align-items:flex-end;gap:8px;padding:10px 0 2px;border-top:1px solid var(--line);flex:none}
+.ag-form[hidden]{display:none}
+.ag-form textarea{flex:1;min-width:0;resize:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:22px;padding:11px 16px;font:inherit;font-size:16px;line-height:1.35;max-height:160px;outline:0;box-sizing:border-box}
+.ag-form textarea:focus{border-color:var(--fill)}
+.ag-send{width:46px;height:46px;border-radius:50%;border:0;background:var(--fill);color:var(--on-accent);display:grid;place-items:center;flex:none;cursor:pointer}
+.ag-send:disabled{opacity:.5}
+.ag-call{height:46px;padding:0 12px;border-radius:23px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:700 13.5px var(--body);flex:none;cursor:pointer}
+.ag-call[aria-pressed="true"]{background:var(--ph-gr);color:var(--ph-on);border-color:transparent}
+
 /* ===== Me page (Nov 2026 redesign): your day at a glance ===== */
 .me2{display:flex;flex-direction:column;gap:12px}
 .me2-col{display:contents}
@@ -2253,6 +2324,7 @@ body.sheet-open{overflow:hidden}
     <button class="tab" role="tab" data-view="chat"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Chat <span class="count" id="c-chat" hidden>0</span></button>
     <button class="tab" role="tab" data-view="money"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/></svg></span>Money <span class="count" id="c-money" hidden>0</span></button>
     <button class="tab" role="tab" data-view="partners"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>Partners <span class="count" id="c-partners" hidden>0</span></button>
+    <button class="tab settab agtab" role="tab" data-view="agent"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></span>Agent</button>
     <button class="tab settab" role="tab" data-view="settings"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>Settings</button>
   </nav>
 
@@ -2279,6 +2351,13 @@ body.sheet-open{overflow:hidden}
   <section id="view-settings" hidden><div id="settings"></div></section>
 
   <section id="view-money" hidden><div id="money"></div></section>
+  <section id="view-agent" hidden><div id="agent"></div>
+    <form id="ag-form" class="ag-form" hidden autocomplete="off">
+      <button type="button" class="ag-call" id="ag-call" aria-pressed="false" title="Ask the agent" hidden>@Agent</button>
+      <textarea id="ag-input" rows="1" maxlength="4000" aria-label="Message" placeholder="Message the agent…"></textarea>
+      <button type="submit" class="ag-send" id="ag-send" aria-label="Send"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </form>
+  </section>
 
   <section id="view-chat" hidden>
     <div class="nc" id="nc" data-screen="conv">
@@ -2369,7 +2448,7 @@ body.sheet-open{overflow:hidden}
   // Returning visitors skip the loading screen and see their page right away.
   try { if (localStorage.getItem("pitchroom-cache-v1")) { document.getElementById("boot").hidden = true; document.getElementById("app").hidden = false } } catch (e) {}
 </script>
-<script type="module" src="assets/app-20261125132319.js"></script>
+<script type="module" src="assets/app-20261126010052.js"></script>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true" id="nc-icons">
       <symbol id="ni-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
       <symbol id="ni-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
