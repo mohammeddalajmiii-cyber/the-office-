@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://mohammeddalajmiii-cyber.github.io/the-office-/og.png?v=4">
 <meta name="apple-mobile-web-app-title" content="Pitch Room">
-<meta name="build" content="20261125111021">
+<meta name="build" content="20261125112758">
 <link rel="manifest" href="manifest.json?v=5">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="torch-32.png" type="image/png" sizes="32x32">
@@ -42,7 +42,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://firestore.googleapis.com">
-<link rel="modulepreload" href="assets/app-20261125111021.js">
+<link rel="modulepreload" href="assets/app-20261125112758.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
@@ -637,6 +637,8 @@ input,select,textarea{background-color:var(--field)}
 .pv-meta{font-size:12.5px;color:var(--muted)}
 .update-bar{position:fixed;z-index:40;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 10px);display:flex;gap:10px;align-items:center;background:var(--fill);color:var(--on-accent);border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.3);cursor:pointer;max-width:calc(100% - 32px)}
 /* phones in a browser: "Open Pitch Room as an app" card, sits just above the menu bar */
+/* Partners: the "clear unused numbers" bar is a plain card, not a celebration */
+.wonbar.ph-clear{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
 .install-nudge{position:fixed;z-index:30;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 88px);display:flex;align-items:center;gap:12px;padding:10px 10px 10px 12px;background:var(--solid);color:var(--ink);border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 34px rgba(0,0,0,.28);animation:nudgeup 260ms cubic-bezier(.2,.7,.2,1)}
 .install-nudge img{width:40px;height:40px;border-radius:11px;flex:none}
 .install-nudge .in-t{flex:1;min-width:0;display:grid;gap:1px;line-height:1.3}
@@ -1461,6 +1463,16 @@ html.nc-lock,html.nc-lock body{overflow:hidden;overscroll-behavior:none}
 .nc-rect{font-variant-numeric:tabular-nums;font-weight:700}
 .nc-recwave{flex:1;display:flex;gap:2px;align-items:center;height:24px;min-width:0}
 .nc-recwave i{flex:1;background:var(--t);border-radius:2px;opacity:.8;transition:height 100ms linear}
+/* voice: holding the mic never selects text or opens the phone's pop-up menu */
+#chat-send,#nc-rec,#nc-rec *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#chat-send{touch-action:none}
+html.rec-press,html.rec-press *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}
+.nc-rechint{display:none;font-size:13px;font-weight:600;color:var(--muted);white-space:nowrap;transition:color 120ms}
+.nc-rechint.go{color:var(--drop)}
+html.rec-hold .nc-rechint{display:inline}
+html.rec-hold #nc-rec-x{display:none}
+html.rec-hold .nc-rec{transform:translateX(var(--rec-dx,0px))}
+html.rec-hold .nc-recwave{min-width:40px}
 .nc-readonly{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;font-size:14px;color:var(--muted);padding:4px 6px}
 .nc-pop{position:absolute;left:10px;bottom:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:6px;z-index:5;min-width:250px;max-width:calc(100% - 20px);animation:ncrise 220ms var(--ez)}
 .nc-it{display:flex!important;align-items:center;gap:12px;width:100%;padding:9px 10px!important;border-radius:12px;text-align:left;font-weight:600;font-size:14.5px}
@@ -2211,6 +2223,7 @@ body.sheet-open{overflow:hidden}
             <button type="button" class="nc-ib" id="nc-rec-x" aria-label="Delete the recording"><span class="nic"><svg aria-hidden="true"><use href="#ni-trash"/></svg></span></button>
             <span class="nc-recdot"></span><span class="nc-rect" id="nc-rect">0:00</span>
             <span class="nc-recwave" id="nc-recwave"></span>
+            <span class="nc-rechint" id="nc-rechint" aria-hidden="true">‹ Slide to cancel</span>
             <button type="button" class="nc-ib nc-send" id="nc-rec-send" aria-label="Send voice message"><span class="nic"><svg aria-hidden="true"><use href="#ni-send"/></svg></span></button>
           </div>
         </div>
@@ -2260,7 +2273,7 @@ body.sheet-open{overflow:hidden}
   // Returning visitors skip the loading screen and see their page right away.
   try { if (localStorage.getItem("pitchroom-cache-v1")) { document.getElementById("boot").hidden = true; document.getElementById("app").hidden = false } } catch (e) {}
 </script>
-<script type="module" src="assets/app-20261125111021.js"></script>
+<script type="module" src="assets/app-20261125112758.js"></script>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true" id="nc-icons">
       <symbol id="ni-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
       <symbol id="ni-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>

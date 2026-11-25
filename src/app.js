@@ -2691,12 +2691,31 @@ function cancelChatMode() {
 let rec = null;
 // The sound is taken straight from the microphone and saved as a plain WAV file that every phone and browser plays.
 // (Each browser's own recorder makes its own format, and some browsers can't play the others'.)
+// When the microphone is blocked, say exactly where to allow it on this device, so it stops asking.
+function micHelp(e) {
+  const n = e && e.name;
+  if (n === "NotFoundError" || n === "OverconstrainedError") { toast("No microphone was found on this device", 5000); return }
+  if (n === "NotReadableError" || n === "AbortError") { toast("Another app is using the microphone. Close it and try again", 6000); return }
+  const ua = navigator.userAgent, home = isHomeScreenApp();
+  const how = isIOS() ? (home ? "Close Pitch Room fully (swipe it away), open it again and tap Allow when it asks."
+      : "Tap “aA” in the address bar, then Website Settings, then Microphone: Allow. Safari stops asking after that.")
+    : /Android/.test(ua) ? "Tap the icon left of the web address, then Permissions, then Microphone: Allow."
+    : /Safari/.test(ua) && !/Chrome|Chromium|Edg/.test(ua) ? "Open the Safari menu, then Settings for this Website, then Microphone: Allow."
+    : "Click the icon left of the web address, set Microphone to Allow, then try again.";
+  toast("The microphone is blocked. " + how, 12000);
+}
+let recStarting = false, recAbort = false;
 async function startRec() {
+  if (rec || recStarting) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("Voice messages need a newer browser. Try Chrome or Safari"); return }
   const AC = window.AudioContext || window.webkitAudioContext;
   let ac = null; try { ac = AC ? new AC() : null } catch { }   // made inside the tap, so phones let it run
   let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }) } catch { try { ac && ac.close() } catch { } toast("Allow the microphone to record a voice message"); return }
+  recStarting = true; recAbort = false;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }) } catch (e) { recStarting = false; try { ac && ac.close() } catch { } micHelp(e); return }
+  recStarting = false;
+  // let go of the mic before it was ready: nothing to record
+  if (recAbort) { recAbort = false; stream.getTracks().forEach(t => t.stop()); try { ac && ac.close() } catch { } return }
   rec = { chunks: [], pcm: [], start: Date.now(), stream, levels: [], lvl: 0 };
   let ok = false;
   if (ac && ac.createScriptProcessor) try {
@@ -3421,6 +3440,43 @@ $("#chatlog").addEventListener("scroll", () => { const l = $("#chatlog"); $("#nc
 $("#nc-scrim").onclick = () => { if (ncPitchOpen) openPitch(false); else closeSheet() };
 $("#nc-rec-x").onclick = () => stopRec(false);
 $("#nc-rec-send").onclick = () => stopRec(true);
+/* The mic button, like WhatsApp: hold it to record and let go to send (slide left to cancel),
+   or tap it to record hands-free and then tap Send or the bin. Holding never selects text or opens the
+   phone's pop-up menu. */
+let micG = null, micQuietUntil = 0;
+const micBtn = $("#chat-send");
+micBtn.addEventListener("contextmenu", e => { if (micBtn.dataset.ic === "mic" || rec) e.preventDefault() });
+micBtn.addEventListener("pointerdown", e => {
+  if (micBtn.dataset.ic !== "mic" || rec || recStarting || sending || e.button > 0) return;
+  e.preventDefault();   // keeps the message box from losing focus and stops long-press selection
+  const root = document.documentElement, g = micG = { x: e.clientX, id: e.pointerId, at: Date.now(), hold: false, cancel: false };
+  micQuietUntil = Date.now() + 2000;
+  root.classList.add("rec-press");
+  g.timer = setTimeout(() => { if (micG === g) { g.hold = true; root.classList.add("rec-hold") } }, 280);
+  const hint = $("#nc-rechint");
+  const move = ev => {
+    if (ev.pointerId !== g.id || !g.hold) return;
+    const dx = Math.min(0, ev.clientX - g.x); g.cancel = dx < -90;
+    root.style.setProperty("--rec-dx", Math.max(-120, dx) + "px"); hint.classList.toggle("go", g.cancel);
+  };
+  const end = ev => {
+    if (ev.pointerId !== g.id) return;
+    removeEventListener("pointermove", move); removeEventListener("pointerup", end); removeEventListener("pointercancel", end);
+    clearTimeout(g.timer); micG = null; micQuietUntil = Date.now() + 600;
+    root.classList.remove("rec-press", "rec-hold"); root.style.removeProperty("--rec-dx"); hint.classList.remove("go");
+    if (!g.hold) return;                       // a tap: keep recording until Send or the bin
+    if (ev.type === "pointercancel") return;   // the phone took over the touch (its microphone question): keep recording
+    const short = Date.now() - g.at < 700;
+    if (!rec) { recAbort = true; if (short) toast("Hold the mic while you talk, then let go to send"); return }
+    if (g.cancel) stopRec(false);
+    else if (short) { stopRec(false); toast("Hold the mic while you talk, then let go to send") }
+    else stopRec(true);
+  };
+  addEventListener("pointermove", move, { passive: true }); addEventListener("pointerup", end); addEventListener("pointercancel", end);
+  startRec();
+});
+// the tap that started a recording doesn't also count as a click (which would start a second one or press Send)
+document.addEventListener("click", e => { if (Date.now() < micQuietUntil && e.target.closest && e.target.closest("#chat-send, #nc-rec")) { e.preventDefault(); e.stopPropagation() } }, true);
 document.addEventListener("keydown", e => { if (e.key === "Escape" && route().view === "chat") { if (ncPitchOpen) openPitch(false); else if (ncSheet) closeSheet(); else if (ncInfo) { ncInfo = false; render() } } });
 // swipe a message to the right to reply, like WhatsApp
 (() => {

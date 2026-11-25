@@ -42,6 +42,15 @@ const pseenKey = gid => `pseen:${me}:${gid}`;
 const pGetSeen = gid => { try { return Number(localStorage.getItem(pseenKey(gid)) || 0) } catch { return 0 } };
 const pSetSeen = gid => { try { localStorage.setItem(pseenKey(gid), String(Date.now())) } catch { } };
 const historyOf = l => Object.entries(l.history || {}).filter(([, h]) => h).map(([id, h]) => ({ id, ...h })).sort((a, b) => (b.at || 0) - (a.at || 0));
+// A number the team added (not one a partner found) that nobody ever used: still new, no call logged, no note,
+// no call-back or meeting date, no project.
+const unusedLead = l => !l.foundBy && (l.status || "new") === "new" && !historyOf(l).length && !String(l.note || "").trim() && !leadDueOf(l) && !l.projectId;
+let phClearAsk = false;
+async function clearUnusedLeads(list) {
+  await write(async () => {
+    for (let i = 0; i < list.length; i += 400) { const b = writeBatch(db); list.slice(i, i + 400).forEach(l => b.delete(doc(db, "pleads", l.id))); await b.commit() }
+  }, `Deleted ${list.length} unused ${list.length === 1 ? "number" : "numbers"}`);
+}
 const postAv = src => el("img", { class: "av", src: src || AV, alt: "", referrerpolicy: "no-referrer" });
 
 // Everything that happened in a group, newest first: messages, and calls the partners logged.
@@ -596,6 +605,20 @@ function phLeads(box, leads) {
     groups.length > 1 ? el("div", { class: "ph-chips" }, el("button", { class: "ph-chip", "aria-pressed": String(!phGid), onclick: () => { phGid = ""; render() } }, "All countries"),
       groups.map(g => el("button", { class: "ph-chip", "aria-pressed": String(phGid === g.id), onclick: () => { phGid = g.id; render() } }, el("span", { class: "cc" }, ccOf(g.id)), g.name))) : null,
     lostN ? el("button", { class: "ph-chip", "aria-pressed": String(phSt === "lost"), onclick: () => { phSt = phSt === "lost" ? "" : "lost"; render() } }, `Not interested ${lostN}`) : null));
+  // Clear out numbers the team added that nobody ever used, to make room for new ones.
+  // Only the admin, only in the country picked above (or all), and it asks first.
+  const unused = isAdmin ? leads.filter(unusedLead) : [];
+  if (unused.length) {
+    const where = phGid ? groupName(phGid) : unused.length && new Set(unused.map(l => l.gid)).size > 1 ? "all countries" : groupName(unused[0].gid);
+    const byC = {}; unused.forEach(l => byC[l.gid] = (byC[l.gid] || 0) + 1);
+    const split = Object.keys(byC).length > 1 ? " (" + Object.entries(byC).sort((a, b) => b[1] - a[1]).map(([g, n]) => `${groupName(g)} ${n}`).join(", ") + ")" : "";
+    box.append(el("div", { class: "wonbar ph-clear" },
+      el("span", {}, phClearAsk ? `Delete ${unused.length} unused ${unused.length === 1 ? "number" : "numbers"} from ${where}${split}? This can't be undone.`
+        : `${unused.length} ${unused.length === 1 ? "number was" : "numbers were"} never called or used (${where}). Numbers partners found themselves are kept.`),
+      phClearAsk ? [el("button", { class: "btn small quiet", onclick: () => { phClearAsk = false; render() } }, "Cancel"),
+        el("button", { class: "btn small danger-btn", onclick: () => { phClearAsk = false; clearUnusedLeads(unused) } }, `Delete ${unused.length}`)]
+        : el("button", { class: "btn small", onclick: () => { phClearAsk = true; render() } }, "Clear unused numbers")));
+  }
   const shown = leads.filter(l => (!phSt || stageOf(l) === phSt) && leadMatch(l, phQ)).sort(leadOrder);
   if (!leads.length) { box.append(el("div", { class: "ph-card ph-first" }, el("h3", {}, "No numbers yet"), el("p", { class: "ph-sub" }, "Paste them from a sheet and the partners in that country get a fair share."), el("div", {}, el("button", { class: "btn primary", onclick: () => phSheetNumbers({ gid: phGid }) }, nIc("plus"), "Add numbers")))); return }
   if (phView === "board" && phSt !== "lost" && matchMedia("(min-width: 760px)").matches) {
