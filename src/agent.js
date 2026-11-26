@@ -113,29 +113,43 @@ async function agentBrain(system, prompt, onReply, smart) {
   const schema = agSchema(aiM);
   let good = ""; try { good = localStorage.getItem("agentModel") || "" } catch { }
   const order = [...new Set([...(smart ? AG_SMART : []), ...(AG_FAST.includes(good) ? [good] : []), ...AG_FAST])];
-  let last, noThink = {};
-  for (let i = 0; i < order.length; i++) {
-    const m = order[i];
-    try {
-      const generationConfig = { temperature: 0.3, maxOutputTokens: 2048, responseMimeType: "application/json", responseSchema: schema };
-      const th = !noThink[m] && agThinking(m);
-      if (th) { if (th.thinkingLevel && aiM.ThinkingLevel && aiM.ThinkingLevel[th.thinkingLevel]) th.thinkingLevel = aiM.ThinkingLevel[th.thinkingLevel]; generationConfig.thinkingConfig = th }
-      const model = aiM.getGenerativeModel(ai, { model: m, systemInstruction: system, generationConfig });
-      const res = await model.generateContentStream(prompt);
-      let full = "";
-      for await (const chunk of res.stream) { let part = ""; try { part = chunk.text() } catch { } if (part) { full += part; if (onReply) onReply(agPartialReply(full)) } }
-      if (AG_FAST.includes(m)) try { localStorage.setItem("agentModel", m) } catch { }
-      if (!full.trim()) throw Object.assign(new Error("empty answer"), { agEmpty: true });
-      try { return JSON.parse(full.replace(/^\s*```(?:json)?|```\s*$/g, "").trim()) } catch { return { reply: agPartialReply(full) || full, actions: [] } }
-    } catch (e) {
-      last = e; const k = e && e.agEmpty ? "overloaded" : aiErrorKind(e);
-      if (k === "thinking" && !noThink[m]) { noThink[m] = true; i--; continue }   // try the same model again without the thinking setting
-      if (k !== "model" && k !== "busy" && k !== "overloaded") throw e;
-      if (good === m) try { localStorage.removeItem("agentModel") } catch { }
+  // Each model is asked in up to three ways, simplest last, in case Google refuses a setting:
+  // 1) answer shape + low thinking, 2) answer shape only, 3) plain JSON asked for in words.
+  const MODES = ["full", "nothink", "plain"];
+  let last = null, firstReal = null, savedMode = ""; try { savedMode = localStorage.getItem("agentMode") || "" } catch { }
+  for (const m of order) {
+    for (const mode of MODES.slice(Math.max(0, MODES.indexOf(savedMode)))) {
+      try {
+        const generationConfig = { temperature: 0.3, maxOutputTokens: 2048, responseMimeType: "application/json" };
+        if (mode !== "plain") generationConfig.responseSchema = schema;
+        const th = mode === "full" && agThinking(m);
+        if (th) { if (th.thinkingLevel && aiM.ThinkingLevel && aiM.ThinkingLevel[th.thinkingLevel]) th.thinkingLevel = aiM.ThinkingLevel[th.thinkingLevel]; generationConfig.thinkingConfig = th }
+        const sys = mode === "plain" ? system + AG_PLAIN_JSON : system;
+        const model = aiM.getGenerativeModel(ai, { model: m, systemInstruction: sys, generationConfig });
+        const res = await model.generateContentStream(prompt);
+        let full = "";
+        for await (const chunk of res.stream) { let part = ""; try { part = chunk.text() } catch { } if (part) { full += part; if (onReply) onReply(agPartialReply(full)) } }
+        if (!full.trim()) throw Object.assign(new Error("empty answer"), { agEmpty: true });
+        try { if (AG_FAST.includes(m)) localStorage.setItem("agentModel", m); localStorage.setItem("agentMode", mode) } catch { }
+        try { return JSON.parse(full.replace(/^\s*```(?:json)?|```\s*$/g, "").trim()) } catch { const r = agPartialReply(full); return { reply: r || full, actions: [] } }
+      } catch (e) {
+        last = e; const k = e && e.agEmpty ? "overloaded" : aiErrorKind(e);
+        try { console.error("Agent:", m, mode, aiErrorRaw(e)) } catch { }
+        // problems no other model or setting can fix: stop and say so
+        if (k === "appcheck" || k === "off" || k === "net" || k === "load") throw e;
+        if (k === "model" || k === "busy" || k === "overloaded") { if (good === m) try { localStorage.removeItem("agentModel") } catch { } break }   // next model
+        if (!firstReal) firstReal = e;   // a refused setting: try the next, simpler way
+      }
     }
   }
-  throw last;
+  try { localStorage.removeItem("agentMode") } catch { }
+  throw firstReal || last;
 }
+const AG_PLAIN_JSON = `
+
+ANSWER FORMAT: reply with ONLY one JSON object, no other text:
+{"reply": "what you say", "actions": [{"type": "...", "task": "T4", "project": "PRJ2", "text": "...", "who": "...", "date": "YYYY-MM-DD", "phase": "...", "title": "...", "category": "...", "pitch": "...", "tasks": [{"text": "...", "phase": "...", "who": "...", "date": "..."}]}], "memory": "", "projectMemory": "", "title": ""}
+Leave out fields you don't need. "actions" can be [].`;
 
 const AGENT_RULES = () => `You are the Pitch Room agent: a sharp, friendly teammate (not a chatbot) for a small creative agency team in Egypt (Ardent Creative Studios: websites, Google Ads, branding). You live in one chat that belongs to one project, or to planning a new project.
 
@@ -214,7 +228,7 @@ async function agTurn(c, text) {
   if (agBusy) return;
   agBusy = c.id; agStream = ""; agErr = null; render(); agScroll(true);
   try { await agTurnInner(c, text) }
-  catch (e) { agErr = { chat: c.id, text: aiErrorText(e), retry: text } }
+  catch (e) { try { console.error("Agent failed:", e) } catch { } agErr = { chat: c.id, text: aiErrorText(e), detail: aiErrorRaw(e), retry: text } }
   finally { agBusy = false; agStream = ""; render(); agScroll() }
 }
 async function agTurnInner(c, text) {
@@ -563,7 +577,7 @@ function agChatView(c) {
   if (busyHere) log.append(el("div", { class: "ag-msg ag-ai" }, el("span", { class: "ag-name" }, "Agent"),
     agStream ? el("div", { class: "ag-b", id: "ag-stream" }, agStream) : el("div", { class: "ag-b ag-typing", id: "ag-stream", "aria-label": "The agent is writing" }, el("i"), el("i"), el("i"))));
   if (!busyHere && agErr && agErr.chat === c.id) log.append(el("div", { class: "ag-msg ag-ai ag-err" }, el("span", { class: "ag-name" }, "Agent"),
-    el("div", { class: "ag-b" }, agErr.text),
+    el("div", { class: "ag-b" }, agErr.text, agErr.detail ? el("small", { class: "ag-detail" }, "Details: " + agErr.detail) : null),
     el("div", { class: "row", style: "gap:8px" }, el("button", { class: "btn small primary", onclick: () => { const t = agErr.retry; agErr = null; agTurn(c, t) } }, "Try again"),
       el("button", { class: "btn small quiet", onclick: () => { agErr = null; render() } }, "Dismiss"))));
   wrap.append(log);
