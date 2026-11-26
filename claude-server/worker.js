@@ -307,17 +307,20 @@ async function loadBoard(u) {
       fsList(u.id, "pmembers", ["uid"]).catch(() => []),
       fsList(u.id, "cprojects", ["clients", "partners"]).catch(() => []),
       fsGet(u.id, "meta/nicks").then(r => r.data || {}).catch(() => ({})),
+      fsGet(u.id, "meta/team", ["claudeAdmin"]).then(r => r.data || {}).catch(() => ({})),
     ]); c.peopleAt = now;
   }
   if (!c.ideas || c.ideasAt < now - 15e3) { c.ideas = await fsList(u.id, "ideas", IDEA_FIELDS); c.ideasAt = now }
   boards.set(u.uid, c);
-  const [users, pmembers, cprojects, nicks] = c.people, ideas = c.ideas;
+  const [users, pmembers, cprojects, nicks, teamMeta] = c.people, ideas = c.ideas;
   const outsiders = new Set([...pmembers.map(m => m.id.toLowerCase()), ...cprojects.flatMap(c => [...(c.clients || []), ...(c.partners || [])]).map(e => String(e).toLowerCase())]);
   const partnerUids = new Set(pmembers.map(m => m.uid).filter(Boolean));
   const people = {};
   for (const x of users) people[x.id] = { name: (nicks[x.id] || x.nick || x.name || "").trim(), email: String(x.email || "").toLowerCase() };
   const team = Object.keys(people).filter(id => id === u.uid || (!partnerUids.has(id) && !(people[id].email && outsiders.has(people[id].email)))).filter(id => people[id].name);
-  const admin = !!(u.meDoc && u.meDoc.claude && u.meDoc.claude.admin);
+  // The admin is whoever saved the connector's address: meta/team can only be written by the real admin
+  // (the database rules check their email), so nobody can make themselves admin here.
+  const admin = !!teamMeta.claudeAdmin && teamMeta.claudeAdmin === u.uid;
   return { me: u.uid, admin, people, team, ideas: ideas.filter(i => i.title) };
 }
 const nameOf = (B, id) => id === B.me ? (B.people[id] && B.people[id].name ? B.people[id].name + " (you)" : "you") : ((B.people[id] && B.people[id].name) || "someone");
