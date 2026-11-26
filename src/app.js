@@ -129,7 +129,8 @@ function leavePage() { closeForms(); showSettings = null; openTask = null; openN
 addEventListener("hashchange", () => {
   prevHash = curHash; curHash = location.hash;
   if (routeKey(prevHash) !== routeKey(curHash)) leavePage();
-  show(); scrollTo(0, 0);
+  navRender = true; try { show() } finally { navRender = false }
+  scrollTo(0, 0);
 });
 // Escape closes whatever is open on the page
 document.addEventListener("keydown", e => {
@@ -261,11 +262,13 @@ let cacheT = null;
 function saveCache() {
   if (!me || !live) return;
   clearTimeout(cacheT);
-  cacheT = setTimeout(() => {
+  // written when the phone is idle, so it never holds up a tap or scrolling
+  const idle = window.requestIdleCallback ? f => requestIdleCallback(f, { timeout: 4000 }) : f => setTimeout(f, 0);
+  cacheT = setTimeout(() => idle(() => {
     const data = { me, isAdmin, myProfile, ideas, people, focusId, activeMap, personal, chat: chat.slice(-40) };
     try { localStorage.setItem(CACHE, JSON.stringify(data)) }
     catch { try { data.chat = []; localStorage.setItem(CACHE, JSON.stringify(data)) } catch { } }
-  }, 1000);
+  }), 1500);
 }
 function clearCache() { try { localStorage.removeItem(CACHE) } catch { } }
 function loadCache() {
@@ -312,8 +315,19 @@ function tasksOf(p) {
 const progressOf = list => { const d = list.filter(t => t.done).length; return { total: list.length, done: d, pct: pctOf(d, list.length) } };
 // The team is only team members: anyone who is a partner or a client never counts, even if they have a profile
 // (for example from signing in once before they were added as a partner).
-const outsiderEmails = () => new Set([...pMembers.map(m => (m.id || m.email || "").toLowerCase()), ...cProjects.flatMap(c => [...(c.clients || []), ...(c.partners || [])].map(e => String(e).toLowerCase()))]);
-const isTeamUid = u => { if (u === me && !partnerMode && !clientMode) return true; const e = ((people[u] || {}).email || "").toLowerCase(); return !pMembers.some(m => m.uid === u) && !(e && outsiderEmails().has(e)) };
+// Speed: these are asked thousands of times per redraw, so each answer is kept until the people, partner or
+// client lists change (each database update brings new lists, so a changed list is a new object).
+let teamMemo = { deps: [], outsiders: null, uids: new Map() };
+const teamDeps = () => [people, pMembers, cProjects, me, partnerMode, clientMode];
+const sameDeps = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const teamMemoNow = () => { const d = teamDeps(); if (!sameDeps(d, teamMemo.deps)) teamMemo = { deps: d, outsiders: null, uids: new Map() }; return teamMemo };
+const outsiderEmails = () => { const tm = teamMemoNow(); return tm.outsiders || (tm.outsiders = new Set([...pMembers.map(m => (m.id || m.email || "").toLowerCase()), ...cProjects.flatMap(c => [...(c.clients || []), ...(c.partners || [])].map(e => String(e).toLowerCase()))])) };
+const isTeamUid = u => {
+  if (u === me && !partnerMode && !clientMode) return true;
+  const tm = teamMemoNow(); let v = tm.uids.get(u);
+  if (v === undefined) { const e = ((people[u] || {}).email || "").toLowerCase(); v = !pMembers.some(m => m.uid === u) && !(e && outsiderEmails().has(e)); tm.uids.set(u, v) }
+  return v;
+};
 const teamIds = () => Object.keys(people).filter(isTeamUid).sort((a, b) => a === me ? -1 : b === me ? 1 : name(a).localeCompare(name(b)));
 const topSkills = id => { const s = (people[id] || {}).skills; if (!s) return []; return SKILL_IDS.slice().sort((a, b) => (s[b] || 0) - (s[a] || 0)).slice(0, 2) };
 
@@ -1788,7 +1802,11 @@ const sizeState = (p, t) => {
   const agreed = agree.size * 2 > n || (quiet && asks.length * 2 < n);
   return { team, n, agree, asks, agreed, disputed: !agreed && asks.length * 2 >= n, quiet, mine: t.sizeBy === me ? "ok" : votes[me] || null, canVote: inTeam(p) && team.includes(me) && t.sizeBy !== me };
 };
-const needsMySize = (p, t) => { const st = sizeState(p, t); return !!st && !t.done && st.canVote && !st.mine && !st.agreed };
+const needsMySize = (p, t) => {
+  // quick no first: this runs for every task on every redraw
+  if (t.done || !t.size || t.sizeBy === me || (t.sizeVotes && t.sizeVotes[me]) || Date.now() - (t.sizeAt || 0) > 864e5) return false;
+  const st = sizeState(p, t); return !!st && st.canVote && !st.mine && !st.agreed;
+};
 const byPointsDeal = p => !!(p && p.money && p.money.split === "points");
 const ptsText = n => `${n} pt${n === 1 ? "" : "s"}`;
 // The size on a task row: "L · 8 pts", and whether the team agreed
@@ -2122,12 +2140,17 @@ const plannerIds = p => [...new Set([p.author, ...Object.entries(p.planners || {
    Someone who isn't on the team can look at everything and leave notes on tasks, but can't change the work.
    Projects from before teams existed count everyone who had a task there, until a planner opens it once (teamV). */
 const isProj = p => !!p && (p.status === "approved" || p.status === "completed");
+const projTeamMemo = new WeakMap();   // one answer per version of the project and of the people lists
 const projTeam = p => {
   if (!p) return [];
+  const d = teamDeps(), c = typeof p === "object" ? projTeamMemo.get(p) : null;
+  if (c && sameDeps(c.d, d)) return c.r.slice();
   const set = new Set(Object.entries(p.members || {}).filter(([, v]) => v).map(([u]) => u));
   for (const u of plannerIds(p)) set.add(u);
   if (!p.teamV) for (const t of tasksOf(p)) assignees(t).forEach(u => set.add(u));
-  return [...set].filter(u => !people[u] || isTeamUid(u));
+  const r = [...set].filter(u => !people[u] || isTeamUid(u));
+  if (typeof p === "object") projTeamMemo.set(p, { d, r });
+  return r.slice();
 };
 const inTeam = (p, u = me) => !isProj(p) || (u === me && isAdmin) || projTeam(p).includes(u);
 const joinReqsOf = p => Object.entries((p && p.joinReqs) || {}).filter(([, v]) => v).map(([u, v]) => ({ u, ...v })).sort((a, b) => (a.at || 0) - (b.at || 0));
@@ -3627,22 +3650,53 @@ async function uploadFile(p, onProgress, extra = {}) {
   if (p.thumb) { file.thumb = p.thumb; file.w = p.w; file.h = p.h }
   return file;
 }
-const fileCache = {};
+const fileCache = {}, fileBlobs = {};
 function loadFile(f) {
   if (!fileCache[f.id]) fileCache[f.id] = (async () => {
     await fbReady;
     const snaps = await Promise.all(Array.from({ length: f.parts }, (_, n) => getDoc(doc(db, "fileparts", `${f.id}_${n}`))));
     if (snaps.some(s => !s.exists())) throw new Error("missing");
-    return URL.createObjectURL(new Blob(snaps.map(s => s.data().data.toUint8Array()), { type: f.type }));
+    const blob = fileBlobs[f.id] = new Blob(snaps.map(s => s.data().data.toUint8Array()), { type: f.type || "application/octet-stream" });
+    return URL.createObjectURL(blob);
   })().catch(e => { delete fileCache[f.id]; throw e });
   return fileCache[f.id];
 }
+/* Saving a file to the device.
+   iPhones and iPads ignore a download link made by the page (above all in the installed app), so there the file goes
+   to the phone's share sheet, which has "Save Image" / "Save Video" / "Save to Files". The share sheet only opens
+   straight from a tap, so when the file still had to be fetched first, a "Save" button asks for one more tap.
+   Other phones and computers download it the usual way. */
+const isAppleTouch = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+function saveByLink(f, url) {
+  const a = el("a", { href: url, download: f.name || "file", rel: "noopener", style: "display:none" });
+  document.body.append(a); a.click(); setTimeout(() => a.remove(), 4000);
+}
+function toastAction(msg, label, fn, ms = 12000) {
+  const t = $("#toast");
+  t.replaceChildren(el("span", {}, msg), el("button", { class: "btn small primary", onclick: () => { t.hidden = true; fn() } }, label));
+  t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true }, ms);
+}
 async function downloadFile(f) {
+  let url = null; const waited = !fileBlobs[f.id];
   try {
-    toast("Downloading\u2026");
-    const url = await loadFile(f);
-    const a = el("a", { href: url, download: f.name }); document.body.append(a); a.click(); a.remove();
-  } catch { toast("That file couldn't be loaded. It may have been deleted.") }
+    if (waited) toast("Getting the file\u2026", 20000);
+    url = await loadFile(f);
+  } catch { toast("That file couldn't be loaded. It may have been deleted."); return }
+  const blob = fileBlobs[f.id];
+  if (isAppleTouch() && navigator.share && navigator.canShare) {
+    const file = new File([blob], f.name || "file", { type: blob.type });
+    if (navigator.canShare({ files: [file] })) {
+      const share = () => navigator.share({ files: [file] }).catch(e => { if (e && e.name !== "AbortError") toast("Couldn't open the save options. Try again.") });
+      if (waited) toastAction(isPic(f) ? "The photo is ready." : "The file is ready.", "Save", share);
+      else { $("#toast").hidden = true; share() }
+      return;
+    }
+    // too old for the share sheet: open it in a new tab, so it can be saved from there
+    if (!window.open(url, "_blank")) saveByLink(f, url);
+    return;
+  }
+  saveByLink(f, url);
+  toast(isPic(f) ? "Photo saved to your downloads" : "Saved to your downloads");
 }
 function deleteMessage(m) {
   const jobs = [deleteDoc(msgRef(m.id))];
@@ -4159,8 +4213,10 @@ function buildAlerts() {
   for (const p of ideas) { const l = p.status === "approved" && p.chat && p.chat.last; if (l && l.by !== me && Array.isArray(l.mentions) && (l.mentions.includes(me) || l.mentions.includes("all"))) add("pc:" + p.id + ":" + l.at, l.at, l.by, `${name(l.by)} mentioned you in ${p.title}: ${l.text || ""}`, "pc-" + p.id) }
   return out.sort((a, b) => b.at - a.at).slice(0, 50);
 }
+// Speed: moving between pages changes no data, so the alerts worked out on the last data change are reused then.
+let alertsCache = null, navRender = false;
 function renderAlerts() {
-  const list = buildAlerts(), seen = getAlertsSeen();
+  const list = navRender && alertsCache && alertsCache.day === todayStr() && alertsCache.me === me ? alertsCache.list : (alertsCache = { list: buildAlerts(), day: todayStr(), me }).list, seen = getAlertsSeen();
   const unread = list.filter(a => a.at > seen).length;
   const c = $("#c-alerts"); c.hidden = !unread; c.textContent = unread > 9 ? "9+" : unread;
   notifyDevice(list);
