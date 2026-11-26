@@ -4826,14 +4826,34 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && moreOpen) 
 
 const AI_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
 // Gemini models on the free Gemini Developer API, tried in this order; the site remembers which one worked last.
-const AI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
+// Flash-Lite first: it's the fastest and the free tier allows ~500 a day (Gemini 3.8 Flash only ~20). Gemini 2.5 Flash is
+// being retired (requests move to newer models from Dec 1, 2026), so it's no longer used.
+const AI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash-lite"];
 let asstOpen = false, asstBusy = false, asstMsgs = [], aiP = null, checkinDraft = null, asstStatus = "";
 
+// Since Nov 2, 2026 Google only answers AI requests that carry an App Check pass (reCAPTCHA Enterprise, invisible to
+// people). The site's public reCAPTCHA key is stored in the database at public/appcheck (the setup step puts it there)
+// and remembered on the device. App Check starts only when someone uses the AI, so it stays within the free checks.
+async function appCheckKey() {
+  try { const k = localStorage.getItem("acKey"); if (k) return k } catch { }
+  try {
+    await fbReady;
+    const s = await getDoc(doc(db, "public", "appcheck")), k = s.exists() ? String((s.data() || {}).siteKey || "") : "";
+    if (k) try { localStorage.setItem("acKey", k) } catch { }
+    return k;
+  } catch { return "" }
+}
 function loadAI() {
   if (!aiP) aiP = (async () => {
-    const [appM, aiM] = await Promise.all([import(AI_SDK + "firebase-app.js"), import(AI_SDK + "firebase-ai.js")]);
+    const [appM, aiM, acM, key] = await Promise.all([import(AI_SDK + "firebase-app.js"), import(AI_SDK + "firebase-ai.js"), import(AI_SDK + "firebase-app-check.js"), appCheckKey()]);
     const app = appM.getApps().find(a => a.name === "assistant") || appM.initializeApp(firebaseConfig, "assistant");
-    return { aiM, ai: aiM.getAI(app, { backend: new aiM.GoogleAIBackend() }) };
+    if (key) {
+      try {
+        const ac = acM.initializeAppCheck(app, { provider: new acM.ReCaptchaEnterpriseProvider(key), isTokenAutoRefreshEnabled: false });
+        acM.getToken(ac).catch(() => { });   // get the pass now, so the first message doesn't wait for it
+      } catch { }
+    }
+    return { aiM, ai: aiM.getAI(app, { backend: new aiM.GoogleAIBackend() }), appCheck: !!key };
   })().catch(e => { aiP = null; throw e });
   return aiP;
 }
@@ -4881,6 +4901,8 @@ function aiErrorRaw(e) {
 }
 function aiErrorKind(e) {
   const t = aiErrorRaw(e), status = e && e.customErrorData && e.customErrorData.status;
+  if (/app.?check|appcheck|UNAUTHENTICATED|\b401\b|recaptcha/i.test(t) || status === 401) { try { localStorage.removeItem("acKey") } catch { } return "appcheck" }
+  if (/thinking/i.test(t) && (status === 400 || /\b400\b|INVALID_ARGUMENT/i.test(t))) return "thinking";
   if (/api-not-enabled|SERVICE_DISABLED|has not been used|API_KEY_SERVICE_BLOCKED|is disabled|not been enabled|enable the/i.test(t) || status === 403) return "off";
   if (status === 404 || /\b404\b|not found for API version|is not found|not supported for generateContent|no longer available/i.test(t)) return "model";
   if (status === 429 || /RESOURCE_EXHAUSTED|\b429\b|quota exceeded|exceeded your current quota|Too Many Requests/i.test(t)) return "busy";
@@ -4891,6 +4913,7 @@ function aiErrorKind(e) {
 }
 function aiErrorText(e) {
   const k = aiErrorKind(e);
+  if (k === "appcheck") return isAdmin ? "Google now needs a one-time security setup (App Check) before the AI can answer. Run the Cloud Shell step from Claude once, then try again." : `The AI needs a one-time security setup. Ask ${ADMIN_NAME} to finish it.`;
   if (k === "off") return isAdmin ? "The assistant isn't switched on yet. In Firebase, open AI Logic and turn on the Gemini Developer API." : `The assistant isn't switched on yet. Ask ${ADMIN_NAME} to turn it on.`;
   if (k === "busy") return "The free Gemini limit was reached for now. Try again in a minute (daily limits reset overnight).";
   if (k === "overloaded") return "Google's AI is very busy right now. Tap Try again in a minute.";

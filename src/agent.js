@@ -7,7 +7,7 @@
    The brain is free Gemini for now; agentBrain() is the one place to switch it to Claude later. */
 
 let agPrivate = [], agShared = {}, agSharedErr = "", agMsgs = [], agMsgKey = "", agMsgStop = null, agUnsubs = [], agWatchKey = "";
-let agBusy = false, agStream = "", agNew = null, agMemOpen = false, agMemEdit = null, agDelAsk = false, agCallAgent = false;
+let agBusy = false, agStream = "", agErr = null, agNew = null, agMemOpen = false, agMemEdit = null, agDelAsk = false, agCallAgent = true;
 const agUndo = new Map();   // message id + action index -> how to undo it (only during this visit)
 const AG_IC = { spark: '<path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/>', team: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.2a3.2 3.2 0 0 1 0 6M21 20a6 6 0 0 0-4-5.6"/>' };
 
@@ -92,28 +92,46 @@ function agPartialReply(s) {
   }
   return out;
 }
-async function agentBrain(system, prompt, onReply) {
+// Which models: Flash-Lite answers almost every message (fastest, ~500 free a day each); the bigger Flash model is kept
+// for real planning (only ~20 free a day), and falls back to Flash-Lite the moment it's busy or used up.
+const AG_FAST = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"];
+const AG_SMART = ["gemini-3.8-flash"];
+const agWantsSmart = (text, c) => !c.pid || /\bplan|break (it )?down|organi[sz]e|roadmap|schedule|launch|new project|assign (all|every)|خط[ةه]|نظ[ّ]?م|قس[ّ]?م|مشروع جديد|5[a6]a?t?a|5e6a/i.test(text);
+// how much "thinking" before answering: as little as each model allows, for speed (a model that refuses gets none)
+function agThinking(m) {
+  if (/^gemini-2\.5-flash-lite/.test(m)) return { thinkingBudget: 0 };
+  if (/flash-lite/.test(m)) return { thinkingLevel: "MINIMAL" };
+  if (/^gemini-3/.test(m)) return { thinkingLevel: "LOW" };
+  return null;
+}
+let agWarm = false;
+// open the AI connection (and get the App Check pass) as soon as the Agent page opens, so the first answer starts fast
+function agWarmUp() { if (agWarm) return; agWarm = true; loadAI().catch(() => { agWarm = false }) }
+async function agentBrain(system, prompt, onReply, smart) {
   if (AGENT_BRAIN !== "gemini") throw new Error("brain not set up");
   const { aiM, ai } = await loadAI();
   const schema = agSchema(aiM);
-  let good = ""; try { good = localStorage.getItem("aiModel") || "" } catch { }
-  const order = [...new Set([good, ...AI_MODELS].filter(m => AI_MODELS.includes(m)))];
-  let last;
-  for (let round = 0; round < 2; round++) {
-    if (round) await new Promise(r => setTimeout(r, 1500));
-    for (const m of order) {
-      try {
-        const model = aiM.getGenerativeModel(ai, { model: m, systemInstruction: system, generationConfig: { temperature: 0.35, maxOutputTokens: 4096, responseMimeType: "application/json", responseSchema: schema } });
-        const res = await model.generateContentStream(prompt);
-        let full = "";
-        for await (const chunk of res.stream) { const part = chunk.text(); if (part) { full += part; if (onReply) onReply(agPartialReply(full)) } }
-        try { localStorage.setItem("aiModel", m) } catch { }
-        try { return JSON.parse(full.replace(/^```(?:json)?|```$/g, "").trim()) } catch { return { reply: agPartialReply(full) || full, actions: [] } }
-      } catch (e) {
-        last = e; const k = aiErrorKind(e);
-        if (k !== "model" && k !== "busy" && k !== "overloaded") throw e;
-        if (k === "model" && good === m) try { localStorage.removeItem("aiModel") } catch { }
-      }
+  let good = ""; try { good = localStorage.getItem("agentModel") || "" } catch { }
+  const order = [...new Set([...(smart ? AG_SMART : []), ...(AG_FAST.includes(good) ? [good] : []), ...AG_FAST])];
+  let last, noThink = {};
+  for (let i = 0; i < order.length; i++) {
+    const m = order[i];
+    try {
+      const generationConfig = { temperature: 0.3, maxOutputTokens: 2048, responseMimeType: "application/json", responseSchema: schema };
+      const th = !noThink[m] && agThinking(m);
+      if (th) { if (th.thinkingLevel && aiM.ThinkingLevel && aiM.ThinkingLevel[th.thinkingLevel]) th.thinkingLevel = aiM.ThinkingLevel[th.thinkingLevel]; generationConfig.thinkingConfig = th }
+      const model = aiM.getGenerativeModel(ai, { model: m, systemInstruction: system, generationConfig });
+      const res = await model.generateContentStream(prompt);
+      let full = "";
+      for await (const chunk of res.stream) { let part = ""; try { part = chunk.text() } catch { } if (part) { full += part; if (onReply) onReply(agPartialReply(full)) } }
+      if (AG_FAST.includes(m)) try { localStorage.setItem("agentModel", m) } catch { }
+      if (!full.trim()) throw Object.assign(new Error("empty answer"), { agEmpty: true });
+      try { return JSON.parse(full.replace(/^\s*```(?:json)?|```\s*$/g, "").trim()) } catch { return { reply: agPartialReply(full) || full, actions: [] } }
+    } catch (e) {
+      last = e; const k = e && e.agEmpty ? "overloaded" : aiErrorKind(e);
+      if (k === "thinking" && !noThink[m]) { noThink[m] = true; i--; continue }   // try the same model again without the thinking setting
+      if (k !== "model" && k !== "busy" && k !== "overloaded") throw e;
+      if (good === m) try { localStorage.removeItem("agentModel") } catch { }
     }
   }
   throw last;
@@ -156,19 +174,54 @@ function agLanguage(text) {
   if (l === "franco") return "Reply only in real Egyptian Franco.";
   return isFrancoArabic(text) ? "They wrote in Egyptian Franco: reply in real Egyptian Franco." : /[؀-ۿ]/.test(text) ? "They wrote in Arabic letters: reply in spoken Egyptian Arabic." : "Reply in their language and style.";
 }
-// the board as the agent sees it: everything except money
+// What the agent sees: short and focused (a smaller prompt answers faster). This chat's project in full, your own open
+// tasks, the team's strengths, and other projects by name only. Never money. Codes ([T4], [PRJ2]) are what actions use.
 function agBoard(p) {
-  const b = boardContext(p); const i = b.indexOf("\nMoney (EGP):");
-  return i >= 0 ? b.slice(0, i) : b;
+  const L = [], today = new Date(); asstRefs = {}; let n = 0;
+  const short = (s, len = 100) => String(s || "").replace(/\s+/g, " ").slice(0, len);
+  const pCode = proj => { for (const [k, v] of Object.entries(asstRefs)) if (v.pid === proj.id && !v.tid) return k; const k = "PRJ" + (++n); asstRefs[k] = { pid: proj.id }; return k };
+  const tCode = (t, pid) => { const k = "T" + (++n); asstRefs[k] = { pid, tid: t.id }; return k };
+  const who = t => assignees(t).map(u => realName(u) || "someone").join(", ") || "unassigned";
+  const state = t => t.done ? "done" : inCheck(t) ? "finished, waiting for a check" : t.status === "doing" ? "in progress" : "not started";
+  const tline = (proj, t, withProj) => `- [${tCode(t, proj.id)}] ${short(t.text)}${withProj ? ` [${proj.title}]` : ""} | ${who(t)} | ${state(t)}${t.due ? " | due " + t.due + (t.due < ymd(today) && !t.done ? " (LATE)" : "") : ""}${t.priority === "high" || t.priority === "urgent" ? " | high priority" : ""}${(() => { const w = waitInfo(proj, t); return w.open.length ? " | waiting for: " + w.open.map(d => short(d.text, 40)).join(", ") : "" })()}`;
+  L.push(`Today: ${ymd(today)} (${dtf({ weekday: "long" }).format(today)}). You're talking with ${realName(me) || "a team member"}${isAdmin ? " (the ADMIN: may change any project)" : ""}.`);
+  L.push("Team strengths: " + teamIds().map(u => { const s = topSkills(u).map(k => SKILLS[k].name).join(" + "); return realName(u) + (s ? ` (${s})` : "") }).join("; "));
+  if (p) {
+    const allowed = canModifyProject(p), tasks = tasksOf(p), phases = getPhases(p);
+    L.push(`\nTHIS CHAT'S PROJECT: [${pCode(p)}] "${p.title}" | ${p.status === "voting" ? "an idea in the team vote" : p.status === "completed" ? "completed" : isActive(p) ? "being built now" : isPaused(p) ? "paused" : "not started yet"} | ${prioOf(p).name} priority | ${allowed ? "you may change it" : "DENIED_NOT_RELATED: you may not change it"}`);
+    if (p.pitch) L.push("About: " + short(p.pitch, 400));
+    L.push(`Team: ${projTeam(p).map(u => realName(u)).join(", ") || "nobody yet"} | Planners: ${plannerIds(p).map(u => realName(u)).join(", ") || "none"}`);
+    const open = tasks.filter(t => !t.done), done = tasks.length - open.length;
+    L.push(`Tasks: ${open.length} open, ${done} done${phases.length ? "" : " | no plan yet"}`);
+    if (phases.length) phases.forEach(ph => {
+      const pts = open.filter(t => t.phase === ph.id).slice(0, 25);
+      L.push(`PHASE ${ph.name}${ph.due ? " (finish by " + ph.due + ")" : ""}${ph.paused ? " (paused)" : ""}: ${tasks.filter(t => t.phase === ph.id && t.done).length} done, ${tasks.filter(t => t.phase === ph.id && !t.done).length} open`);
+      pts.forEach(t => L.push(tline(p, t)));
+    });
+    else open.slice(0, 40).forEach(t => L.push(tline(p, t)));
+  }
+  const mine = myTasks().filter(x => !x.closed && !x.t.done && !x.personal && (!p || x.p.id !== p.id)).slice(0, 12);
+  if (mine.length) { L.push("\nYour open tasks in other projects:"); mine.forEach(x => L.push(tline(x.p, x.t, true))) }
+  const pers = myTasks().filter(x => x.personal && !x.t.done).slice(0, 8);
+  if (pers.length) { L.push("\nYour private to-dos:"); pers.forEach(x => { const k = "P" + (++n); asstRefs[k] = { personal: x.t.id }; L.push(`- [${k}] ${short(x.t.text)}${x.t.due ? " | due " + x.t.due : ""}`) }) }
+  const others = ideas.filter(i => (i.status === "approved" || i.status === "voting") && (!p || i.id !== p.id)).slice(0, 30);
+  if (others.length) L.push("\nOther projects and ideas: " + others.map(i => `[${pCode(i)}] ${i.title} (${i.status === "voting" ? "idea" : isActive(i) ? "building" : isPaused(i) ? "paused" : "project"}${canModifyProject(i) ? "" : ", DENIED_NOT_RELATED"})`).join("; "));
+  return L.join("\n");
 }
 
 /* ----- one turn: send what someone wrote, get the agent's answer, do the small things, hold the big ones ----- */
 async function agTurn(c, text) {
   if (agBusy) return;
-  agBusy = true; agStream = "…"; render();
+  agBusy = c.id; agStream = ""; agErr = null; render(); agScroll(true);
+  try { await agTurnInner(c, text) }
+  catch (e) { agErr = { chat: c.id, text: aiErrorText(e), retry: text } }
+  finally { agBusy = false; agStream = ""; render(); agScroll() }
+}
+async function agTurnInner(c, text) {
   const p = c.pid ? ideas.find(x => x.id === c.pid) : null;
   const who = realName(me) || "Team member";
-  const recent = agMsgs.slice(-16).map(m => m.by === "agent" ? `Agent: ${m.text}${(m.acts || []).length ? " (" + m.acts.map(a => `${a.label} [${a.state}]`).join("; ") + ")" : ""}` : `${realName(m.by) || "Someone"}: ${m.text}`).join("\n");
+  const clip = (s, n) => { s = String(s || ""); return s.length > n ? s.slice(0, n) + "…" : s };
+  const recent = agMsgs.filter(m => !String(m.id).startsWith("local-")).slice(-12).map(m => m.by === "agent" ? `Agent: ${clip(m.text, 500)}${(m.acts || []).length ? " (" + m.acts.map(a => `${a.label} [${a.state}]`).join("; ") + ")" : ""}` : `${realName(m.by) || "Someone"}: ${clip(m.text, 600)}`).join("\n");
   const prompt = [
     `THIS CHAT: ${c.shared ? `a SHARED chat of the "${p ? p.title : "project"}" team` : `a PRIVATE chat with ${who}`}${p ? ` about the project "${p.title}"` : " about planning something new (no project yet)"}. Chat name: ${c.title || "(none yet)"}.`,
     `BOARD DATA\n${agBoard(p)}`,
@@ -178,13 +231,10 @@ async function agTurn(c, text) {
     `LANGUAGE: ${agLanguage(text)}`,
     `NEW MESSAGE from ${who}:\n${text}`
   ].filter(Boolean).join("\n\n");
-  let out;
-  try {
-    out = await agentBrain(AGENT_RULES(), prompt, partial => { agStream = partial || "…"; const b = document.getElementById("ag-stream"); if (b) b.textContent = agStream; agScroll() });
-  } catch (e) {
-    agBusy = false; agStream = ""; render();
-    toast(aiErrorText(e), 6000); return;
-  }
+  const out = await agentBrain(AGENT_RULES(), prompt, partial => {
+    agStream = partial; const b = document.getElementById("ag-stream");
+    if (b && partial) { b.classList.remove("ag-typing"); b.textContent = partial; agScroll() }
+  }, agWantsSmart(text, c));
   const acts = [];
   for (const a of (out.actions || []).slice(0, 25)) { const r = agResolve(a, c, p); if (r) acts.push(r) }
   const mid = uid(), now = Date.now();
@@ -207,7 +257,6 @@ async function agTurn(c, text) {
       await setDoc(agMemRef(c.pid), { text: (old ? old + "\n" : "") + String(out.projectMemory).trim().slice(0, 800), at: now, by: me }, { merge: true });
     }
   } catch (e) { toast(e && e.code === "permission-denied" ? "The agent's answer couldn't be saved (the site's rules)" : "The agent's answer couldn't be saved. Check your connection", 5000) }
-  agBusy = false; agStream = ""; render();
 }
 
 /* ----- actions: turn what the agent asked for into something checked and ready ----- */
@@ -237,7 +286,7 @@ function agResolve(a, c, chatP) {
   if (type === "mytask") { if (!txt(a.text)) return null; return Object.assign(out, { text: txt(a.text).slice(0, 200), date: date(a.date), label: `Private to-do: ${txt(a.text).slice(0, 80)}` }) }
   if (type === "newproject") {
     if (!txt(a.title)) return null;
-    return Object.assign(out, { title: txt(a.title).slice(0, 80), category: txt(a.category), pitch: txt(a.pitch).slice(0, 600), tasks: agTasks(a.tasks, null), label: `Pitch a new project: ${txt(a.title).slice(0, 60)}`, detail: `${(a.tasks || []).length} tasks in its plan. The team votes on it` });
+    return Object.assign(out, { title: txt(a.title).slice(0, 80), category: txt(a.category), pitch: txt(a.pitch).slice(0, 600), tasks: agTasks(a.tasks, null), label: `Pitch a new project: ${txt(a.title).slice(0, 60)}`, detail: `${(a.tasks || []).length} ${(a.tasks || []).length === 1 ? "task" : "tasks"} in its plan. The team votes on it` });
   }
   if (!p) return null;
   Object.assign(out, { pid: p.id, ptitle: p.title });
@@ -263,7 +312,7 @@ function agResolve(a, c, chatP) {
       Object.assign(out, { text: txt(a.text).slice(0, 200), who: person(a.who, team), date: date(a.date), phase: txt(a.phase) });
       out.label = `New task in ${p.title}: ${out.text}`; out.detail = [out.who ? "For " + realName(out.who) : "", out.date ? "Due " + fmtDate(out.date) : ""].filter(Boolean).join(" · "); break;
     }
-    case "plan": out.tasks = agTasks(a.tasks, team); if (!out.tasks.length) return null; out.label = `Add a plan to ${p.title}`; out.detail = `${out.tasks.length} tasks${[...new Set(out.tasks.map(x => x.phase).filter(Boolean))].length ? " in " + [...new Set(out.tasks.map(x => x.phase).filter(Boolean))].join(", ") : ""}`; break;
+    case "plan": out.tasks = agTasks(a.tasks, team); if (!out.tasks.length) return null; out.label = `Add a plan to ${p.title}`; out.detail = `${out.tasks.length} ${out.tasks.length === 1 ? "task" : "tasks"}${[...new Set(out.tasks.map(x => x.phase).filter(Boolean))].length ? " in " + [...new Set(out.tasks.map(x => x.phase).filter(Boolean))].join(", ") : ""}`; break;
     case "deletetask": out.label = `Delete task: ${t.text}`; break;
     case "post": if (!txt(a.text)) return null; out.text = txt(a.text).slice(0, 1000); out.label = `Post in the ${p.title} chat`; out.detail = out.text; break;
     case "invite": { const u = person(a.who, teamIds()); if (!u) return null; if (projTeam(p).includes(u)) return null; out.who = u; out.label = `Invite ${realName(u)} to the ${p.title} team`; break }
@@ -367,7 +416,6 @@ async function agDecide(c, m, ok) {
     // a new project made from a chat with no project: the chat now belongs to it
     const np = acts.find(a => a.type === "newproject" && a.state === "done" && a.newPid);
     if (np && !c.pid && !c.shared) await setDoc(agChatRef(c), { pid: np.newPid }, { merge: true });
-    toast(ok ? "Done" : "Cancelled");
   } catch { toast("Couldn't save that. Try again", 4000) }
 }
 async function agUndoAct(c, m, i) {
@@ -379,8 +427,9 @@ async function agUndoAct(c, m, i) {
 /* ----- sending ----- */
 async function agSend(c) {
   const box = $("#ag-input"); const text = (box.value || "").trim(); if (!text || agBusy) return;
+  // in a shared chat the agent answers while "Agent on" is set (the default), or when someone writes @Agent
   const callAgent = !c.shared || agCallAgent || /@agent\b/i.test(text);
-  box.value = ""; agGrow(box); agCallAgent = false; agSyncComposer(c);
+  box.value = ""; agGrow(box); agSyncComposer(c);
   const now = Date.now();
   // show it straight away, before the database answers
   const mine = { id: "local-" + now, by: me, text, at: now };
@@ -414,15 +463,16 @@ function agSyncComposer(c) {
   const f = $("#ag-form"), i = $("#ag-input"), b = $("#ag-call");
   f.hidden = !c;
   if (!c) return;
-  i.placeholder = c.shared ? (agCallAgent ? "Ask the agent…" : "Message the team · write @Agent to ask the agent") : "Message the agent…";
-  b.hidden = !c.shared; b.setAttribute("aria-pressed", String(agCallAgent));
-  $("#ag-send").disabled = agBusy;
+  i.placeholder = c.shared ? (agCallAgent ? "Message the team and agent…" : "Message the team…") : "Message the agent…";
+  b.hidden = !c.shared; b.setAttribute("aria-pressed", String(agCallAgent)); b.textContent = agCallAgent ? "Agent on" : "Agent off";
+  b.title = agCallAgent ? "The agent answers your messages. Tap to talk to the team only" : "Only the team sees your messages. Tap to let the agent answer";
+  $("#ag-send").disabled = !!agBusy;
 }
 function agWhen(at) { if (!at) return ""; const d = new Date(at), today = new Date(); return d.toDateString() === today.toDateString() ? timeFmt.format(d) : dateFmt.format(d) }
 
 function renderAgent() {
   const box = $("#agent"); if (!box) return;
-  agWatch();
+  agWatch(); agWarmUp();
   const r = route(), c = agFind(r);
   if (r.cid && !c && (agPrivate.length || Object.keys(agShared).length)) { /* chat not loaded yet or deleted */ }
   agWatchMsgs(c);
@@ -489,7 +539,7 @@ function agNewCard() {
     el("div", { class: "seg seg-wide", role: "group", "aria-label": "Who's in it" },
       el("button", { "aria-pressed": String(!n.shared), onclick: () => { n.shared = false; render() } }, "Just me"),
       el("button", { "aria-pressed": String(n.shared), disabled: !canShare, title: canShare ? "" : "Pick a project to share a chat with its team", onclick: () => { n.shared = true; render() } }, "The project team")),
-    el("p", { class: "mut ag-hint" }, n.shared ? "Everyone on the team sees it. The agent answers when someone writes @Agent, and big changes wait for a planner's OK." : "Only you see it. The agent answers every message."),
+    el("p", { class: "mut ag-hint" }, n.shared ? "Everyone on the team sees it and can talk to the agent. Big changes wait for a planner's OK." : "Only you see it. The agent answers every message."),
     el("div", { class: "row" }, el("span", { class: "spacer" }), el("button", { class: "btn primary", onclick: () => agCreate(n) }, "Start chat")));
 }
 function agChatView(c) {
@@ -503,13 +553,19 @@ function agChatView(c) {
   if (agMemOpen) wrap.append(agMemoryPanel(c, p));
   if (agSharedErr === "rules" && c.shared) wrap.append(el("div", { class: "notice" }, agRulesText()));
   const log = el("div", { class: "ag-log", id: "ag-log", "aria-live": "polite" });
-  if (!agMsgs.length && !agBusy) log.append(el("div", { class: "ag-hello" },
+  const busyHere = agBusy === c.id;
+  if (!agMsgs.length && !busyHere) log.append(el("div", { class: "ag-hello" },
     el("b", {}, p ? `Let's work on ${p.title}` : "Let's plan something new"),
-    el("span", { class: "mut" }, c.shared ? "Talk with the team here. Write @Agent when you want the agent to answer." : "Ask anything about the project. The agent can add and move tasks, set dates and plan whole phases."),
+    el("span", { class: "mut" }, c.shared ? "The team and the agent, together. Turn the agent off at the bottom when you only want to talk to the team." : "Ask anything about the project. The agent can add and move tasks, set dates and plan whole phases."),
     el("div", { class: "ag-sugs" }, (p ? ["What should we do next?", "What's late or stuck?", "Plan the next phase", "Give the open tasks to the right people"] : ["I have a new client and want to plan the project", "Help me turn an idea into a plan"]).map(s =>
-      el("button", { class: "ag-sug", onclick: () => { const i = $("#ag-input"); i.value = (c.shared ? "@Agent " : "") + s; agSend(c) } }, s)))));
+      el("button", { class: "ag-sug", onclick: () => { const i = $("#ag-input"); i.value = (c.shared && !agCallAgent ? "@Agent " : "") + s; agSend(c) } }, s)))));
   for (const m of agMsgs) log.append(agBubble(c, m));
-  if (agBusy) log.append(el("div", { class: "ag-msg ag-ai" }, el("div", { class: "ag-b", id: "ag-stream" }, agStream || "…")));
+  if (busyHere) log.append(el("div", { class: "ag-msg ag-ai" }, el("span", { class: "ag-name" }, "Agent"),
+    agStream ? el("div", { class: "ag-b", id: "ag-stream" }, agStream) : el("div", { class: "ag-b ag-typing", id: "ag-stream", "aria-label": "The agent is writing" }, el("i"), el("i"), el("i"))));
+  if (!busyHere && agErr && agErr.chat === c.id) log.append(el("div", { class: "ag-msg ag-ai ag-err" }, el("span", { class: "ag-name" }, "Agent"),
+    el("div", { class: "ag-b" }, agErr.text),
+    el("div", { class: "row", style: "gap:8px" }, el("button", { class: "btn small primary", onclick: () => { const t = agErr.retry; agErr = null; agTurn(c, t) } }, "Try again"),
+      el("button", { class: "btn small quiet", onclick: () => { agErr = null; render() } }, "Dismiss"))));
   wrap.append(log);
   return wrap;
 }
