@@ -60,6 +60,11 @@ service cloud.firestore {
       allow update: if isTeam();
       allow delete: if isTeam() && (resource.data.by == request.auth.uid || isAdmin());
     }
+    // public settings anyone may read (the site's public reCAPTCHA key for App Check); only the setup step writes them
+    match /public/{d} {
+      allow read: if true;
+      allow write: if false;
+    }
     // the agent's shared chats for a project, and the project's agent memory (_memory). Private agent chats live
     // under private/{uid} with your notes. The page shows a project's shared chats only to its team.
     match /ideas/{pid}/agent/{cid} {
