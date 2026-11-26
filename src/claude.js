@@ -39,7 +39,7 @@ async function claudeAllow() {
     const user = auth && auth.currentUser, refresh = user && user.refreshToken;
     if (!refresh) throw new Error("Sign in to Pitch Room first, then tap Allow again");
     const old = (people[me] || {}).claude || {};
-    await setDoc(doc(db, "users", me), { claude: { v: old.v || Date.now(), at: Date.now(), admin: !!isAdmin } }, { merge: true });
+    await setDoc(doc(db, "users", me), { claude: { v: old.v || Date.now(), at: Date.now() } }, { merge: true });
     const r = await fetch(base + "/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ req: claudeReq, refresh }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.go) throw new Error(j.error || "The connector didn't answer. Try again in a minute");
@@ -118,7 +118,7 @@ function claudeSettings() {
         try { const j = await (await fetch(v + "/health", { cache: "no-store" })).json(); if (j.app !== "pitch-room-claude") { toast("That address answered, but it isn't the Claude connector", 5000); return } if (!j.ready) { toast("The connector has no secret key. Copy the code from step 3 again, paste it and Deploy", 6000); return } }
         catch { toast("Couldn't reach a connector at that address. Check it was deployed, and copy the address exactly", 5000); return }
       }
-      await write(() => setDoc(doc(db, "meta", "team"), { claudeUrl: v, updatedAt: Date.now(), updatedBy: me }, { merge: true }), v ? "Connector saved. Now connect your own Claude above" : "Connector removed");
+      await write(() => setDoc(doc(db, "meta", "team"), { claudeUrl: v, claudeAdmin: me, updatedAt: Date.now(), updatedBy: me }, { merge: true }), v ? "Connector saved. Now connect your own Claude above" : "Connector removed");
       claudeSrvState = ""; render();
     };
     const getCode = async () => { if (claudeCodeBusy) return; claudeCodeBusy = true; render();
