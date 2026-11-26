@@ -4676,7 +4676,7 @@ function upgradeRequestsCard() {
 
 /* ----- settings: a home page of grouped rows (like a phone's Settings app), each opening its own page ----- */
 let setQuery = "";
-const SET_PAGES = { feedback: "Bugs and ideas", guide: "How Pitch Room works", build: "Build Pitch Room", profile: "Profile", appearance: "Appearance", language: "Assistant language", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
+const SET_PAGES = { feedback: "Bugs and ideas", guide: "How Pitch Room works", build: "Build Pitch Room", profile: "Profile", appearance: "Appearance", language: "Assistant language", claude: "Claude", alerts: "Alerts", news: "What's new", access: "People and access", nicknames: "Nicknames", rules: "Database rules", backup: "Backup", install: "Install the app", help: "Help and fixes" };
 function setIcon(sym, color) { return el("span", { class: "seticon", style: `background:${color}` }, sym) }
 function renderSettings() {
   const box = $("#settings"); box.replaceChildren();
@@ -4702,6 +4702,7 @@ function renderSettings() {
       row("\u{1F3A8}", "#7C5CD6", "Appearance", themeName + (getMeteors() ? "" : " · still"), goto("appearance"), "theme dark light pine animation look"),
       row("\u{1F514}", "#E2574C", "Alerts", pushOn && perm === "granted" ? "On" : "Off", goto("alerts"), "notifications push sound phone"),
       row("\u{1F310}", "#2F80ED", "Assistant language", (ASST_LANGS.find(l => l[0] === asstLang()) || [])[1], goto("language"), "assistant ai english arabic franco language"),
+      row("✳", "#0D5E63", "Claude", claudeOn() ? "Connected" : "Connect", goto("claude"), "claude ai connector mcp link account phone app"),
       row("✦", "#0D5E63", "What's new", (prof.newsOff ? "Off" : "On"), goto("news"), "updates news post")),
     group("Team",
       isAdmin ? row("\u{1F465}", "#2F80ED", "People and access", `${teamN} team · ${partners} partners`, goto("access"), "add member partner client email invite remove") : null,
@@ -4757,6 +4758,7 @@ function settingsPage(box, sub, prof) {
   if (sub === "language") box.append(card(item("The assistant answers in", "Saved to your account, so every device matches. It understands English, Arabic and Franco whichever you pick."),
     el("div", { class: "langlist" }, ASST_LANGS.map(([v, l, d]) => el("button", { class: "langopt", "aria-pressed": String(asstLang() === v), onclick: () => setAsstLang(v) }, el("b", {}, l), el("span", { class: "label", style: "text-transform:none;letter-spacing:0" }, d))))));
   if (sub === "alerts") box.append(pushSettings());
+  if (sub === "claude") box.append(claudeSettings());
   if (sub === "news") box.append(newsSettings());
   if (sub === "build") box.append(buildPage());
   if (sub === "access") box.append(isAdmin ? accessSection() : el("div", { class: "empty" }, `Only ${ADMIN_NAME} manages who can sign in.`));
